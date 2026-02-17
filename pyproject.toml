@@ -1,0 +1,41 @@
+[project]
+name = "bar-scheduler"
+version = "0.1.0"
+description = "Evidence-informed pull-up training planner to reach 30 strict pull-ups"
+readme = "README.md"
+requires-python = ">=3.14"
+license = {text = "MIT"}
+authors = [
+    {name = "Potapenko Bogdan"}
+]
+
+dependencies = [
+    "typer>=0.15.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.scripts]
+bar-scheduler = "bar_scheduler.cli.main:app"
+pullup30 = "bar_scheduler.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bar_scheduler"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
