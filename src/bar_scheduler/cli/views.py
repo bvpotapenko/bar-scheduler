@@ -71,16 +71,20 @@ def format_plan_table(plans: list[SessionPlan], weeks: int | None = None) -> Tab
 
     table = Table(title=title)
 
+    table.add_column("Wk", justify="right", style="dim")
     table.add_column("Date", style="cyan")
     table.add_column("Type", style="magenta")
     table.add_column("Grip", style="green")
     table.add_column("Sets (reps@kg x sets)", style="bold")
-    table.add_column("Rest(s)", justify="right")
+    table.add_column("Rest", justify="right")
+    table.add_column("Total", justify="right", style="yellow")
+    table.add_column("TM", justify="right", style="bold green")
 
     for plan in plans:
         if not plan.sets:
             sets_str = "(no sets)"
             rest_str = "-"
+            total_str = "0"
         else:
             # Format sets
             reps_list = [s.target_reps for s in plan.sets]
@@ -95,13 +99,17 @@ def format_plan_table(plans: list[SessionPlan], weeks: int | None = None) -> Tab
                 sets_str = f"({reps_str})@+{weight:.1f}"
 
             rest_str = str(rest)
+            total_str = str(plan.total_reps)
 
         table.add_row(
+            str(plan.week_number),
             plan.date,
             plan.session_type,
             plan.grip,
             sets_str,
             rest_str,
+            total_str,
+            str(plan.expected_tm),
         )
 
     return table

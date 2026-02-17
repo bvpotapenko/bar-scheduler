@@ -139,10 +139,17 @@ class SessionPlan:
     grip: Grip
     session_type: SessionType
     sets: list[PlannedSet] = field(default_factory=list)
+    expected_tm: int = 0  # Expected training max after completing this session
+    week_number: int = 1  # Week number in the plan (1-indexed)
 
     def __post_init__(self) -> None:
         """Validate session plan data."""
         SessionResult._validate_date(self.date)
+
+    @property
+    def total_reps(self) -> int:
+        """Sum of target reps for all sets in this session."""
+        return sum(s.target_reps for s in self.sets)
 
         if self.grip not in ("pronated", "supinated", "neutral"):
             raise ValueError(f"Invalid grip: {self.grip}")

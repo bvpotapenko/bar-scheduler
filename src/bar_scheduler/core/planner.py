@@ -264,7 +264,7 @@ def generate_plan(
     baseline_max: int | None = None,
 ) -> list[SessionPlan]:
     """
-    Generate a deterministic training plan.
+    Generate a deterministic training plan with progressive overload.
 
     Args:
         user_state: Current user state with profile and history
@@ -300,15 +300,18 @@ def generate_plan(
         baseline_max,
     )
 
-    # Determine training max
+    # Determine initial training max
     tm = status.training_max
     if tm <= 1 and baseline_max is not None:
         tm = training_max_from_baseline(baseline_max)
 
+    # Track TM as float for fractional progression
+    tm_float = float(tm)
+    target = user_state.profile.target_max_reps
+
     # Determine plan length
     if weeks_ahead is None:
         # Estimate based on progression
-        target = user_state.profile.target_max_reps
         estimated = estimate_weeks_to_target(tm, target)
         weeks_ahead = max(MIN_PLAN_WEEKS, min(DEFAULT_PLAN_WEEKS, estimated))
     else:
@@ -322,29 +325,53 @@ def generate_plan(
         weeks_ahead,
     )
 
-    # Generate sessions
+    # Generate sessions with progressive TM
     plans: list[SessionPlan] = []
     ff_state = status.fitness_fatigue_state
+    current_week = 0
+    sessions_in_week = 0
+    sessions_per_week = user_state.profile.preferred_days_per_week
 
     for date, session_type in session_dates:
         date_str = date.strftime("%Y-%m-%d")
 
+        # Track week transitions and apply progression
+        sessions_in_week += 1
+        if sessions_in_week > sessions_per_week:
+            sessions_in_week = 1
+            current_week += 1
+            # Apply weekly progression to TM
+            progression = expected_reps_per_week(int(tm_float))
+            tm_float = min(tm_float + progression, float(target))
+
+        # Use integer TM for prescriptions
+        current_tm = int(tm_float)
+
         # Select grip
         grip = select_grip(session_type, history)  # type: ignore
 
-        # Calculate sets
+        # Calculate sets based on current TM
         sets = calculate_set_prescription(
             session_type,  # type: ignore
-            tm,
+            current_tm,
             ff_state,
             user_state.current_bodyweight_kg,
         )
+
+        # Calculate expected TM after this session (assuming completion)
+        # TM increases gradually within the week too
+        sessions_done_in_week = sessions_in_week
+        week_fraction = sessions_done_in_week / sessions_per_week
+        week_progression = expected_reps_per_week(current_tm)
+        expected_tm_after = int(min(tm_float + week_progression * week_fraction, float(target)))
 
         plan = SessionPlan(
             date=date_str,
             grip=grip,
             session_type=session_type,  # type: ignore
             sets=sets,
+            expected_tm=expected_tm_after,
+            week_number=current_week + 1,
         )
         plans.append(plan)
 

@@ -69,11 +69,15 @@ def init(
         Optional[int],
         typer.Option("--baseline-max", "-b", help="Baseline max reps (optional)"),
     ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Force overwrite without prompting"),
+    ] = False,
 ) -> None:
     """
     Initialize user profile and history file.
 
-    Creates the history file and profile if they don't exist.
+    If history exists, offers to keep it (merge) or rename it as backup.
     """
     store = get_store(history_path)
 
@@ -90,6 +94,39 @@ def init(
         views.print_error("Bodyweight must be positive")
         raise typer.Exit(1)
 
+    # Check for existing history
+    existing_sessions = 0
+    if store.exists():
+        try:
+            existing = store.load_history()
+            existing_sessions = len(existing)
+        except Exception:
+            existing_sessions = 0
+
+        if existing_sessions > 0 and not force:
+            views.print_warning(f"Found existing history with {existing_sessions} sessions.")
+            views.console.print("\nOptions:")
+            views.console.print("  [1] Keep existing history (update profile only)")
+            views.console.print("  [2] Backup existing as 'history_old.jsonl' and start fresh")
+            views.console.print("  [3] Cancel")
+
+            choice = views.console.input("\nChoice [1/2/3]: ").strip()
+
+            if choice == "3" or choice == "":
+                views.print_info("Cancelled.")
+                raise typer.Exit(0)
+            elif choice == "2":
+                # Backup existing history
+                backup_path = store.history_path.parent / "history_old.jsonl"
+                counter = 1
+                while backup_path.exists():
+                    backup_path = store.history_path.parent / f"history_old_{counter}.jsonl"
+                    counter += 1
+                store.history_path.rename(backup_path)
+                views.print_success(f"Backed up existing history to {backup_path}")
+                existing_sessions = 0
+            # choice == "1" means keep existing, just update profile
+
     # Create profile
     profile = UserProfile(
         height_cm=height_cm,
@@ -98,12 +135,16 @@ def init(
         target_max_reps=target_max,
     )
 
-    # Initialize store
+    # Initialize store (creates file if not exists)
     store.init()
     store.save_profile(profile, bodyweight_kg)
 
-    views.print_success(f"Initialized profile at {store.profile_path}")
-    views.print_success(f"History file: {store.history_path}")
+    if existing_sessions > 0:
+        views.print_success(f"Updated profile at {store.profile_path}")
+        views.print_info(f"Kept existing history with {existing_sessions} sessions")
+    else:
+        views.print_success(f"Initialized profile at {store.profile_path}")
+        views.print_success(f"History file: {store.history_path}")
 
     if baseline_max is not None:
         # Log a baseline test session
