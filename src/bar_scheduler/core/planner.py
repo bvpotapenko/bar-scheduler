@@ -109,6 +109,7 @@ def calculate_set_prescription(
     training_max: int,
     ff_state,
     bodyweight_kg: float,
+    history_sessions: int = 0,
 ) -> list[PlannedSet]:
     """
     Calculate set prescription for a session.
@@ -118,6 +119,7 @@ def calculate_set_prescription(
         training_max: Current training max
         ff_state: Fitness-fatigue state for autoregulation
         bodyweight_kg: Current bodyweight
+        history_sessions: Number of sessions in history (for autoregulation gating)
 
     Returns:
         List of PlannedSet
@@ -133,8 +135,12 @@ def calculate_set_prescription(
     # Calculate number of sets (middle of range)
     base_sets = (params.sets_min + params.sets_max) // 2
 
-    # Apply autoregulation
-    adj_sets, adj_reps = apply_autoregulation(base_sets, target_reps, ff_state)
+    # Apply autoregulation only when we have enough history (3+ sessions)
+    # to properly calibrate the fitness-fatigue model
+    if history_sessions >= 3:
+        adj_sets, adj_reps = apply_autoregulation(base_sets, target_reps, ff_state)
+    else:
+        adj_sets, adj_reps = base_sets, target_reps
 
     # Calculate rest (middle of range)
     rest = (params.rest_min + params.rest_max) // 2
@@ -356,6 +362,7 @@ def generate_plan(
             current_tm,
             ff_state,
             user_state.current_bodyweight_kg,
+            history_sessions=len(history),
         )
 
         # Calculate expected TM after this session (assuming completion)

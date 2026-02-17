@@ -322,6 +322,9 @@ def build_fitness_fatigue_state(
         return FitnessFatigueState(
             m_hat=float(baseline_max) if baseline_max else 10.0,
             sigma_m=INITIAL_SIGMA_M,
+            # Start with neutral readiness (no penalty for new users)
+            readiness_mean=0.0,
+            readiness_var=1.0,  # Unit variance to prevent extreme z-scores
         )
 
     # Initialize from first test session or baseline
@@ -336,6 +339,9 @@ def build_fitness_fatigue_state(
     state = FitnessFatigueState(
         m_hat=float(initial_max),
         sigma_m=INITIAL_SIGMA_M,
+        # Start with neutral readiness (no penalty for new users)
+        readiness_mean=0.0,
+        readiness_var=1.0,  # Unit variance to prevent extreme z-scores
     )
 
     # Process history

@@ -24,12 +24,12 @@ uv sync --extra dev
 # Initialize profile with baseline max
 bar-scheduler init --bodyweight-kg 82 --baseline-max 10
 
-# View training plan
-bar-scheduler plan
+# View training plan (10 weeks with progressive overload)
+bar-scheduler plan -w 10
 
-# Log a session
+# Log a session (rest optional for last set)
 bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \
-    --grip pronated --session-type S --sets "5@0/180,5@0/180,4@0/180"
+    --grip pronated --session-type S --sets "5@0/180, 5@0/180, 4@0"
 
 # View history
 bar-scheduler show-history
@@ -42,8 +42,8 @@ bar-scheduler plot-max
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize profile and history file |
-| `plan` | Generate training plan |
+| `init` | Initialize profile and history file (preserves existing history) |
+| `plan` | Generate training plan with progressive TM |
 | `log-session` | Log a completed session |
 | `show-history` | Display training history |
 | `plot-max` | ASCII chart of max reps progress |
@@ -61,7 +61,7 @@ reps@+weight/rest,reps@+weight/rest,...
 Examples:
 - `8@0/180` - 8 reps, bodyweight, 180s rest
 - `5@+10/240` - 5 reps with +10kg, 240s rest
-- `8@0/180,6@0/120,5@0/120` - three sets
+- `8@0/180,6@0/120,5@0` - three sets (rest optional for last set)
 
 ## Example Output
 
@@ -77,20 +77,31 @@ Date        Type  Grip      BW(kg)  Max(BW)  Total reps  Avg rest(s)
 
 ### plan
 
+Plan shows recent history, current position, and upcoming sessions with `>` marker:
+
 ```
+Recent History
+Date        Type  Grip      Sets  Total  Max
+2026-02-01  TEST  pronated     1     10   10
+2026-02-04  S     pronated     4     20    5
+
 Current status
 - Training max (TM): 9
 - Latest test max: 10
-- Trend (reps/week): +0.50
+- Trend (reps/week): +0.00
 - Plateau: no
 - Deload recommended: no
 
-Upcoming Plan (2 weeks)
-Date        Type  Grip      Sets (reps@kg x sets)    Rest(s)
-----------  ----  --------  -----------------------  -------
-2026-02-18  S     pronated  4x(4@+0.0)               240
-2026-02-20  H     neutral   5x(8@+0.0)               150
-2026-02-22  E     pronated  (7,6,5,5,4,4)@+0.0       60
+Last session: 2026-02-04 (S)
+2 days since last session
+
+Upcoming Plan (4 weeks)
+    Wk  Date        Type  Grip      Sets (reps@kg x sets)   Rest  Total  TM
+--  --  ----------  ----  --------  ----------------------  ----  -----  --
+ >   1  2026-02-06  H     pronated  5x(6@+0.0)               120      30   9
+     1  2026-02-09  E     pronated  (4,3,3,3,3,3,3,3)@+0.0    60      28   9
+     ...
+     4  2026-03-03  S     pronated  4x(5@+2.5)               240      20  10
 ```
 
 ### plot-max
@@ -99,18 +110,12 @@ Date        Type  Grip      Sets (reps@kg x sets)    Rest(s)
 Max Reps Progress (Strict Pull-ups)
 ──────────────────────────────────────────────────────────────
  30 ┤
- 28 ┤
- 26 ┤
- 24 ┤
  22 ┤                                      ╭──● (23)
  20 ┤                                  ╭───╯
- 18 ┤                              ╭───╯
  16 ┤                      ╭──● (16)
- 14 ┤                  ╭───╯
  12 ┤          ╭──● (12)
  10 ┤      ╭───╯
   8 ● (8)──╯
-  6 ┤
 ──────────────────────────────────────────────────────────────
     Feb 01   Feb 15   Mar 01   Mar 15   Apr 01   Apr 15
 ```
@@ -133,8 +138,10 @@ uv run pytest
 
 ## Documentation
 
-- [Training Model](docs/training_model.md) - formulas and adaptation logic
+- [Training Model](docs/training_model.md) - formulas and adaptation logic (summary)
 - [CLI Examples](docs/cli_examples.md) - CLI usage examples
+- [Core Training Formulas](core_training_formulas_fatigue.md) - detailed mathematical model specification
+- [References](REFERENCES.md) - scientific sources and citations
 
 ## Project Structure
 
@@ -142,12 +149,14 @@ uv run pytest
 bar-scheduler/
 ├── pyproject.toml
 ├── README.md
+├── REFERENCES.md                    # Scientific citations
+├── core_training_formulas_fatigue.md # Detailed model spec
 ├── docs/
 │   ├── training_model.md
 │   └── cli_examples.md
 ├── src/bar_scheduler/
 │   ├── core/
-│   │   ├── config.py      # All constants
+│   │   ├── config.py      # All constants (tunable)
 │   │   ├── models.py      # Dataclasses
 │   │   ├── metrics.py     # Pure functions
 │   │   ├── physiology.py  # Fitness-fatigue model

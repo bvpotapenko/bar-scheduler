@@ -112,36 +112,36 @@ class SessionTypeParams:
 
 SESSION_PARAMS: Final[dict[str, SessionTypeParams]] = {
     "S": SessionTypeParams(  # Strength
-        reps_fraction_low=0.35,
-        reps_fraction_high=0.55,
-        reps_min=3,
+        reps_fraction_low=0.50,  # Increased from 0.35 for more challenge
+        reps_fraction_high=0.70,  # Increased from 0.55
+        reps_min=4,  # Increased from 3
         reps_max=6,
-        sets_min=3,
+        sets_min=4,  # Increased from 3 for adequate volume
         sets_max=5,
         rest_min=180,
         rest_max=300,
         rir_target=2,
     ),
     "H": SessionTypeParams(  # Hypertrophy
-        reps_fraction_low=0.55,
-        reps_fraction_high=0.75,
+        reps_fraction_low=0.60,  # Increased from 0.55
+        reps_fraction_high=0.85,  # Increased from 0.75
         reps_min=6,
         reps_max=12,
         sets_min=4,
         sets_max=6,
-        rest_min=120,
-        rest_max=180,
+        rest_min=90,  # Reduced from 120 for more challenge
+        rest_max=150,  # Reduced from 180
         rir_target=2,
     ),
     "E": SessionTypeParams(  # Endurance/Density
-        reps_fraction_low=0.35,
-        reps_fraction_high=0.55,
+        reps_fraction_low=0.40,  # Increased from 0.35
+        reps_fraction_high=0.60,  # Increased from 0.55
         reps_min=3,
         reps_max=8,
-        sets_min=5,
-        sets_max=8,
+        sets_min=6,  # Increased from 5
+        sets_max=10,  # Increased from 8
         rest_min=45,
-        rest_max=90,
+        rest_max=75,  # Reduced from 90
         rir_target=3,
     ),
     "T": SessionTypeParams(  # Technique

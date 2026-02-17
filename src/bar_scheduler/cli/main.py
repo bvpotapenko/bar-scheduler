@@ -17,12 +17,15 @@ from typing import Annotated, Optional
 import typer
 
 from ..core.adaptation import get_training_status
-from ..core.metrics import training_max_from_baseline
+from ..core.metrics import session_max_reps, training_max_from_baseline
 from ..core.models import SessionResult, SetResult, UserProfile
 from ..core.planner import generate_plan
 from ..io.history_store import HistoryStore, get_default_history_path
 from ..io.serializers import ValidationError, parse_sets_string
 from . import views
+
+# Overperformance: if max reps in session significantly exceeds training max
+OVERPERFORMANCE_REP_THRESHOLD = 2  # reps above TM to suggest TEST
 
 
 app = typer.Typer(
@@ -177,7 +180,7 @@ def init(
 def plan(
     start_date: Annotated[
         Optional[str],
-        typer.Option("--start-date", help="Start date (YYYY-MM-DD, default: tomorrow)"),
+        typer.Option("--start-date", help="Start date (YYYY-MM-DD, default: after last session)"),
     ] = None,
     weeks: Annotated[
         Optional[int],
@@ -191,11 +194,16 @@ def plan(
         Optional[int],
         typer.Option("--baseline-max", "-b", help="Baseline max reps (if no history)"),
     ] = None,
+    show_history: Annotated[
+        int,
+        typer.Option("--history", "-H", help="Show N recent sessions from history"),
+    ] = 5,
 ) -> None:
     """
     Generate and display a training plan.
 
-    Shows current status and upcoming sessions.
+    Shows current status, recent history, and upcoming sessions.
+    Highlights where you are now based on last logged session.
     """
     store = get_store(history_path)
 
@@ -214,9 +222,15 @@ def plan(
         views.print_error(f"Invalid data: {e}")
         raise typer.Exit(1)
 
-    # Default start date to tomorrow
+    # Smart start date: if history exists, start after last session
     if start_date is None:
-        start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        if user_state.history:
+            last_session_date = user_state.history[-1].date
+            last_dt = datetime.strptime(last_session_date, "%Y-%m-%d")
+            # Start 2 days after last session (minimum recovery)
+            start_date = (last_dt + timedelta(days=2)).strftime("%Y-%m-%d")
+        else:
+            start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Check if we have history or baseline
     if not user_state.history and baseline_max is None:
@@ -236,7 +250,12 @@ def plan(
         baseline_max,
     )
 
-    views.print_plan(plans, status, weeks)
+    # Show recent history if available
+    if show_history > 0 and user_state.history:
+        recent_history = user_state.history[-show_history:]
+        views.print_recent_history(recent_history)
+
+    views.print_plan_with_context(plans, status, weeks, user_state.history)
 
 
 @app.command("log-session")
@@ -342,6 +361,35 @@ def log_session(
     views.print_info(f"Total reps: {total_reps}")
     if max_reps > 0:
         views.print_info(f"Max (bodyweight): {max_reps}")
+
+    # Check for overperformance (suggest TEST if significantly above TM)
+    if session_type != "TEST" and max_reps > 0:
+        try:
+            user_state = store.load_user_state()
+            status = get_training_status(
+                user_state.history,
+                user_state.current_bodyweight_kg,
+            )
+            tm = status.training_max
+            test_max = status.latest_test_max
+
+            # If max reps significantly exceeds TM, suggest TEST
+            if max_reps >= tm + OVERPERFORMANCE_REP_THRESHOLD:
+                views.console.print()
+                views.print_warning(
+                    f"Great performance! Your max ({max_reps}) exceeds TM ({tm}) by {max_reps - tm} reps."
+                )
+                if test_max and max_reps > test_max:
+                    views.print_info(
+                        f"This also beats your latest test max ({test_max}). "
+                        "Consider logging a TEST session to update your baseline!"
+                    )
+                else:
+                    views.print_info(
+                        "Consider logging a TEST session soon to update your baseline."
+                    )
+        except Exception:
+            pass  # Silently ignore errors during overperformance check
 
 
 @app.command("show-history")
