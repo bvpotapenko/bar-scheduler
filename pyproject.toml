@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Evidence-informed pull-up training planner to reach 30 strict pull-ups"
 readme = "README.md"
 requires-python = ">=3.14"
-license = {text = "MIT"}
+license = {text = "CC BY-NC 4.0"}
 authors = [
     {name = "Potapenko Bogdan"}
 ]

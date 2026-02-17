@@ -360,7 +360,7 @@ def build_fitness_fatigue_state(
         )
 
         # Update fitness/fatigue
-        state = update_fitness_fatigue(state, training_load, days_since=1)
+        state = update_fitness_fatigue(state, training_load, days_since_last=1)
 
         # Update max estimate if this is a test session
         if session.session_type == "TEST":
