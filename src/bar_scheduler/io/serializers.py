@@ -364,7 +364,11 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
     """
     Parse a sets string in format: reps@+kg/rest,reps@+kg/rest,...
 
-    Example: "8@0/180,6@0/120,6@0/120,5@0/120"
+    Rest can be omitted for the last set (defaults to 0).
+
+    Examples:
+        "8@0/180,6@0/120,6@0/120,5@0/120"
+        "6@0/60,5@0/60,6@0"  # last set without rest
 
     Args:
         sets_str: Sets string to parse
@@ -379,23 +383,30 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
         raise ValidationError("Sets string cannot be empty")
 
     sets: list[tuple[int, float, int]] = []
+    parts = [p.strip() for p in sets_str.split(",") if p.strip()]
 
-    for part in sets_str.split(","):
-        part = part.strip()
-        if not part:
-            continue
+    for i, part in enumerate(parts):
+        is_last = i == len(parts) - 1
 
-        # Parse: reps@weight/rest
+        # Parse: reps@weight/rest or reps@weight (rest optional for last set)
         # Weight can be: 0, +0, +5, +10.5, etc.
-        match = re.match(r"^(\d+)@\+?(-?\d+\.?\d*)/(\d+)$", part)
-        if not match:
-            raise ValidationError(
-                f"Invalid set format: '{part}'. Expected format: reps@+kg/rest (e.g., 8@0/180 or 6@+5/120)"
-            )
+        match_with_rest = re.match(r"^(\d+)@\+?(-?\d+\.?\d*)/(\d+)$", part)
+        match_no_rest = re.match(r"^(\d+)@\+?(-?\d+\.?\d*)$", part)
 
-        reps = int(match.group(1))
-        weight = float(match.group(2))
-        rest = int(match.group(3))
+        if match_with_rest:
+            reps = int(match_with_rest.group(1))
+            weight = float(match_with_rest.group(2))
+            rest = int(match_with_rest.group(3))
+        elif match_no_rest and is_last:
+            # Allow omitting rest for last set
+            reps = int(match_no_rest.group(1))
+            weight = float(match_no_rest.group(2))
+            rest = 0
+        else:
+            raise ValidationError(
+                f"Invalid set format: '{part}'. Expected format: reps@+kg/rest (e.g., 8@0/180 or 6@+5/120). "
+                f"Rest can be omitted for the last set only."
+            )
 
         if reps < 0:
             raise ValidationError(f"Reps must be non-negative: {reps}")
