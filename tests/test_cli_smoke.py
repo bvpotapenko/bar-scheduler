@@ -353,11 +353,13 @@ class TestNewFeatures:
             "--baseline-max", "10",
         ])
 
-        # Log a TEST session showing test_max=12
+        # Log a TEST session showing test_max=12 — date must be AFTER
+        # today (2026-02-19) so it is more recent than the baseline TEST
+        # logged by init, ensuring latest_test_max() returns 12 not 10.
         runner.invoke(app, [
             "log-session",
             "--history-path", str(history_path),
-            "--date", "2026-02-18",
+            "--date", "2026-02-20",
             "--bodyweight-kg", "82",
             "--grip", "pronated",
             "--session-type", "TEST",

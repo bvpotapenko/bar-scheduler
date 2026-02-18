@@ -256,11 +256,10 @@ def print_unified_plan(
         if wk_val is not None:
             last_wk = wk_val
 
-        # TM: show when value changes, or always when at/above goal (so column
-        # doesn't go blank once progression plateaus at target_max).
+        # TM: only show when value changes (uncapped projection in planner ensures
+        # the value keeps growing past the goal, so this always updates every week).
         tm_val = entry.planned.expected_tm if entry.planned else None
-        at_goal = target_max is not None and tm_val is not None and tm_val >= target_max
-        tm_str = str(tm_val) if tm_val is not None and (tm_val != last_tm or at_goal) else ""
+        tm_str = str(tm_val) if tm_val is not None and tm_val != last_tm else ""
         if tm_val is not None:
             last_tm = tm_val
 
