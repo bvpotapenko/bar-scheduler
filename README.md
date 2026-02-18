@@ -2,6 +2,10 @@
 
 Evidence-informed pull-up training planner to reach 30 strict pull-ups.
 
+![Training Log](./img/training_log.png)
+![Weekly Volume](./img/weekly_volume.png)
+![Training Session Explained](./img/session_explained.png)
+
 ## Quickstart
 
 ### Installation
