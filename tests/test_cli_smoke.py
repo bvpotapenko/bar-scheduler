@@ -334,6 +334,55 @@ class TestNewFeatures:
         latest_test = max(test_sessions, key=lambda s: s.date)
         assert any(s.actual_reps == 15 for s in latest_test.completed_sets)
 
+    def test_plan_starts_from_test_max_not_tm(self, temp_history_dir):
+        """Plan should start from test_max, not floor(0.9*test_max).
+
+        Regression for: after TEST with 12 reps, plan showed TM reaching 12
+        only at week 4 — because it started from floor(0.9*12)=10 and slowly
+        grew back to the user's already-proven performance ceiling.
+        """
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+
+        # Init with a modest baseline
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+
+        # Log a TEST session showing test_max=12
+        runner.invoke(app, [
+            "log-session",
+            "--history-path", str(history_path),
+            "--date", "2026-02-18",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "TEST",
+            "--sets", "12@0/180",
+        ])
+
+        result = runner.invoke(app, [
+            "plan", "--json",
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+
+        # First future (planned/next) session must start at TM >= test_max (12),
+        # not at floor(0.9*12)=10 which would mean the plan spends ~4 weeks
+        # just catching back up to the user's proven performance level.
+        future = [s for s in data["sessions"] if s["status"] in ("next", "planned")]
+        assert len(future) > 0, "Plan should have future sessions"
+        assert future[0]["expected_tm"] >= 12, (
+            f"Plan should start at TM>=12 (test_max), got {future[0]['expected_tm']}"
+        )
+
+        # Also verify the plan eventually grows beyond test_max (not stagnating)
+        last_tm = future[-1]["expected_tm"]
+        assert last_tm > 12, f"Plan should progress beyond test_max=12, last TM={last_tm}"
+
     def test_overperformance_weighted_set_bw_equivalent(self, temp_history_dir):
         """Weighted sets exceeding test max via BW-equivalent trigger auto TEST."""
         history_path = temp_history_dir / "history.jsonl"

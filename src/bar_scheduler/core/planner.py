@@ -328,10 +328,15 @@ def generate_plan(
         baseline_max,
     )
 
-    # Determine initial training max
-    tm = status.training_max
+    # Determine initial training max.
+    # Start from the latest test max (not floor(0.9 × test_max)) so the plan
+    # immediately prescribes at the user's proven level and grows beyond it.
+    # status.training_max = floor(0.9 × test_max) is the conventional "safe"
+    # starting point, but it causes the plan to spend several weeks just
+    # catching back up to the user's actual performance ceiling.
+    tm = status.latest_test_max or status.training_max
     if tm <= 1 and baseline_max is not None:
-        tm = training_max_from_baseline(baseline_max)
+        tm = baseline_max
 
     # Track TM as float for fractional progression
     tm_float = float(tm)
@@ -449,9 +454,9 @@ def explain_plan_entry(
         history = [synthetic]
 
     status = get_training_status(history, user_state.current_bodyweight_kg, baseline_max)
-    initial_tm = status.training_max
+    initial_tm = status.latest_test_max or status.training_max
     if initial_tm <= 1 and baseline_max is not None:
-        initial_tm = training_max_from_baseline(baseline_max)
+        initial_tm = baseline_max
 
     ff_state = status.fitness_fatigue_state
     z_score = ff_state.readiness_z_score()
