@@ -58,6 +58,22 @@ bar-scheduler plot-max
 | `volume` | Show weekly volume chart |
 | `explain DATE` | Step-by-step breakdown of how a session's parameters were calculated |
 
+## JSON Output
+
+Add `--json` (or `-j`) to any data command for machine-readable output (plain stdout, no colour):
+
+```bash
+bar-scheduler status --json
+bar-scheduler plan --json
+bar-scheduler show-history --json
+bar-scheduler volume --json
+bar-scheduler plot-max --json
+bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \
+    --grip pronated --session-type S --sets "4x5 / 240s" --json
+```
+
+See [docs/api_info.md](docs/api_info.md) for full JSON schemas and integration examples.
+
 ## Sets Format
 
 ### Compact plan format (recommended)

@@ -10,6 +10,7 @@ Provides commands for training plan management:
 - update-weight: Update current bodyweight
 """
 
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Optional
@@ -56,6 +57,7 @@ def main_callback(ctx: typer.Context) -> None:
         "4": ("plot-max",      "Progress chart"),
         "5": ("status",        "Current status"),
         "6": ("update-weight", "Update bodyweight"),
+        "7": ("volume",        "Weekly volume chart"),
         "e": ("explain",       "Explain how a session was planned"),
         "i": ("init",          "Setup / edit profile"),
         "d": ("delete-record", "Delete a session by ID"),
@@ -91,6 +93,8 @@ def main_callback(ctx: typer.Context) -> None:
         ctx.invoke(status)
     elif chosen == "update-weight":
         _menu_update_weight()
+    elif chosen == "volume":
+        ctx.invoke(volume)
     elif chosen == "explain":
         _menu_explain()
     elif chosen == "init":
@@ -566,6 +570,10 @@ def plan(
         Optional[int],
         typer.Option("--baseline-max", "-b", help="Baseline max reps (if no history)"),
     ] = None,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
 ) -> None:
     """
     Show the full training log: past results + upcoming plan in one view.
@@ -634,6 +642,45 @@ def plan(
 
     # Build unified timeline and display
     timeline = views.build_timeline(plans, user_state.history)
+
+    if json_out:
+        ff = status.fitness_fatigue_state
+        sessions_json = []
+        for e in timeline:
+            plan_type = e.planned.session_type if e.planned else (e.actual.session_type if e.actual else "")
+            plan_grip = e.planned.grip if e.planned else (e.actual.grip if e.actual else "")
+            session_obj: dict = {
+                "date": e.date,
+                "week": e.week_number,
+                "type": plan_type,
+                "grip": plan_grip,
+                "status": e.status,
+                "id": e.actual_id,
+                "expected_tm": e.planned.expected_tm if e.planned else None,
+                "prescribed_sets": [
+                    {"reps": ps.target_reps, "weight_kg": ps.added_weight_kg, "rest_s": ps.rest_seconds_before}
+                    for ps in e.planned.sets
+                ] if e.planned else None,
+                "actual_sets": [
+                    {"reps": sr.actual_reps, "weight_kg": sr.added_weight_kg, "rest_s": sr.rest_seconds_before}
+                    for sr in e.actual.completed_sets
+                    if sr.actual_reps is not None
+                ] if e.actual else None,
+            }
+            sessions_json.append(session_obj)
+        print(json.dumps({
+            "status": {
+                "training_max": status.training_max,
+                "latest_test_max": status.latest_test_max,
+                "trend_slope_per_week": round(status.trend_slope, 4),
+                "is_plateau": status.is_plateau,
+                "deload_recommended": status.deload_recommended,
+                "readiness_z_score": round(ff.readiness_z_score(), 4),
+            },
+            "sessions": sessions_json,
+        }, indent=2))
+        return
+
     views.print_unified_plan(timeline, status)
 
 
@@ -803,6 +850,10 @@ def log_session(
         Optional[str],
         typer.Option("--notes", "-n", help="Session notes"),
     ] = None,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
 ) -> None:
     """
     Log a completed training session.
@@ -932,9 +983,6 @@ def log_session(
     except Exception:
         pass
 
-    views.console.print()
-    views.print_success(f"Logged {session_type} session for {date}")
-
     total_reps = sum(s.actual_reps for s in set_results if s.actual_reps)
     max_reps_bw = max(
         (s.actual_reps for s in set_results if s.actual_reps and s.added_weight_kg == 0),
@@ -946,13 +994,10 @@ def log_session(
         default=0,
     )
     max_reps = max(max_reps_bw, max_reps_weighted)
-    views.print_info(f"Total reps: {total_reps}")
-    if max_reps_bw > 0:
-        views.print_info(f"Max (bodyweight): {max_reps_bw}")
-    if max_reps_weighted > max_reps_bw:
-        views.print_info(f"Max (BW-equivalent from weighted): {max_reps_weighted}")
 
     # Overperformance / personal best detection
+    new_personal_best = False
+    new_tm: int | None = None
     if session_type != "TEST" and max_reps > 0:
         try:
             user_state = store.load_user_state()
@@ -981,12 +1026,14 @@ def log_session(
                 )
                 store.append_session(test_session)
                 new_tm = training_max_from_baseline(max_reps)
-                est_note = " (BW-equivalent from weighted set)" if max_reps_weighted > max_reps_bw else ""
-                views.console.print()
-                views.print_success(
-                    f"New personal best! Auto-logged TEST ({max_reps} reps{est_note}) — TM updated to {new_tm}."
-                )
-            elif max_reps >= tm + OVERPERFORMANCE_REP_THRESHOLD:
+                new_personal_best = True
+                if not json_out:
+                    est_note = " (BW-equivalent from weighted set)" if max_reps_weighted > max_reps_bw else ""
+                    views.console.print()
+                    views.print_success(
+                        f"New personal best! Auto-logged TEST ({max_reps} reps{est_note}) — TM updated to {new_tm}."
+                    )
+            elif max_reps >= tm + OVERPERFORMANCE_REP_THRESHOLD and not json_out:
                 views.console.print()
                 views.print_warning(
                     f"Great performance! Your max ({max_reps}) exceeds TM ({tm}) by {max_reps - tm} reps."
@@ -996,6 +1043,32 @@ def log_session(
                 )
         except Exception:
             pass
+
+    if json_out:
+        print(json.dumps({
+            "date": date,
+            "session_type": session_type,
+            "grip": grip,
+            "bodyweight_kg": bodyweight_kg,
+            "total_reps": total_reps,
+            "max_reps_bodyweight": max_reps_bw,
+            "max_reps_equivalent": max_reps,
+            "new_personal_best": new_personal_best,
+            "new_tm": new_tm,
+            "sets": [
+                {"reps": s.actual_reps, "weight_kg": s.added_weight_kg, "rest_s": s.rest_seconds_before}
+                for s in set_results
+            ],
+        }, indent=2))
+        return
+
+    views.console.print()
+    views.print_success(f"Logged {session_type} session for {date}")
+    views.print_info(f"Total reps: {total_reps}")
+    if max_reps_bw > 0:
+        views.print_info(f"Max (bodyweight): {max_reps_bw}")
+    if max_reps_weighted > max_reps_bw:
+        views.print_info(f"Max (BW-equivalent from weighted): {max_reps_weighted}")
 
 
 @app.command("show-history")
@@ -1008,10 +1081,16 @@ def show_history(
         Optional[int],
         typer.Option("--limit", "-l", help="Limit number of sessions to show"),
     ] = None,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
 ) -> None:
     """
     Display training history as a table.
     """
+    from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
+
     store = get_store(history_path)
 
     if not store.exists():
@@ -1028,6 +1107,30 @@ def show_history(
     if limit is not None:
         sessions = sessions[-limit:]
 
+    if json_out:
+        output = []
+        for s in sessions:
+            output.append({
+                "date": s.date,
+                "session_type": s.session_type,
+                "grip": s.grip,
+                "bodyweight_kg": s.bodyweight_kg,
+                "total_reps": session_total_reps(s),
+                "max_reps": session_max_reps(s),
+                "avg_rest_s": round(session_avg_rest(s)),
+                "sets": [
+                    {
+                        "reps": sr.actual_reps,
+                        "weight_kg": sr.added_weight_kg,
+                        "rest_s": sr.rest_seconds_before,
+                    }
+                    for sr in s.completed_sets
+                    if sr.actual_reps is not None
+                ],
+            })
+        print(json.dumps(output, indent=2))
+        return
+
     views.print_history(sessions)
 
 
@@ -1037,10 +1140,16 @@ def plot_max(
         Optional[Path],
         typer.Option("--history-path", "-p", help="Path to history JSONL file"),
     ] = None,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
 ) -> None:
     """
     Display ASCII plot of max reps progress.
     """
+    from ..core.metrics import get_test_sessions, session_max_reps as _max_reps
+
     store = get_store(history_path)
 
     if not store.exists():
@@ -1053,6 +1162,15 @@ def plot_max(
     except (FileNotFoundError, ValidationError) as e:
         views.print_error(str(e))
         raise typer.Exit(1)
+
+    if json_out:
+        data_points = [
+            {"date": s.date, "max_reps": _max_reps(s)}
+            for s in get_test_sessions(sessions)
+            if _max_reps(s) > 0
+        ]
+        print(json.dumps({"data_points": data_points}, indent=2))
+        return
 
     views.print_max_plot(sessions)
 
@@ -1097,6 +1215,10 @@ def status(
         Optional[Path],
         typer.Option("--history-path", "-p", help="Path to history JSONL file"),
     ] = None,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
 ) -> None:
     """
     Show current training status.
@@ -1119,6 +1241,20 @@ def status(
         user_state.current_bodyweight_kg,
     )
 
+    if json_out:
+        ff = status_info.fitness_fatigue_state
+        print(json.dumps({
+            "training_max": status_info.training_max,
+            "latest_test_max": status_info.latest_test_max,
+            "trend_slope_per_week": round(status_info.trend_slope, 4),
+            "is_plateau": status_info.is_plateau,
+            "deload_recommended": status_info.deload_recommended,
+            "readiness_z_score": round(ff.readiness_z_score(), 4),
+            "fitness": round(ff.fitness, 4),
+            "fatigue": round(ff.fatigue, 4),
+        }, indent=2))
+        return
+
     views.console.print()
     views.console.print(views.format_status_display(status_info))
     views.console.print()
@@ -1134,6 +1270,10 @@ def volume(
         int,
         typer.Option("--weeks", "-w", help="Number of weeks to show"),
     ] = 4,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
 ) -> None:
     """
     Show weekly volume chart.
@@ -1150,6 +1290,22 @@ def volume(
     except (FileNotFoundError, ValidationError) as e:
         views.print_error(str(e))
         raise typer.Exit(1)
+
+    if json_out:
+        weekly: dict[int, int] = {}
+        if sessions:
+            latest = datetime.strptime(sessions[-1].date, "%Y-%m-%d")
+            for s in sessions:
+                ago = (latest - datetime.strptime(s.date, "%Y-%m-%d")).days // 7
+                if ago < weeks:
+                    reps = sum(sr.actual_reps for sr in s.completed_sets if sr.actual_reps is not None)
+                    weekly[ago] = weekly.get(ago, 0) + reps
+        result = []
+        for i in range(weeks - 1, -1, -1):
+            label = "This week" if i == 0 else ("Last week" if i == 1 else f"{i} weeks ago")
+            result.append({"label": label, "total_reps": weekly.get(i, 0)})
+        print(json.dumps({"weeks": result}, indent=2))
+        return
 
     views.print_volume_chart(sessions, weeks)
 

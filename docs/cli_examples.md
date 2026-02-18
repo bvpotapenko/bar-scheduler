@@ -10,13 +10,14 @@ Running `bar-scheduler` without arguments opens the interactive menu — the eas
 [1] Show plan        [2] Log session
 [3] Show history     [4] Status / plots
 [5] Current status   [6] Update bodyweight
+[7] Weekly volume chart
 [e] Explain how a session was planned
 [i] Setup / edit profile
 [d] Delete a session by ID
 [0] Quit
 ```
 
-All options work interactively — no flags needed. The `[i]` option prompts for each profile field with the current value as default (press Enter to keep it). The `[6]` option prompts for the new weight. The `[e]` option asks for a date or accepts `next`.
+All options work interactively — no flags needed. The `[i]` option prompts for each profile field with the current value as default (press Enter to keep it). The `[6]` option prompts for the new weight. The `[7]` option shows the weekly volume chart. The `[e]` option asks for a date or accepts `next`.
 
 ## Initialize a New User
 
@@ -349,6 +350,73 @@ EXPECTED TM AFTER: 10
 ```
 
 The `explain` command is also available from the interactive menu via `[e]`.
+
+## JSON Output
+
+Add `--json` (or `-j`) to any data command to get clean JSON on stdout — useful for scripting, dashboards, or piping into other tools.
+
+```bash
+# Training status as JSON
+$ bar-scheduler status --json
+{
+  "training_max": 9,
+  "latest_test_max": 10,
+  "trend_slope_per_week": 0.0,
+  "is_plateau": false,
+  "deload_recommended": false,
+  "readiness_z_score": 0.12,
+  "fitness": 1.2341,
+  "fatigue": 0.4102
+}
+
+# Full plan as JSON
+$ bar-scheduler plan --json | jq '.sessions[] | select(.status == "next")'
+{
+  "date": "2026-02-08",
+  "week": 2,
+  "type": "E",
+  "grip": "pronated",
+  "status": "next",
+  "id": null,
+  "expected_tm": 9,
+  "prescribed_sets": [...],
+  "actual_sets": null
+}
+
+# Weekly volume
+$ bar-scheduler volume --json
+{
+  "weeks": [
+    { "label": "3 weeks ago", "total_reps": 85 },
+    { "label": "2 weeks ago", "total_reps": 115 },
+    { "label": "Last week",   "total_reps": 128 },
+    { "label": "This week",   "total_reps": 42  }
+  ]
+}
+
+# Log a session and capture the summary
+$ bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \
+    --grip pronated --session-type S --sets "4x5 +0.5kg / 240s" --json
+{
+  "date": "2026-02-18",
+  "session_type": "S",
+  "grip": "pronated",
+  "bodyweight_kg": 82.0,
+  "total_reps": 20,
+  "max_reps_bodyweight": 0,
+  "max_reps_equivalent": 5,
+  "new_personal_best": false,
+  "new_tm": null,
+  "sets": [
+    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
+    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
+    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
+    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 }
+  ]
+}
+```
+
+Full JSON schemas and integration examples: [api_info.md](api_info.md)
 
 ## Model Documentation
 
