@@ -105,7 +105,8 @@ class TestCLISmoke:
         ])
 
         assert result.exit_code == 0
-        assert "Training max" in result.output
+        # format_status_display now uses "Cur.Max" / "Tr.Max" labels
+        assert "Cur.Max" in result.output or "Tr.Max" in result.output
 
     def test_show_history_displays_sessions(self, temp_history_dir):
         """Test show-history displays logged sessions."""
@@ -189,13 +190,13 @@ class TestCLISmoke:
             "--baseline-max", "10",
         ])
 
-        # Get initial plan (TM=9 from baseline 10)
+        # Get initial plan — status block uses "Cur.Max: N" for latest test result.
         result1 = runner.invoke(app, [
             "plan",
             "--history-path", str(history_path),
         ])
         assert result1.exit_code == 0
-        assert "Training max (TM): 9" in result1.output
+        assert "Cur.Max: 10" in result1.output
 
         # Log a new TEST session with higher max
         runner.invoke(app, [
@@ -208,13 +209,13 @@ class TestCLISmoke:
             "--sets", "15@0/180",
         ])
 
-        # Get updated plan - TM should now be 13 (floor(0.9 * 15))
+        # Get updated plan — status block shows new Cur.Max = 15
         result2 = runner.invoke(app, [
             "plan",
             "--history-path", str(history_path),
         ])
         assert result2.exit_code == 0
-        assert "Training max (TM): 13" in result2.output
+        assert "Cur.Max: 15" in result2.output
 
 
 class TestNewFeatures:
@@ -412,6 +413,129 @@ class TestNewFeatures:
         sessions = HistoryStore(history_path).load_history()
         test_sessions = [s for s in sessions if s.session_type == "TEST"]
         assert len(test_sessions) >= 2
+
+    def test_plan_weeks_persisted(self, temp_history_dir):
+        """Running plan -w N then plain plan should still show N weeks."""
+        history_path = temp_history_dir / "history.jsonl"
+
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+
+        # First run: explicit 8-week horizon
+        r1 = runner.invoke(app, ["plan", "-w", "8", "--json",
+                                  "--history-path", str(history_path)])
+        assert r1.exit_code == 0
+
+        # Second run: no -w flag — should reuse 8 weeks from profile
+        import json
+        r2 = runner.invoke(app, ["plan", "--json",
+                                  "--history-path", str(history_path)])
+        assert r2.exit_code == 0
+        data = json.loads(r2.output)
+        future = [s for s in data["sessions"] if s["status"] in ("next", "planned")]
+        # 8 weeks × 3 sessions/week = up to 24 future sessions (may vary by schedule)
+        assert len(future) > 12, (
+            f"Expected >12 future sessions from 8-week plan, got {len(future)}"
+        )
+
+    def test_rir_saved_via_cli_flag(self, temp_history_dir):
+        """--rir flag is stored in history and preserved in completed_sets."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--history-path", str(history_path),
+            "--date", "2026-02-20",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "S",
+            "--sets", "8@0/180,6@0/180",
+            "--rir", "2",
+        ])
+        assert result.exit_code == 0
+
+        # Verify RIR is stored in completed_sets
+        raw = history_path.read_text()
+        lines = [l for l in raw.splitlines() if l.strip()]
+        last_line = lines[-1]
+        data = json.loads(last_line)
+        completed = data.get("completed_sets", [])
+        assert len(completed) == 2
+        assert all(s.get("rir_reported") == 2 for s in completed)
+
+    def test_notes_saved_via_cli_flag(self, temp_history_dir):
+        """--notes flag is stored in history JSONL."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--history-path", str(history_path),
+            "--date", "2026-02-20",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "H",
+            "--sets", "7@0/120",
+            "--notes", "felt strong today",
+        ])
+        assert result.exit_code == 0
+
+        raw = history_path.read_text()
+        # The notes value should appear somewhere in the history file
+        assert "felt strong today" in raw
+
+    def test_planned_sets_omitted_without_cache(self, temp_history_dir):
+        """Without a plan cache, planned_sets must not appear in the JSONL."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+
+        # Log without ever running plan → no cache → no planned_sets
+        runner.invoke(app, [
+            "log-session",
+            "--history-path", str(history_path),
+            "--date", "2026-02-20",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "S",
+            "--sets", "5@0/180",
+        ])
+
+        raw = history_path.read_text()
+        lines = [l for l in raw.splitlines() if l.strip()]
+        # JSONL uses compact separators ("session_type":"S" — no spaces)
+        s_line = next(
+            (l for l in reversed(lines) if '"session_type":"S"' in l), None
+        )
+        assert s_line is not None
+        data = json.loads(s_line)
+        # planned_sets should be absent (omitted when empty)
+        assert "planned_sets" not in data or data["planned_sets"] == []
 
 
 class TestJSONAndTrajectory:

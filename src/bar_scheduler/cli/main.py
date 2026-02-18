@@ -664,11 +664,24 @@ def plan(
         else:
             plan_start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    # Auto-advance plan_start_date past last logged session so that plan sessions
+    # the user missed (skipped days, gap in training) are dropped automatically
+    # rather than accumulating as "missed" rows that will never be done.
+    if user_state.history:
+        last_logged = max(s.date for s in user_state.history)
+        if last_logged > plan_start_date:
+            plan_start_date = last_logged
+            store.set_plan_start_date(plan_start_date)
+
     # Generate plan from plan_start_date for enough weeks to cover history + ahead
     # Calculate how many weeks since plan start to cover history
     plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
     weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
-    weeks_ahead = weeks if weeks is not None else 4
+    if weeks is not None:
+        weeks_ahead = weeks
+        store.set_plan_weeks(weeks)           # persist user preference
+    else:
+        weeks_ahead = store.get_plan_weeks() or 4   # restore saved or default 4
     total_weeks = weeks_since_start + weeks_ahead
 
     # Clamp to reasonable range
@@ -746,7 +759,15 @@ def plan(
             views.console.print(f"  {c}")
         views.console.print()
 
-    views.print_unified_plan(timeline, status)
+    goal = user_state.profile.target_max_reps
+    if status.latest_test_max and status.latest_test_max >= goal:
+        views.console.print(
+            f"[green]Goal reached![/green] Your test max ({status.latest_test_max}) "
+            f"meets your goal ({goal} reps). "
+            "Update target via [i] Setup or --target-max."
+        )
+
+    views.print_unified_plan(timeline, status, target_max=goal)
 
 
 @app.command()
@@ -915,6 +936,10 @@ def log_session(
         Optional[str],
         typer.Option("--notes", "-n", help="Session notes"),
     ] = None,
+    rir: Annotated[
+        Optional[int],
+        typer.Option("--rir", help="Reps in reserve on last set (0=failure, 5=easy)"),
+    ] = None,
     json_out: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
@@ -986,9 +1011,30 @@ def log_session(
                 break
             views.print_error("Choose S, H, E, T, or TEST")
 
-    # Sets
+    # Sets — track whether we entered interactive mode for later prompts
+    was_interactive = sets is None
     if sets is None:
         sets = _interactive_sets()
+
+    # RIR (Reps In Reserve) — optional effort rating for training load accuracy
+    # Only prompt interactively when the user is already doing step-by-step entry.
+    rir_value: int | None = rir
+    if rir is None and was_interactive:
+        views.console.print()
+        raw_rir = views.console.input(
+            "[dim]Reps left in tank on last set? (0=failure…5=easy, Enter to skip): [/dim]"
+        ).strip()
+        if raw_rir:
+            try:
+                rir_value = max(0, min(10, int(raw_rir)))
+            except ValueError:
+                pass
+
+    # Notes — optional session annotation (interactive mode only)
+    if notes is None and was_interactive:
+        views.console.print()
+        raw_notes = views.console.input("[dim]Notes (optional, Enter to skip): [/dim]").strip()
+        notes = raw_notes if raw_notes else None
 
     # ── Validate all inputs ─────────────────────────────────────────────────
 
@@ -1020,16 +1066,31 @@ def log_session(
             rest_seconds_before=rest,
             added_weight_kg=weight,
             rir_target=2,
-            rir_reported=None,
+            rir_reported=rir_value,   # None unless user provided --rir or interactive input
         )
         set_results.append(set_result)
+
+    # Populate planned_sets from plan cache if a matching prescription exists.
+    # Avoids duplicating completed_sets; planned_sets is only written when meaningful.
+    planned_sets: list[SetResult] = []
+    cache_entry = store.lookup_plan_cache_entry(date, session_type)
+    if cache_entry and cache_entry.get("sets", 0) > 0:
+        n = cache_entry["sets"]
+        tr = cache_entry.get("reps", 0)
+        wt = cache_entry.get("weight", 0.0)
+        rs = cache_entry.get("rest", 180)
+        planned_sets = [
+            SetResult(target_reps=tr, actual_reps=None,
+                      rest_seconds_before=rs, added_weight_kg=wt, rir_target=2)
+            for _ in range(n)
+        ]
 
     session = SessionResult(
         date=date,
         bodyweight_kg=bodyweight_kg,
         grip=grip,  # type: ignore
         session_type=session_type,  # type: ignore
-        planned_sets=set_results.copy(),
+        planned_sets=planned_sets,
         completed_sets=set_results,
         notes=notes,
     )

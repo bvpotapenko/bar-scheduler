@@ -152,6 +152,12 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
     """
     Convert dict to SetResult.
 
+    Handles both old format (both target_reps and actual_reps) and new compact
+    format (only one reps field):
+      - completed set: only "actual_reps" present → target_reps = actual_reps
+      - planned set:   only "target_reps" present → actual_reps = None
+      - old format:    both present → use both as-is
+
     Args:
         data: Dict representation
 
@@ -161,19 +167,24 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
     Raises:
         ValidationError: If data is invalid
     """
-    validate_non_negative(data.get("target_reps", 0), "target_reps")
-    if data.get("actual_reps") is not None:
-        validate_non_negative(data["actual_reps"], "actual_reps")
+    actual_reps = data.get("actual_reps")
+    target_reps = data.get("target_reps")
+
+    # Compact new format: derive the missing field
+    if actual_reps is not None and target_reps is None:
+        target_reps = actual_reps   # completed set
+    # planned set: actual_reps stays None
+
+    validate_non_negative(target_reps or 0, "target_reps")
+    if actual_reps is not None:
+        validate_non_negative(actual_reps, "actual_reps")
     validate_non_negative(data.get("rest_seconds_before", 0), "rest_seconds_before")
     validate_non_negative(data.get("added_weight_kg", 0), "added_weight_kg")
-    validate_non_negative(data.get("rir_target", 0), "rir_target")
-    if data.get("rir_reported") is not None:
-        validate_non_negative(data["rir_reported"], "rir_reported")
 
     return SetResult(
-        target_reps=int(data["target_reps"]),
-        actual_reps=int(data["actual_reps"]) if data.get("actual_reps") is not None else None,
-        rest_seconds_before=int(data["rest_seconds_before"]),
+        target_reps=int(target_reps or 0),
+        actual_reps=int(actual_reps) if actual_reps is not None else None,
+        rest_seconds_before=int(data.get("rest_seconds_before", 0)),
         added_weight_kg=float(data.get("added_weight_kg", 0.0)),
         rir_target=int(data.get("rir_target", 2)),
         rir_reported=int(data["rir_reported"]) if data.get("rir_reported") is not None else None,
@@ -224,9 +235,34 @@ def dict_to_planned_set(data: dict[str, Any]) -> PlannedSet:
     )
 
 
+def _completed_set_to_dict(s: SetResult) -> dict[str, Any]:
+    """Compact serializer for a completed set: only actual_reps (target is always equal)."""
+    d: dict[str, Any] = {
+        "actual_reps": s.actual_reps,
+        "rest_seconds_before": s.rest_seconds_before,
+        "added_weight_kg": s.added_weight_kg,
+    }
+    if s.rir_reported is not None:
+        d["rir_reported"] = s.rir_reported
+    return d
+
+
+def _planned_set_result_to_dict(s: SetResult) -> dict[str, Any]:
+    """Compact serializer for a planned set (from cache): only target_reps."""
+    return {
+        "target_reps": s.target_reps,
+        "rest_seconds_before": s.rest_seconds_before,
+        "added_weight_kg": s.added_weight_kg,
+    }
+
+
 def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     """
     Convert SessionResult to JSON-compatible dict.
+
+    Uses compact per-set serialization:
+      completed_sets → only actual_reps (target always equals actual)
+      planned_sets   → only target_reps (actual is always None / not meaningful)
 
     Args:
         session: SessionResult to convert
@@ -234,15 +270,18 @@ def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     Returns:
         Dict representation
     """
-    return {
+    d: dict = {
         "date": session.date,
         "bodyweight_kg": session.bodyweight_kg,
         "grip": session.grip,
         "session_type": session.session_type,
-        "planned_sets": [set_result_to_dict(s) for s in session.planned_sets],
-        "completed_sets": [set_result_to_dict(s) for s in session.completed_sets],
+        "completed_sets": [_completed_set_to_dict(s) for s in session.completed_sets],
         "notes": session.notes,
     }
+    # Only include planned_sets when non-empty (meaningful prescription data from cache)
+    if session.planned_sets:
+        d["planned_sets"] = [_planned_set_result_to_dict(s) for s in session.planned_sets]
+    return d
 
 
 def dict_to_session_result(data: dict[str, Any]) -> SessionResult:

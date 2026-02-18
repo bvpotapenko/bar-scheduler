@@ -104,6 +104,38 @@ class HistoryStore:
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
+    def get_plan_weeks(self) -> int | None:
+        """Return the last user-specified plan horizon in weeks, or None if never set."""
+        if not self.profile_path.exists():
+            return None
+        try:
+            with open(self.profile_path) as f:
+                data = json.load(f)
+            v = data.get("plan_weeks")
+            return int(v) if v is not None else None
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+    def set_plan_weeks(self, weeks: int) -> None:
+        """Persist the user-chosen plan horizon so subsequent plain 'plan' runs reuse it."""
+        if not self.profile_path.exists():
+            return
+        with open(self.profile_path) as f:
+            data = json.load(f)
+        data["plan_weeks"] = weeks
+        with open(self.profile_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def lookup_plan_cache_entry(self, date: str, session_type: str) -> dict | None:
+        """Find the cached plan prescription for a given (date, session_type), or None."""
+        cache = self.load_plan_cache()
+        if not cache:
+            return None
+        for entry in cache:
+            if entry.get("date") == date and entry.get("type") == session_type:
+                return entry
+        return None
+
     def save_profile(self, profile: UserProfile, bodyweight_kg: float) -> None:
         """
         Save user profile to profile.json.

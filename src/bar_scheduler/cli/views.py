@@ -190,13 +190,29 @@ def _fmt_actual(session: SessionResult) -> str:
     else:
         rest_str = ",".join(str(r) for r in rests) + "s"
 
-    return f"{reps_str} = {total}{weight_str} / {rest_str}"
+    rirs = [s.rir_reported for s in sets if s.rir_reported is not None]
+    rir_str = f" RIR≈{round(sum(rirs)/len(rirs))}" if rirs else ""
+
+    return f"{reps_str} = {total}{weight_str} / {rest_str}{rir_str}"
+
+
+_GRIP_ABBR: dict[str, str] = {"pronated": "P", "neutral": "N", "supinated": "S"}
+_TYPE_DISPLAY: dict[str, str] = {"TEST": "M", "S": "S", "H": "H", "E": "E", "T": "T"}
+
+
+def _fmt_date_cell(date_str: str, status: TimelineStatus) -> str:
+    """Format status icon + date as a single compact cell: '> 02.18(Tue)'."""
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    date_part = dt.strftime("%m.%d(%a)")
+    icon = {"done": "✓", "missed": "—", "next": ">", "planned": " ", "extra": "·"}[status]
+    return f"{icon} {date_part}"
 
 
 def print_unified_plan(
     entries: list[TimelineEntry],
     status: TrainingStatus,
     title: str = "Training Log",
+    target_max: int | None = None,
 ) -> None:
     """
     Print the full unified timeline: status + single table.
@@ -205,10 +221,11 @@ def print_unified_plan(
         entries: Merged timeline entries
         status: Current training status for header
         title: Table title
+        target_max: User's goal reps (shown in status block)
     """
     # Header
     console.print()
-    console.print(format_status_display(status))
+    console.print(format_status_display(status, target_max=target_max))
     console.print()
 
     if not entries:
@@ -217,40 +234,51 @@ def print_unified_plan(
 
     table = Table(title=title, show_lines=False)
 
-    table.add_column("", width=2, no_wrap=True)         # status icon
-    table.add_column("#", justify="right", style="dim", width=3)  # history ID
+    # Status icon merged into date column; grip abbreviated to 1 letter
+    table.add_column("#", justify="right", style="dim", width=3)   # history ID
     table.add_column("Wk", justify="right", style="dim", width=3)
-    table.add_column("Date", style="cyan", width=11)
-    table.add_column("Type", style="magenta", width=5)
-    table.add_column("Grip", width=10)
+    table.add_column("Date", style="cyan", width=14, no_wrap=True) # ✓ MM.DD(Ddd) — 12 chars + 2 padding
+    table.add_column("Tp", style="magenta", width=4)               # session type (M/S/H/E/T) — 1 char + 2 padding + 1 spare
+    table.add_column("G", width=3)                                 # grip abbrev (P/N/S) — 1 char + 2 padding
     table.add_column("Prescribed", width=22)
     table.add_column("Actual", width=24)
-    table.add_column("TM", justify="right", style="bold green", width=4)
+    table.add_column("Exp", justify="right", style="bold green", width=4)  # expected/projected test max
+
+    last_wk: int | None = None
+    last_tm: int | None = None
 
     for entry in entries:
-        icon = {
-            "done": "[green]✓[/green]",
-            "missed": "[red]—[/red]",
-            "next": "[bold cyan]>[/bold cyan]",
-            "planned": "",
-            "extra": "[dim]✓[/dim]",
-        }[entry.status]
+        date_cell = _fmt_date_cell(entry.date, entry.status)
 
-        wk_str = str(entry.week_number) if entry.week_number > 0 else ""
-        date_str = entry.date
-        tm_str = str(entry.planned.expected_tm) if entry.planned else ""
+        # Wk: only show when week number changes
+        wk_val = entry.week_number if entry.week_number > 0 else None
+        wk_str = str(wk_val) if wk_val is not None and wk_val != last_wk else ""
+        if wk_val is not None:
+            last_wk = wk_val
+
+        # TM: show when value changes, or always when at/above goal (so column
+        # doesn't go blank once progression plateaus at target_max).
+        tm_val = entry.planned.expected_tm if entry.planned else None
+        at_goal = target_max is not None and tm_val is not None and tm_val >= target_max
+        tm_str = str(tm_val) if tm_val is not None and (tm_val != last_tm or at_goal) else ""
+        if tm_val is not None:
+            last_tm = tm_val
+
         id_str = str(entry.actual_id) if entry.actual_id is not None else ""
 
-        # Type and grip: prefer actual if available
+        # Type and grip: prefer actual if available; abbreviate
         if entry.actual:
-            type_str = entry.actual.session_type
-            grip_str = entry.actual.grip
+            raw_type = entry.actual.session_type
+            raw_grip = entry.actual.grip
         elif entry.planned:
-            type_str = entry.planned.session_type
-            grip_str = entry.planned.grip
+            raw_type = entry.planned.session_type
+            raw_grip = entry.planned.grip
         else:
-            type_str = ""
-            grip_str = ""
+            raw_type = ""
+            raw_grip = ""
+
+        type_str = _TYPE_DISPLAY.get(raw_type, raw_type)
+        grip_str = _GRIP_ABBR.get(raw_grip, raw_grip[:1].upper() if raw_grip else "")
 
         prescribed_str = _fmt_prescribed(entry.planned) if entry.planned else ""
         actual_str = _fmt_actual(entry.actual) if entry.actual else ""
@@ -266,12 +294,16 @@ def print_unified_plan(
             row_style = None
 
         table.add_row(
-            icon, id_str, wk_str, date_str, type_str, grip_str,
+            id_str, wk_str, date_cell, type_str, grip_str,
             prescribed_str, actual_str, tm_str,
             style=row_style,
         )
 
     console.print(table)
+    console.print(
+        "[dim]Tp: S=Strength H=Hypertrophy E=Endurance T=Technique M=Max-test  |"
+        "  G: P=Pronated N=Neutral S=Supinated[/dim]"
+    )
     console.print(
         "[dim]Prescribed: 5x4 = 5 reps × 4 sets  |"
         "  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set[/dim]"
@@ -379,23 +411,33 @@ def format_plan_table(plans: list[SessionPlan], weeks: int | None = None) -> Tab
     return table
 
 
-def format_status_display(status: TrainingStatus) -> str:
+def format_status_display(
+    status: TrainingStatus,
+    target_max: int | None = None,
+) -> str:
     """
     Format training status as text block.
 
     Args:
         status: TrainingStatus to display
+        target_max: User's goal (target_max_reps from profile)
 
     Returns:
         Formatted string
     """
-    lines = [
-        "Current status",
-        f"- Training max (TM): {status.training_max}",
-    ]
+    lines = ["Current status"]
 
     if status.latest_test_max is not None:
-        lines.append(f"- Latest test max: {status.latest_test_max}")
+        lines.append(f"- Cur.Max: {status.latest_test_max} reps  (last test result)")
+        lines.append(
+            f"- Tr.Max:  {status.training_max} reps"
+            "  (= 90% × Cur.Max, used for prescriptions)"
+        )
+    else:
+        lines.append(f"- Tr.Max:  {status.training_max} reps")
+
+    if target_max is not None:
+        lines.append(f"- G:       {target_max} reps  (goal)")
 
     lines.extend([
         f"- Trend (reps/week): {status.trend_slope:+.2f}",
@@ -403,7 +445,6 @@ def format_status_display(status: TrainingStatus) -> str:
         f"- Deload recommended: {'yes' if status.deload_recommended else 'no'}",
     ])
 
-    # Add readiness info
     ff = status.fitness_fatigue_state
     z = ff.readiness_z_score()
     lines.append(f"- Readiness z-score: {z:+.2f}")

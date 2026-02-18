@@ -218,7 +218,7 @@ READINESS_VOLUME_REDUCTION: Final[float] = 0.30  # Reduce by 30%
 # =============================================================================
 
 MIN_PLAN_WEEKS: Final[int] = 2
-MAX_PLAN_WEEKS: Final[int] = 12
+MAX_PLAN_WEEKS: Final[int] = 52
 DEFAULT_PLAN_WEEKS: Final[int] = 4
 
 # Estimation for needed weeks (rough)

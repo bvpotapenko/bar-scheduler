@@ -338,8 +338,12 @@ def generate_plan(
     if tm <= 1 and baseline_max is not None:
         tm = baseline_max
 
-    # Track TM as float for fractional progression
+    # Track TM as float for fractional progression.
+    # tm_float is capped at target (drives prescriptions).
+    # uncapped_tm_float is NOT capped — used for the Exp column so it
+    # continues projecting beyond the user's goal instead of flatting at target.
     tm_float = float(tm)
+    uncapped_tm_float = float(tm)
     target = user_state.profile.target_max_reps
 
     # Determine plan length
@@ -379,7 +383,8 @@ def generate_plan(
             current_week += 1
             # Apply weekly progression to TM
             progression = expected_reps_per_week(int(tm_float))
-            tm_float = min(tm_float + progression, float(target))
+            tm_float = min(tm_float + progression, float(target))  # capped for prescriptions
+            uncapped_tm_float += progression                        # uncapped for Exp display
 
         # Use integer TM for prescriptions
         current_tm = int(tm_float)
@@ -396,12 +401,12 @@ def generate_plan(
             history_sessions=len(history),
         )
 
-        # Calculate expected TM after this session (assuming completion)
-        # TM increases gradually within the week too
+        # Calculate expected TM after this session (assuming completion).
+        # Uses uncapped_tm_float so the projection continues past the goal.
         sessions_done_in_week = sessions_in_week
         week_fraction = sessions_done_in_week / sessions_per_week
         week_progression = expected_reps_per_week(current_tm)
-        expected_tm_after = int(min(tm_float + week_progression * week_fraction, float(target)))
+        expected_tm_after = int(uncapped_tm_float + week_progression * week_fraction)
 
         plan = SessionPlan(
             date=date_str,
