@@ -100,3 +100,6 @@ site/
 
 # Ruff cache
 .ruff_cache/
+
+# Assisted engineering
+**/.claude/
