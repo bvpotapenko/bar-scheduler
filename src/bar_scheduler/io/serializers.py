@@ -363,11 +363,87 @@ def json_line_to_session(line: str) -> SessionResult:
 _DEFAULT_REST_SECONDS = 180  # Used when rest is omitted from a set
 
 
+def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
+    """
+    Try to parse a compact plan-style sets string.
+
+    Format: [groups] [+Wkg] [/ Rs]
+    Each group is either:
+      NxM  (N sets of M reps, any x/X/× accepted)
+      N    (1 set of N reps — bare integer)
+
+    All sets in a compact expression share the same weight and rest.
+
+    Examples:
+        "4x5"                → 4 sets of 5 reps, BW, 180s rest
+        "4x5 / 240s"         → 4 sets of 5 reps, BW, 240s rest
+        "4x5 +0.5kg / 240s"  → 4 sets of 5 reps, +0.5 kg, 240s rest
+        "4, 3x8 / 60s"       → 1 set of 4 + 3 sets of 8, BW, 60s rest
+        "8, 7, 6, 5 / 60s"   → 4 individual sets [8,7,6,5] reps, BW, 60s rest
+
+    Returns list of (reps, weight, rest) tuples, or None if format not recognised.
+    Triggers on at least one 'x'/'×' OR a shared rest suffix '/ Ns'.
+    """
+    text = s.strip()
+
+    # Require at least one 'x'/'×' OR a shared rest suffix '/ Ns' to be compact.
+    # Per-set formats embed rest without a trailing 's' (e.g. "8@0/180"), so this is safe.
+    has_x = bool(re.search(r"[xX×]", text))
+    has_rest_suffix = bool(re.search(r"/\s*\d+\s*s\s*$", text))
+    if not has_x and not has_rest_suffix:
+        return None
+
+    # Extract optional rest suffix:  / Ns
+    rest = _DEFAULT_REST_SECONDS
+    m = re.search(r"\s*/\s*(\d+)\s*s\s*$", text)
+    if m:
+        rest = int(m.group(1))
+        text = text[: m.start()].strip()
+
+    # Extract optional weight prefix on the right:  +W.Wkg
+    weight = 0.0
+    m = re.search(r"\+\s*([0-9]+(?:\.[0-9]+)?)\s*kg\s*$", text, re.IGNORECASE)
+    if m:
+        weight = float(m.group(1))
+        text = text[: m.start()].strip()
+
+    # Parse comma-separated groups
+    groups = [g.strip() for g in text.split(",") if g.strip()]
+    if not groups:
+        return None
+
+    result: list[tuple[int, float, int]] = []
+    for group in groups:
+        # NxM / N×M → N sets of M reps
+        m = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", group)
+        if m:
+            n_sets = int(m.group(1))
+            n_reps = int(m.group(2))
+            if n_sets < 1 or n_reps < 0:
+                return None
+            for _ in range(n_sets):
+                result.append((n_reps, weight, rest))
+            continue
+        # Bare integer → 1 set of N reps
+        m = re.fullmatch(r"(\d+)", group)
+        if m:
+            result.append((int(m.group(1)), weight, rest))
+            continue
+        # Unknown group — not compact format
+        return None
+
+    return result if result else None
+
+
 def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
     """
     Parse a sets string.
 
-    Accepted formats per set (comma-separated):
+    Compact plan format (tried first):
+        NxM [+Wkg] [/ Rs]   e.g. "4x5 +0.5kg / 240s"  → 4 sets of 5 reps
+        N, MxK [/ Rs]        e.g. "4, 3x8 / 60s"        → 1×4 + 3×8 reps
+
+    Per-set formats (comma-separated):
         reps@+kg/rest   e.g. "8@0/180"   canonical
         reps@+kg        e.g. "8@0"        rest defaults to 180 s
         reps kg rest    e.g. "8 0 180"    space-separated
@@ -375,11 +451,6 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
         reps            e.g. "8"          bare int, weight=0, rest=180 s
 
     Rest can be omitted from any set; defaults to 180 s.
-
-    Examples:
-        "8@0/180,6@0/120,5@0"
-        "8 0 180, 6 0 120, 5 0"
-        "15@10/240, 1@0"
 
     Args:
         sets_str: Sets string to parse
@@ -392,6 +463,11 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
     """
     if not sets_str or not sets_str.strip():
         raise ValidationError("Sets string cannot be empty")
+
+    # Try compact plan format first (e.g. "4x5 +0.5kg / 240s")
+    compact = parse_compact_sets(sets_str.strip())
+    if compact is not None:
+        return compact
 
     sets: list[tuple[int, float, int]] = []
     parts = [p.strip() for p in sets_str.split(",") if p.strip()]

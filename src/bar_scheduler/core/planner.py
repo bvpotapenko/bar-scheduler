@@ -17,9 +17,13 @@ from .config import (
     DEFAULT_PLAN_WEEKS,
     MAX_PLAN_WEEKS,
     MIN_PLAN_WEEKS,
+    READINESS_VOLUME_REDUCTION,
+    READINESS_Z_HIGH,
+    READINESS_Z_LOW,
     SCHEDULE_3_DAYS,
     SCHEDULE_4_DAYS,
     SESSION_PARAMS,
+    TM_FACTOR,
     WEEKLY_HARD_SETS_MIN,
     estimate_weeks_to_target,
     expected_reps_per_week,
@@ -405,6 +409,286 @@ def generate_plan(
         plans.append(plan)
 
     return plans
+
+
+def explain_plan_entry(
+    user_state: UserState,
+    plan_start_date: str,
+    target_date: str,
+    weeks_ahead: int | None = None,
+    baseline_max: int | None = None,
+) -> str:
+    """
+    Generate a step-by-step Rich-markup explanation of a planned session.
+
+    Re-runs the generate_plan() loop, stops at target_date, and formats
+    every intermediate value with its source formula.
+
+    Args:
+        user_state: Current user state
+        plan_start_date: Start date of the plan (ISO)
+        target_date: Date of the session to explain (ISO)
+        weeks_ahead: Plan horizon (None = estimate)
+        baseline_max: Baseline max if no history
+
+    Returns:
+        Rich-markup string ready for console.print()
+    """
+    history = user_state.history.copy()
+
+    if not history and baseline_max is None:
+        return "[yellow]No history available. Run 'init --baseline-max N' first.[/yellow]"
+
+    if not history:
+        start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
+        synthetic = create_synthetic_test_session(
+            (start_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
+            user_state.current_bodyweight_kg,
+            baseline_max,  # type: ignore
+        )
+        history = [synthetic]
+
+    status = get_training_status(history, user_state.current_bodyweight_kg, baseline_max)
+    initial_tm = status.training_max
+    if initial_tm <= 1 and baseline_max is not None:
+        initial_tm = training_max_from_baseline(baseline_max)
+
+    ff_state = status.fitness_fatigue_state
+    z_score = ff_state.readiness_z_score()
+
+    tm_float = float(initial_tm)
+    user_target = user_state.profile.target_max_reps
+    days_per_week = user_state.profile.preferred_days_per_week
+
+    if weeks_ahead is None:
+        estimated = estimate_weeks_to_target(initial_tm, user_target)
+        weeks_ahead = max(MIN_PLAN_WEEKS, min(DEFAULT_PLAN_WEEKS, estimated))
+    else:
+        weeks_ahead = max(MIN_PLAN_WEEKS, min(MAX_PLAN_WEEKS, weeks_ahead))
+
+    start = datetime.strptime(plan_start_date, "%Y-%m-%d")
+    session_dates = calculate_session_days(start, days_per_week, weeks_ahead)
+    schedule = get_schedule_template(days_per_week)
+
+    grip_counts = _init_grip_counts(history)
+    grip_history_counts = dict(grip_counts)
+    sessions_in_week = 0
+    current_week = 0
+    sessions_per_week = days_per_week
+    weekly_log: list[tuple[int, float, float, float]] = []  # (week, prog, tm_before, tm_after)
+
+    TYPE_NAMES = {
+        "S": "Strength", "H": "Hypertrophy", "E": "Endurance",
+        "T": "Technique", "TEST": "Max Test",
+    }
+
+    for date, session_type in session_dates:
+        date_str = date.strftime("%Y-%m-%d")
+        sessions_in_week += 1
+
+        if sessions_in_week > sessions_per_week:
+            sessions_in_week = 1
+            current_week += 1
+            prog = expected_reps_per_week(int(tm_float))
+            old_tm = tm_float
+            tm_float = min(tm_float + prog, float(user_target))
+            weekly_log.append((current_week, prog, old_tm, tm_float))
+
+        current_tm = int(tm_float)
+        count_before = grip_counts.get(session_type, 0)
+        grip = _next_grip(session_type, grip_counts)
+        cycle = _GRIP_CYCLE.get(session_type, ["pronated"])
+
+        week_num = current_week + 1
+        week_fraction = sessions_in_week / sessions_per_week
+        week_prog = expected_reps_per_week(current_tm)
+        expected_tm_after = int(min(tm_float + week_prog * week_fraction, float(user_target)))
+
+        if date_str != target_date:
+            continue
+
+        # ── Found the target session — build explanation ────────────────────
+        params = SESSION_PARAMS[session_type]
+        type_name = TYPE_NAMES.get(session_type, session_type)
+
+        reps_low = max(params.reps_min, int(current_tm * params.reps_fraction_low))
+        reps_high = min(params.reps_max, int(current_tm * params.reps_fraction_high))
+        base_reps = (reps_low + reps_high) // 2
+        base_reps = max(params.reps_min, min(params.reps_max, base_reps))
+        base_sets = (params.sets_min + params.sets_max) // 2
+        rest = (params.rest_min + params.rest_max) // 2
+        has_autoreg = len(history) >= 5
+
+        adj_sets = base_sets
+        adj_reps = base_reps
+        if has_autoreg:
+            if z_score < READINESS_Z_LOW:
+                adj_sets = max(3, int(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
+            elif z_score > READINESS_Z_HIGH:
+                adj_reps = base_reps + 1
+
+        added_weight = 0.0
+        if session_type == "S" and current_tm > 9:
+            raw_w = (current_tm - 9) * 0.5
+            added_weight = round(raw_w * 2) / 2
+            added_weight = min(added_weight, 10.0)
+
+        rule = "─" * 54
+        L: list[str] = []
+
+        # Header
+        L.append(
+            f"[bold cyan]{type_name} ({session_type})"
+            f"  ·  {date_str}"
+            f"  ·  Week {week_num}, session {sessions_in_week}/{sessions_per_week}[/bold cyan]"
+        )
+        L.append(rule)
+
+        # SESSION TYPE
+        L.append("\n[bold]SESSION TYPE[/bold]")
+        L.append(f"  {days_per_week}-day schedule template: [cyan]{' → '.join(schedule)}[/cyan] (repeating weekly).")
+        L.append(f"  Week {week_num}, slot {sessions_in_week}/{sessions_per_week} → [magenta]{session_type}[/magenta].")
+
+        # GRIP
+        hist_count = grip_history_counts.get(session_type, 0)
+        plan_count = count_before - hist_count
+        cycle_str = " → ".join(cycle)
+        L.append(f"\n[bold]GRIP: {grip}[/bold]")
+        L.append(f"  {session_type} sessions rotate: [cyan]{cycle_str}[/cyan] ({len(cycle)}-step cycle).")
+        L.append(f"  In history: {hist_count} {session_type} session(s).")
+        if plan_count > 0:
+            L.append(f"  In this plan before {date_str}: {plan_count} {session_type} session(s).")
+        L.append(f"  Total before this session: {count_before}.")
+        L.append(
+            f"  {count_before} mod {len(cycle)} = [bold]{count_before % len(cycle)}[/bold]"
+            f" → [green]{grip}[/green]."
+        )
+
+        # TRAINING MAX
+        L.append(f"\n[bold]TRAINING MAX: {current_tm}[/bold]")
+        test_sessions = [s for s in history if s.session_type == "TEST"]
+        if test_sessions:
+            latest_test = max(test_sessions, key=lambda s: s.date)
+            latest_max = max(
+                (s.actual_reps for s in latest_test.completed_sets if s.actual_reps),
+                default=0,
+            )
+            tm_from_test = int(TM_FACTOR * latest_max)
+            L.append(f"  Latest TEST: {latest_max} reps on {latest_test.date}.")
+            L.append(
+                f"  Starting TM = floor({TM_FACTOR} × {latest_max}) = {tm_from_test}."
+            )
+        else:
+            L.append(f"  Starting TM: {initial_tm}.")
+        if weekly_log:
+            L.append("  Progression by week:")
+            for wk, prog, before, after in weekly_log:
+                L.append(
+                    f"    Week {wk}: TM {before:.2f} + {prog:.2f} = [bold]{after:.2f}[/bold]"
+                    f" (int = {int(after)})"
+                )
+        else:
+            L.append("  No weekly progression yet (first week of plan).")
+        L.append(f"  → TM for this session: int({tm_float:.2f}) = [bold green]{current_tm}[/bold green].")
+
+        # SETS
+        L.append(f"\n[bold]SETS: {adj_sets}[/bold]")
+        L.append(
+            f"  {session_type} config: sets [{params.sets_min}–{params.sets_max}]."
+            f"  Base = ({params.sets_min}+{params.sets_max})//2 = {base_sets}."
+        )
+        L.append(
+            f"  Readiness z-score: {z_score:+.2f}"
+            f"  (thresholds: low={READINESS_Z_LOW}, high=+{READINESS_Z_HIGH})."
+        )
+        if not has_autoreg:
+            L.append(f"  Autoregulation: [dim]off[/dim] (need ≥ 5 sessions, have {len(history)}).")
+        elif z_score < READINESS_Z_LOW:
+            L.append(
+                f"  z < {READINESS_Z_LOW} → reduce by {int(READINESS_VOLUME_REDUCTION*100)}%:"
+                f" max(3, {int(base_sets*(1-READINESS_VOLUME_REDUCTION))}) = [bold]{adj_sets}[/bold]."
+            )
+        elif z_score > READINESS_Z_HIGH:
+            L.append(f"  z > +{READINESS_Z_HIGH} → sets unchanged, +1 rep (see Reps).")
+        else:
+            L.append(f"  z in [{READINESS_Z_LOW}, +{READINESS_Z_HIGH}] → no change.")
+        L.append(f"  → [bold green]{adj_sets} sets[/bold green].")
+
+        # REPS
+        L.append(f"\n[bold]REPS PER SET: {adj_reps}[/bold]")
+        L.append(
+            f"  {session_type} config: fraction [{params.reps_fraction_low}–{params.reps_fraction_high}]"
+            f" of TM, clamped to [{params.reps_min}–{params.reps_max}]."
+        )
+        L.append(
+            f"  Low  = max({params.reps_min}, int({current_tm} × {params.reps_fraction_low}))"
+            f" = max({params.reps_min}, {int(current_tm * params.reps_fraction_low)}) = {reps_low}."
+        )
+        L.append(
+            f"  High = min({params.reps_max}, int({current_tm} × {params.reps_fraction_high}))"
+            f" = min({params.reps_max}, {int(current_tm * params.reps_fraction_high)}) = {reps_high}."
+        )
+        L.append(
+            f"  Target = ({reps_low}+{reps_high})//2 = {(reps_low+reps_high)//2},"
+            f" clamped to [{params.reps_min}–{params.reps_max}] → {base_reps}."
+        )
+        if has_autoreg and z_score > READINESS_Z_HIGH:
+            L.append(f"  High readiness (z={z_score:+.2f} > +{READINESS_Z_HIGH}) → +1 rep → {adj_reps}.")
+        L.append(f"  → [bold green]{adj_reps} reps/set[/bold green].")
+
+        # WEIGHT (S) or VOLUME (E)
+        if session_type == "S":
+            L.append(f"\n[bold]ADDED WEIGHT: {added_weight:.1f} kg[/bold]")
+            if current_tm > 9:
+                raw_w = (current_tm - 9) * 0.5
+                rounded = round(raw_w * 2) / 2
+                L.append(f"  TM = {current_tm} > 9 → ({current_tm} − 9) × 0.5 = {raw_w:.1f} kg.")
+                L.append(
+                    f"  Rounded to nearest 0.5 kg: {rounded:.1f} kg."
+                    f"  Cap at 10 kg → [bold green]{added_weight:.1f} kg[/bold green]."
+                )
+            else:
+                L.append(f"  TM = {current_tm} ≤ 9 → bodyweight only (0 kg added).")
+        elif session_type == "E":
+            total_target = current_tm * 3
+            L.append("\n[bold]VOLUME (Endurance — descending ladder)[/bold]")
+            L.append(
+                f"  Total target = TM × 3 = {current_tm} × 3 = {total_target} reps."
+            )
+            L.append(
+                f"  Starting at {base_reps} reps/set, decreasing by 1 each set"
+                f" (min {params.reps_min})."
+            )
+            L.append(
+                f"  Stops when accumulated ≥ {total_target} reps or {params.sets_max} sets reached."
+            )
+
+        # REST
+        L.append(f"\n[bold]REST: {rest} s[/bold]")
+        L.append(
+            f"  {session_type} config: rest [{params.rest_min}–{params.rest_max}] s."
+            f"  rest = ({params.rest_min}+{params.rest_max})//2 = {rest} s."
+        )
+
+        # EXPECTED TM AFTER
+        L.append(f"\n[bold]EXPECTED TM AFTER: {expected_tm_after}[/bold]")
+        L.append(
+            f"  Session {sessions_in_week}/{sessions_per_week} in week"
+            f" → fraction = {week_fraction:.2f}."
+        )
+        L.append(f"  Progression rate at TM {current_tm}: {week_prog:.2f} reps/week.")
+        L.append(f"  Δ TM = {week_prog:.2f} × {week_fraction:.2f} = {week_prog*week_fraction:.2f} reps.")
+        L.append(
+            f"  → int(min({tm_float:.2f} + {week_prog*week_fraction:.2f}, {user_target}))"
+            f" = [bold green]{expected_tm_after}[/bold green]."
+        )
+
+        return "\n".join(L)
+
+    return (
+        f"[yellow]No planned session found for {target_date}.[/yellow]\n"
+        f"Is this date within the {weeks_ahead}-week plan horizon starting {plan_start_date}?"
+    )
 
 
 def estimate_plan_completion_date(

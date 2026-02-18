@@ -180,6 +180,9 @@ def _fmt_actual(session: SessionResult) -> str:
     total = sum(s.actual_reps for s in sets)
     reps_str = "+".join(str(s.actual_reps) for s in sets)
 
+    weights = [s.added_weight_kg for s in sets]
+    weight_str = f" +{weights[0]:.1f}kg" if weights[0] > 0 else ""
+
     # Inter-set rests (rest_seconds_before for sets 2+; include set 1 too)
     rests = [s.rest_seconds_before for s in sets]
     if all(r == rests[0] for r in rests):
@@ -187,7 +190,7 @@ def _fmt_actual(session: SessionResult) -> str:
     else:
         rest_str = ",".join(str(r) for r in rests) + "s"
 
-    return f"{reps_str} = {total} / {rest_str}"
+    return f"{reps_str} = {total}{weight_str} / {rest_str}"
 
 
 def print_unified_plan(

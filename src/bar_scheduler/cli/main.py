@@ -19,9 +19,9 @@ import typer
 from ..core.adaptation import get_training_status
 from ..core.metrics import session_max_reps, training_max_from_baseline
 from ..core.models import SessionResult, SetResult, UserProfile
-from ..core.planner import generate_plan
+from ..core.planner import explain_plan_entry, generate_plan
 from ..io.history_store import HistoryStore, get_default_history_path
-from ..io.serializers import ValidationError, parse_sets_string
+from ..io.serializers import ValidationError, parse_compact_sets, parse_sets_string
 from . import views
 
 # Overperformance: if max reps in session significantly exceeds training max
@@ -56,6 +56,7 @@ def main_callback(ctx: typer.Context) -> None:
         "4": ("plot-max",      "Progress chart"),
         "5": ("status",        "Current status"),
         "6": ("update-weight", "Update bodyweight"),
+        "e": ("explain",       "Explain how a session was planned"),
         "i": ("init",          "Setup / edit profile"),
         "d": ("delete-record", "Delete a session by ID"),
         "0": ("quit",          "Quit"),
@@ -89,9 +90,11 @@ def main_callback(ctx: typer.Context) -> None:
     elif chosen == "status":
         ctx.invoke(status)
     elif chosen == "update-weight":
-        ctx.invoke(update_weight)
+        _menu_update_weight()
+    elif chosen == "explain":
+        _menu_explain()
     elif chosen == "init":
-        ctx.invoke(init)
+        _menu_init()
     elif chosen == "delete-record":
         _menu_delete_record()
 
@@ -198,6 +201,189 @@ def _prompt_baseline(store: HistoryStore, bodyweight_kg: float) -> int | None:
     tm = training_max_from_baseline(max_reps)
     views.print_success(f"Logged baseline: {max_reps} reps. Training max (TM): {tm}.")
     return max_reps
+
+
+def _menu_init() -> None:
+    """Interactive profile setup helper called from the main menu."""
+    store = get_store(None)
+
+    old_profile = store.load_profile()
+    old_bw = store.load_bodyweight()
+
+    views.console.print()
+    views.console.print("[bold]Setup / Edit Profile[/bold]")
+    views.console.print("[dim]Press Enter to keep the current value.[/dim]")
+    views.console.print()
+
+    # Height
+    default_h = old_profile.height_cm if old_profile else 175
+    while True:
+        raw = views.console.input(f"Height cm [{default_h}]: ").strip()
+        if not raw:
+            height_cm = default_h
+            break
+        try:
+            height_cm = int(raw)
+            if height_cm > 0:
+                break
+        except ValueError:
+            pass
+        views.print_error("Enter a positive integer, e.g. 180")
+
+    # Sex
+    default_sex = old_profile.sex if old_profile else "male"
+    while True:
+        raw = views.console.input(f"Sex (male/female) [{default_sex}]: ").strip().lower()
+        if not raw:
+            sex = default_sex
+            break
+        if raw in ("male", "female"):
+            sex = raw
+            break
+        views.print_error("Enter 'male' or 'female'")
+
+    # Days per week
+    default_days = old_profile.preferred_days_per_week if old_profile else 3
+    while True:
+        raw = views.console.input(f"Training days per week (3/4) [{default_days}]: ").strip()
+        if not raw:
+            days_per_week = default_days
+            break
+        try:
+            days_per_week = int(raw)
+            if days_per_week in (3, 4):
+                break
+        except ValueError:
+            pass
+        views.print_error("Enter 3 or 4")
+
+    # Target max reps
+    default_target = old_profile.target_max_reps if old_profile else 30
+    while True:
+        raw = views.console.input(f"Target max reps [{default_target}]: ").strip()
+        if not raw:
+            target_max = default_target
+            break
+        try:
+            target_max = int(raw)
+            if target_max > 0:
+                break
+        except ValueError:
+            pass
+        views.print_error("Enter a positive integer, e.g. 30")
+
+    # Bodyweight
+    default_bw = old_bw if old_bw is not None else 80.0
+    while True:
+        raw = views.console.input(f"Bodyweight kg [{default_bw:.1f}]: ").strip()
+        if not raw:
+            bodyweight_kg = default_bw
+            break
+        try:
+            bodyweight_kg = float(raw)
+            if bodyweight_kg > 0:
+                break
+        except ValueError:
+            pass
+        views.print_error("Enter a positive number, e.g. 82.5")
+
+    profile = UserProfile(
+        height_cm=height_cm,
+        sex=sex,  # type: ignore
+        preferred_days_per_week=days_per_week,
+        target_max_reps=target_max,
+    )
+    store.init()
+    store.save_profile(profile, bodyweight_kg)
+
+    views.console.print()
+    if old_profile is not None:
+        views.console.print("[bold]Profile changes:[/bold]")
+
+        def _chg(label: str, old: object, new: object) -> None:
+            marker = " [green](changed)[/green]" if old != new else ""
+            views.console.print(f"  {label}: {old} → {new}{marker}")
+
+        _chg("Height", f"{old_profile.height_cm} cm", f"{height_cm} cm")
+        _chg("Sex", old_profile.sex, sex)
+        _chg("Days/week", old_profile.preferred_days_per_week, days_per_week)
+        _chg("Target max reps", old_profile.target_max_reps, target_max)
+        old_bw_str = f"{old_bw:.1f} kg" if old_bw is not None else "?"
+        _chg("Bodyweight", old_bw_str, f"{bodyweight_kg:.1f} kg")
+    else:
+        views.print_success(f"Profile saved at {store.profile_path}")
+
+
+def _menu_update_weight() -> None:
+    """Interactive bodyweight update helper called from the main menu."""
+    store = get_store(None)
+    current_bw = store.load_bodyweight()
+    hint = f" [{current_bw:.1f}]" if current_bw is not None else ""
+
+    views.console.print()
+    while True:
+        raw = views.console.input(f"New bodyweight kg{hint}: ").strip()
+        if not raw and current_bw is not None:
+            views.print_info("No change.")
+            return
+        try:
+            bodyweight_kg = float(raw)
+            if bodyweight_kg > 0:
+                break
+        except ValueError:
+            pass
+        views.print_error("Enter a positive number, e.g. 82.5")
+
+    try:
+        store.update_bodyweight(bodyweight_kg)
+        views.print_success(f"Updated bodyweight to {bodyweight_kg:.1f} kg")
+    except Exception as e:
+        views.print_error(str(e))
+
+
+def _menu_explain() -> None:
+    """Interactive explain helper called from the main menu."""
+    from ..core.config import MAX_PLAN_WEEKS
+
+    store = get_store(None)
+    try:
+        user_state = store.load_user_state()
+    except Exception as e:
+        views.print_error(str(e))
+        return
+
+    plan_start_date = store.get_plan_start_date()
+    if plan_start_date is None:
+        if user_state.history:
+            first_dt = datetime.strptime(user_state.history[0].date, "%Y-%m-%d")
+            plan_start_date = (first_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            plan_start_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+
+    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
+    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
+    total_weeks = max(2, min(weeks_since_start + 4, MAX_PLAN_WEEKS * 3))
+
+    views.console.print()
+    date_input = views.console.input("Date to explain (YYYY-MM-DD) or 'next' [next]: ").strip() or "next"
+
+    if date_input.lower() == "next":
+        try:
+            plans = generate_plan(user_state, plan_start_date, total_weeks)
+        except ValueError as e:
+            views.print_error(str(e))
+            return
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        nxt = next((p for p in plans if p.date >= today_str), None)
+        if nxt is None:
+            views.print_error("No upcoming sessions in plan.")
+            return
+        date_input = nxt.date
+
+    result = explain_plan_entry(user_state, plan_start_date, date_input, total_weeks)
+    views.console.print()
+    views.console.print(result)
+    views.console.print()
 
 
 @app.command()
@@ -451,24 +637,95 @@ def plan(
     views.print_unified_plan(timeline, status)
 
 
+@app.command()
+def explain(
+    date: Annotated[
+        str,
+        typer.Argument(
+            help="Date to explain (YYYY-MM-DD) or 'next' for the next upcoming session"
+        ),
+    ],
+    history_path: Annotated[
+        Optional[Path],
+        typer.Option("--history-path", "-p", help="Path to history JSONL file"),
+    ] = None,
+    weeks: Annotated[
+        Optional[int],
+        typer.Option("--weeks", "-w", help="Plan horizon in weeks"),
+    ] = None,
+) -> None:
+    """Show exactly how a planned session's parameters were calculated."""
+    from ..core.config import MAX_PLAN_WEEKS
+
+    store = get_store(history_path)
+
+    try:
+        user_state = store.load_user_state()
+    except FileNotFoundError as e:
+        views.print_error(str(e))
+        views.print_info("Run 'init' first to create profile.")
+        raise typer.Exit(1)
+    except ValidationError as e:
+        views.print_error(f"Invalid data: {e}")
+        raise typer.Exit(1)
+
+    # Resolve plan_start_date (same logic as plan command)
+    plan_start_date = store.get_plan_start_date()
+    if plan_start_date is None:
+        if user_state.history:
+            first_dt = datetime.strptime(user_state.history[0].date, "%Y-%m-%d")
+            plan_start_date = (first_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            plan_start_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+
+    # Compute total weeks (same as plan command)
+    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
+    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
+    weeks_ahead_val = weeks if weeks is not None else 4
+    total_weeks = max(2, min(weeks_since_start + weeks_ahead_val, MAX_PLAN_WEEKS * 3))
+
+    # Resolve "next" → first upcoming planned session date
+    if date.lower() == "next":
+        try:
+            plans = generate_plan(user_state, plan_start_date, total_weeks)
+        except ValueError as e:
+            views.print_error(str(e))
+            raise typer.Exit(1)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        nxt = next((p for p in plans if p.date >= today_str), None)
+        if nxt is None:
+            views.print_error("No upcoming sessions in plan.")
+            raise typer.Exit(1)
+        date = nxt.date
+
+    result = explain_plan_entry(user_state, plan_start_date, date, total_weeks)
+    views.console.print()
+    views.console.print(result)
+    views.console.print()
+
+
 def _interactive_sets() -> str:
     """
     Prompt the user to enter sets one by one.
 
-    Accepted formats per set:
-        8@0/180   reps @ weight / rest  (canonical)
-        8@0       rest defaults to 180 s
-        8 0 180   space-separated reps weight rest
-        8 0       space-separated, rest defaults to 180 s
-        8         bare reps, weight=0, rest=180 s
-    Empty line ends input.
+    Accepts compact plan format on the first entry (before any sets have been entered):
+        4x5 +0.5kg / 240s   → expands to 4 sets of 5 reps, +0.5 kg, 240 s rest
+        4, 3x8 / 60s         → 1 set of 4 + 3 sets of 8, 60 s rest
+
+    Also accepts per-set formats:
+        8@0/180   canonical
+        8 0 180   space-separated
+        8         bare reps, bodyweight, 180 s rest
     """
     views.console.print()
     views.console.print("[bold]Enter sets one per line.[/bold]")
     views.console.print(
-        "  Formats: [cyan]reps@+weight/rest[/cyan] "
-        "or [cyan]reps weight rest[/cyan]"
-        "  e.g. [green]8@0/180[/green]  [green]6@+5/240[/green]  [green]8 0 180[/green]  [green]8[/green]"
+        "  Compact: [cyan]NxM +Wkg / Rs[/cyan]"
+        "  e.g. [green]4x5 +0.5kg / 240s[/green]  [green]5x6 / 120s[/green]"
+    )
+    views.console.print(
+        "  Per-set: [cyan]reps@+weight/rest[/cyan] or [cyan]reps weight rest[/cyan]"
+        "  e.g. [green]8@0/180[/green]  [green]8 0 180[/green]  [green]8[/green]"
     )
     views.console.print("  Press [bold]Enter[/bold] on an empty line when done.\n")
 
@@ -481,11 +738,30 @@ def _interactive_sets() -> str:
                 break
             views.print_warning("Enter at least one set.")
             continue
-        # Quick sanity check: must start with a digit
         if not raw[0].isdigit():
-            views.print_error("Invalid format. Start with reps, e.g. 8@0/180 or 8 0 180")
+            views.print_error("Invalid format. Start with a number, e.g. 4x5 / 240s or 8@0/180")
             continue
-        # Validate immediately — re-prompt on error instead of crashing later
+
+        # When no sets have been entered yet, check for compact plan format.
+        if not parts:
+            compact = parse_compact_sets(raw)
+            if compact is not None and len(compact) > 1:
+                w = compact[0][1]
+                r = compact[0][2]
+                w_str = f" +{w:.1f} kg" if w > 0 else " (bodyweight)"
+                views.console.print(
+                    f"\n  [dim]Compact format — {len(compact)} sets{w_str}, {r}s rest:[/dim]"
+                )
+                for i, entry in enumerate(compact, 1):
+                    views.console.print(f"    Set {i}: {entry[0]} reps")
+                confirm = views.console.input("\n  Accept? [Y/n]: ").strip().lower()
+                if confirm in ("", "y", "yes"):
+                    return raw  # parse_sets_string will expand it
+                views.console.print()
+                views.print_info("Enter sets individually:")
+                continue
+
+        # Per-set validation — re-prompt on error instead of crashing later
         try:
             parse_sets_string(raw)
         except ValidationError as e:
@@ -513,7 +789,7 @@ def log_session(
     ] = None,
     session_type: Annotated[
         Optional[str],
-        typer.Option("--session-type", "-t", help="Session type: S | H | E | T | TEST"),
+        typer.Option("--session-type", "-t", help="Session type: S | H | E | T | M (max test)"),
     ] = None,
     sets: Annotated[
         Optional[str],
@@ -584,9 +860,9 @@ def log_session(
 
     # Session type
     if session_type is None:
-        views.console.print("Session type: [S] Strength  [H] Hypertrophy  [E] Endurance  [T] Technique  [TEST] Max test")
-        valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "test": "TEST",
-                       "S": "S", "H": "H", "E": "E", "T": "T", "TEST": "TEST"}
+        views.console.print("Session type: [S] Strength  [H] Hypertrophy  [E] Endurance  [T] Technique  [M] Max test")
+        valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "m": "TEST",
+                       "S": "S", "H": "H", "E": "E", "T": "T", "M": "TEST", "TEST": "TEST"}
         while True:
             raw = views.console.input("Type [S]: ").strip() or "S"
             session_type = valid_types.get(raw.upper(), valid_types.get(raw))
@@ -605,7 +881,7 @@ def log_session(
         raise typer.Exit(1)
 
     if session_type not in ("S", "H", "E", "T", "TEST"):
-        views.print_error("Session type must be S, H, E, T, or TEST")
+        views.print_error("Session type must be S, H, E, T, or M (max test)")
         raise typer.Exit(1)
 
     if bodyweight_kg <= 0:

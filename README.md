@@ -56,10 +56,27 @@ bar-scheduler plot-max
 | `delete-record N` | Delete history entry #N (shown in plan `#` column) |
 | `status` | Show current training status |
 | `volume` | Show weekly volume chart |
+| `explain DATE` | Step-by-step breakdown of how a session's parameters were calculated |
 
 ## Sets Format
 
-When logging sessions, use either format per set (sets are comma-separated):
+### Compact plan format (recommended)
+
+Copy the `Prescribed` column directly into `--sets` or the interactive prompt:
+
+```
+NxM [+Wkg] [/ Rs]       N sets of M reps, optional weight and rest
+```
+
+Examples:
+- `4x5 +0.5kg / 240s` — 4 sets of 5 reps, +0.5 kg, 240 s rest
+- `5x6 / 120s` — 5 sets of 6 reps, bodyweight, 120 s rest
+- `4x5` — 4 sets of 5 reps, bodyweight, 180 s rest (default)
+- `4, 3x8 / 60s` — 1 set of 4 + 3 sets of 8, 60 s rest
+
+### Per-set format
+
+Comma-separated individual sets (all sets specified independently):
 
 ```
 reps@+weight/rest        canonical
@@ -72,8 +89,7 @@ reps                     bare reps, bodyweight, rest 180 s
 Examples:
 - `8@0/180` or `8 0 180` — 8 reps, bodyweight, 180 s rest
 - `5@+10/240` or `5 10 240` — 5 reps with +10 kg, 240 s rest
-- `8@0/180, 6@0/120, 5@0` — three sets (rest optional on last)
-- `8 0 180, 6 0 120, 5 0` — same in space format
+- `8@0/180, 6@0/120, 5@0` — three sets with individual rests
 
 ## Plan Output
 
@@ -132,6 +148,17 @@ Max Reps Progress (Strict Pull-ups)
 | T | Technique | 2-4 | 60-120 s | pronated → neutral |
 | TEST | Max test | max | 180 s | pronated (fixed) |
 
+## Explain Command
+
+`explain` shows a step-by-step breakdown of every parameter in a planned session:
+
+```bash
+bar-scheduler explain next          # next upcoming session
+bar-scheduler explain 2026-02-22    # specific date
+```
+
+Output includes: session type selection, grip rotation math, TM weekly progression, sets/reps calculation, added weight formula, rest midpoint, and expected TM after the session.
+
 ## Interactive Menu
 
 Running `bar-scheduler` without arguments opens the interactive menu:
@@ -139,10 +166,14 @@ Running `bar-scheduler` without arguments opens the interactive menu:
 ```
 [1] Show plan        [2] Log session
 [3] Show history     [4] Status / plots
+[5] Current status   [6] Update bodyweight
+[e] Explain how a session was planned
 [i] Setup / edit profile
 [d] Delete a session by ID
-[q] Quit
+[0] Quit
 ```
+
+All menu options prompt interactively — no flags required.
 
 Logging a session via the menu walks you through each step interactively.
 

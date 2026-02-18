@@ -9,10 +9,14 @@ Running `bar-scheduler` without arguments opens the interactive menu — the eas
 ```
 [1] Show plan        [2] Log session
 [3] Show history     [4] Status / plots
+[5] Current status   [6] Update bodyweight
+[e] Explain how a session was planned
 [i] Setup / edit profile
 [d] Delete a session by ID
-[q] Quit
+[0] Quit
 ```
+
+All options work interactively — no flags needed. The `[i]` option prompts for each profile field with the current value as default (press Enter to keep it). The `[6]` option prompts for the new weight. The `[e]` option asks for a date or accepts `next`.
 
 ## Initialize a New User
 
@@ -61,8 +65,8 @@ Current status
        Training Log
  ✓  #  Wk  Date        Type  Grip        Prescribed        Actual          TM
  ✓   1   1  2026-02-01  TEST  pronated    1x max reps       10 reps (max)    9
- ✓   2   1  2026-02-04  S     neutral     4x5 +0.0kg / 240s 5+5+5+4 = 19    9
- ✓   3   1  2026-02-06  H     supinated   5x6 / 120s        6+6+6+6+5 = 29  9
+ ✓   2   1  2026-02-04  S     neutral     4x5 +0.0kg / 240s 5+5+5+4 = 19 / 240s   9
+ ✓   3   1  2026-02-06  H     supinated   5x6 / 120s        6+6+6+6+5 = 29 / 120s 9
  >       2  2026-02-08  E     pronated    4, 3×8 / 60s                       9
          2  2026-02-11  S     neutral     4x5 / 240s                         9
          2  2026-02-14  H     pronated    5x6 / 120s                         9
@@ -102,43 +106,63 @@ Max (bodyweight): 5
 
 ### Sets Format
 
-The `--sets` parameter accepts comma-separated sets. Each set can be written in two equivalent ways:
+#### Compact plan format (copy directly from the Prescribed column)
 
 ```
-reps@+weight/rest    canonical format
-reps weight rest     space-separated format
+NxM [+Wkg] [/ Rs]
 ```
 
-Rest can be omitted from any set (defaults to 180 s):
+| Input | Meaning |
+|-------|---------|
+| `4x5 +0.5kg / 240s` | 4 sets × 5 reps, +0.5 kg, 240 s rest |
+| `5x6 / 120s` | 5 sets × 6 reps, bodyweight, 120 s rest |
+| `4x5` | 4 sets × 5 reps, bodyweight, 180 s rest (default) |
+| `4, 3x8 / 60s` | 1 set of 4 reps + 3 sets of 8 reps, 60 s rest |
+
+#### Per-set format (individual sets, comma-separated)
 
 | Input | Meaning |
 |-------|---------|
 | `8@0/180` | 8 reps, bodyweight, 180 s rest |
 | `8 0 180` | same, space format |
 | `5@+10/240` | 5 reps, +10 kg, 240 s rest |
-| `5 10 240` | same, space format |
 | `6@0` or `6 0` or `6` | 6 reps, bodyweight, 180 s rest (default) |
 
-Examples:
 ```bash
-# Three sets, canonical
+# Compact — copy from plan output
+--sets "4x5 +0.5kg / 240s"
+
+# Per-set canonical
 --sets "8@0/180, 6@0/120, 5@0"
 
-# Three sets, space format
+# Per-set space format
 --sets "8 0 180, 6 0 120, 5 0"
-
-# Weighted sets
---sets "5@+10/240, 5@+10/240, 4@+10"
 ```
 
 ### Interactive Logging
 
-Omit `--sets` to be prompted set by set:
+Omit `--sets` to be prompted set by set. On the first prompt you can enter a compact
+expression and it will be expanded with a confirmation:
 
 ```
 Enter sets one per line.
-  Formats: reps@+weight/rest or reps weight rest  e.g. 8@0/180  6@+5/240  8 0 180  8
+  Compact: NxM +Wkg / Rs  e.g. 4x5 +0.5kg / 240s  5x6 / 120s
+  Per-set: reps@+weight/rest or reps weight rest  e.g. 8@0/180  8 0 180  8
 
+  Set 1: 4x5 +0.5kg / 240s
+
+  Compact format — 4 sets +0.5 kg, 240s rest:
+    Set 1: 5 reps
+    Set 2: 5 reps
+    Set 3: 5 reps
+    Set 4: 5 reps
+
+  Accept? [Y/n]: Y
+```
+
+Or enter sets individually:
+
+```
   Set 1: 8 0 180
   Set 2: 6 0 120
   Set 3: 5
@@ -268,6 +292,63 @@ $ bar-scheduler plan --history-path ./my_training/history.jsonl
    ```bash
    bar-scheduler plan -w 8
    ```
+
+## Explain a Planned Session
+
+`explain` prints a step-by-step breakdown of every parameter in a planned session — useful for understanding why the plan prescribes a specific number of sets, reps, weight, and rest.
+
+```bash
+# Explain the next upcoming session
+$ bar-scheduler explain next
+
+# Explain a specific date
+$ bar-scheduler explain 2026-02-22
+```
+
+Example output:
+
+```
+Strength (S) · 2026-02-22 · Week 2, session 2/3
+────────────────────────────────────────────────────
+
+SESSION TYPE
+  3-day schedule: S → H → E (repeating).
+  Week 2, slot 2/3 → S.
+
+GRIP: neutral
+  S sessions rotate: pronated → neutral → supinated (3-step cycle).
+  Sessions before 2026-02-22: 2 S sessions (1 in history, 1 in plan).
+  2 mod 3 = 2 → neutral.
+
+TRAINING MAX: 10
+  Latest TEST: 10 reps on 2026-02-01. Starting TM = floor(0.9 × 10) = 9.
+  Week 1: TM 9.00 + 0.70 = 9.70 (int = 9)
+  Week 2: TM 9.70 + 0.70 = 10.40 (int = 10)
+  → TM for this session: 10.
+
+SETS: 4
+  S config: sets [4–5]. Base = (4+5)//2 = 4.
+  Readiness z-score: +0.15  (thresholds: low=−1.0, high=+1.0).
+  z in [−1.0, +1.0] → no adjustment.
+  → 4 sets.
+
+REPS PER SET: 5
+  S config: fraction [0.50–0.70] of TM, clamped to [4–6].
+  Low  = max(4, int(10 × 0.50)) = 5.
+  High = min(6, int(10 × 0.70)) = 6.
+  Target = (5+6)//2 = 5.
+
+ADDED WEIGHT: 0.5 kg
+  TM = 10 > 9 → weight = (10 − 9) × 0.5 = 0.5 kg (cap 10 kg).
+
+REST: 240 s
+  S config: rest [180–300] s. Midpoint = (180+300)//2 = 240 s.
+
+EXPECTED TM AFTER: 10
+  Progression: 0.70 reps/week × (1/3 week) = 0.23 → int(10.40 + 0.23) = 10.
+```
+
+The `explain` command is also available from the interactive menu via `[e]`.
 
 ## Model Documentation
 
