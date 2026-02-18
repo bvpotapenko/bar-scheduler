@@ -363,3 +363,92 @@ class TestNewFeatures:
         sessions = HistoryStore(history_path).load_history()
         test_sessions = [s for s in sessions if s.session_type == "TEST"]
         assert len(test_sessions) >= 2
+
+
+class TestJSONAndTrajectory:
+    """Tests for --json output and --trajectory flag."""
+
+    def _init(self, history_path):
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+
+    def test_status_json(self, temp_history_dir):
+        """status --json returns valid JSON with expected keys."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+        self._init(history_path)
+
+        result = runner.invoke(app, ["status", "--json", "--history-path", str(history_path)])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "training_max" in data
+        assert "latest_test_max" in data
+        assert "readiness_z_score" in data
+
+    def test_volume_json(self, temp_history_dir):
+        """volume --json returns valid JSON with weeks list."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+        self._init(history_path)
+
+        result = runner.invoke(app, ["volume", "--json", "--history-path", str(history_path)])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "weeks" in data
+        assert isinstance(data["weeks"], list)
+
+    def test_plan_json(self, temp_history_dir):
+        """plan --json returns valid JSON with sessions and plan_changes."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+        self._init(history_path)
+
+        result = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "sessions" in data
+        assert "status" in data
+        assert "plan_changes" in data
+        assert isinstance(data["plan_changes"], list)
+
+    def test_plan_change_notification(self, temp_history_dir):
+        """Running plan twice after a new session shows plan_changes in JSON."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+        self._init(history_path)
+
+        # First plan run seeds the cache
+        runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
+
+        # Log a session so TM/plan may shift
+        runner.invoke(app, [
+            "log-session",
+            "--history-path", str(history_path),
+            "--date", "2026-02-20",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "S",
+            "--sets", "5@0/180",
+        ])
+
+        # Second plan run — plan_changes may or may not be populated, but key must exist
+        result = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "plan_changes" in data
+
+    def test_plot_max_trajectory(self, temp_history_dir):
+        """plot-max --trajectory exits 0 and renders trajectory markers."""
+        history_path = temp_history_dir / "history.jsonl"
+        self._init(history_path)
+
+        result = runner.invoke(app, [
+            "plot-max", "--trajectory", "--history-path", str(history_path)
+        ])
+        assert result.exit_code == 0
+        # Either the trajectory dot character or the legend text should appear
+        assert "·" in result.output or "projected" in result.output

@@ -51,7 +51,7 @@ bar-scheduler plot-max
 | `plan` | Unified history + upcoming plan with progressive TM |
 | `log-session` | Log a completed session |
 | `show-history` | Display training history |
-| `plot-max` | ASCII chart of max reps progress |
+| `plot-max` | ASCII chart of max reps progress (`--trajectory` overlays planned growth line) |
 | `update-weight` | Update current bodyweight |
 | `delete-record N` | Delete history entry #N (shown in plan `#` column) |
 | `status` | Show current training status |
@@ -69,7 +69,7 @@ bar-scheduler show-history --json
 bar-scheduler volume --json
 bar-scheduler plot-max --json
 bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \
-    --grip pronated --session-type S --sets "4x5 / 240s" --json
+    --grip pronated --session-type S --sets "5x4 / 240s" --json
 ```
 
 See [docs/api_info.md](docs/api_info.md) for full JSON schemas and integration examples.
@@ -81,14 +81,14 @@ See [docs/api_info.md](docs/api_info.md) for full JSON schemas and integration e
 Copy the `Prescribed` column directly into `--sets` or the interactive prompt:
 
 ```
-NxM [+Wkg] [/ Rs]       N sets of M reps, optional weight and rest
+NxM [+Wkg] [/ Rs]       N reps × M sets, optional weight and rest
 ```
 
 Examples:
-- `4x5 +0.5kg / 240s` — 4 sets of 5 reps, +0.5 kg, 240 s rest
-- `5x6 / 120s` — 5 sets of 6 reps, bodyweight, 120 s rest
-- `4x5` — 4 sets of 5 reps, bodyweight, 180 s rest (default)
-- `4, 3x8 / 60s` — 1 set of 4 + 3 sets of 8, 60 s rest
+- `5x4 +0.5kg / 240s` — 4 sets of 5 reps, +0.5 kg, 240 s rest
+- `6x5 / 120s` — 5 sets of 6 reps, bodyweight, 120 s rest
+- `5x4` — 4 sets of 5 reps, bodyweight, 180 s rest (default)
+- `4, 3x8 / 60s` — 1 set of 4 + 8 sets of 3, 60 s rest
 
 ### Per-set format
 
@@ -119,18 +119,18 @@ Current status
 
  ✓  #  Wk  Date        Type  Grip        Prescribed          Actual          TM
  ✓   1   1  2026-02-01  TEST  pronated    1x max reps         10 reps (max)    9
- ✓   2   1  2026-02-04  S     neutral     4x5 / 240s          5+5+5+4 = 19     9
- >      2  2026-02-06  H     supinated   5x6 / 120s                           9
+ ✓   2   1  2026-02-04  S     neutral     5x4 / 240s          5+5+5+4 = 19     9
+ >      2  2026-02-06  H     supinated   6x5 / 120s                           9
             2  2026-02-09  E     pronated    4, 3×8 / 60s                          9
 
-Prescribed: 4x5 = 4 sets × 5 reps  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set
+Prescribed: 5x4 = 5 reps × 4 sets  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set
 ```
 
 Columns:
 - **✓ / >** — done / next session
 - **#** — history ID (use with `delete-record N`)
 - **Wk** — week number
-- **Prescribed** — planned sets (`4x5` = 4×5 reps; `4, 3×8 / 60s` = 1×4 + 8×3, 60 s rest)
+- **Prescribed** — planned sets (`5x4` = 5 reps × 4 sets; `4, 3×8 / 60s` = 1×4 + 8×3, 60 s rest)
 - **Actual** — what was actually done
 - **TM** — expected Training Max after this session
 

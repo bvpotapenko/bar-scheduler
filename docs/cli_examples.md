@@ -66,22 +66,22 @@ Current status
        Training Log
  ✓  #  Wk  Date        Type  Grip        Prescribed        Actual          TM
  ✓   1   1  2026-02-01  TEST  pronated    1x max reps       10 reps (max)    9
- ✓   2   1  2026-02-04  S     neutral     4x5 +0.0kg / 240s 5+5+5+4 = 19 / 240s   9
- ✓   3   1  2026-02-06  H     supinated   5x6 / 120s        6+6+6+6+5 = 29 / 120s 9
+ ✓   2   1  2026-02-04  S     neutral     5x4 +0.0kg / 240s 5+5+5+4 = 19 / 240s   9
+ ✓   3   1  2026-02-06  H     supinated   6x5 / 120s        6+6+6+6+5 = 29 / 120s 9
  >       2  2026-02-08  E     pronated    4, 3×8 / 60s                       9
-         2  2026-02-11  S     neutral     4x5 / 240s                         9
-         2  2026-02-14  H     pronated    5x6 / 120s                         9
+         2  2026-02-11  S     neutral     5x4 / 240s                         9
+         2  2026-02-14  H     pronated    6x5 / 120s                         9
          3  2026-02-17  E     supinated   4, 3×8 / 60s                      10
          ...
 
-Prescribed: 4x5 = 4 sets × 5 reps  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set
+Prescribed: 5x4 = 5 reps × 4 sets  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set
 ```
 
 Column guide:
 - **✓ / >** — done / next upcoming session
 - **#** — history ID (use with `delete-record N`)
 - **Wk** — week number in the plan
-- **Prescribed** — planned sets (`4x5` = 4 sets of 5; `4, 3×8 / 60s` = 1×4 + 8×3, 60 s rest)
+- **Prescribed** — planned sets (`5x4` = 5 reps × 4 sets; `4, 3×8 / 60s` = 1×4 + 8×3, 60 s rest)
 - **Actual** — what was logged
 - **TM** — expected Training Max after this session
 
@@ -115,10 +115,10 @@ NxM [+Wkg] [/ Rs]
 
 | Input | Meaning |
 |-------|---------|
-| `4x5 +0.5kg / 240s` | 4 sets × 5 reps, +0.5 kg, 240 s rest |
-| `5x6 / 120s` | 5 sets × 6 reps, bodyweight, 120 s rest |
-| `4x5` | 4 sets × 5 reps, bodyweight, 180 s rest (default) |
-| `4, 3x8 / 60s` | 1 set of 4 reps + 3 sets of 8 reps, 60 s rest |
+| `5x4 +0.5kg / 240s` | 5 reps × 4 sets, +0.5 kg, 240 s rest |
+| `6x5 / 120s` | 6 reps × 5 sets, bodyweight, 120 s rest |
+| `5x4` | 5 reps × 4 sets, bodyweight, 180 s rest (default) |
+| `4, 3x8 / 60s` | 1 set of 4 reps + 8 sets of 3 reps, 60 s rest |
 
 #### Per-set format (individual sets, comma-separated)
 
@@ -131,7 +131,7 @@ NxM [+Wkg] [/ Rs]
 
 ```bash
 # Compact — copy from plan output
---sets "4x5 +0.5kg / 240s"
+--sets "5x4 +0.5kg / 240s"
 
 # Per-set canonical
 --sets "8@0/180, 6@0/120, 5@0"
@@ -147,10 +147,10 @@ expression and it will be expanded with a confirmation:
 
 ```
 Enter sets one per line.
-  Compact: NxM +Wkg / Rs  e.g. 4x5 +0.5kg / 240s  5x6 / 120s
+  Compact: NxM +Wkg / Rs  e.g. 5x4 +0.5kg / 240s  6x5 / 120s
   Per-set: reps@+weight/rest or reps weight rest  e.g. 8@0/180  8 0 180  8
 
-  Set 1: 4x5 +0.5kg / 240s
+  Set 1: 5x4 +0.5kg / 240s
 
   Compact format — 4 sets +0.5 kg, 240s rest:
     Set 1: 5 reps
@@ -214,6 +214,49 @@ Max Reps Progress (Strict Pull-ups)
   8 ● (8)──╯
 ──────────────────────────────────────────────────────────────
     Feb 01   Feb 15   Mar 01   Mar 15   Apr 01   Apr 15
+```
+
+### Trajectory Line
+
+Add `--trajectory` (or `-t`) to overlay a dotted line showing the planned max reps growth from your first test to the goal (30 reps):
+
+```bash
+$ bar-scheduler plot-max --trajectory
+
+Max Reps Progress (Strict Pull-ups)
+──────────────────────────────────────────────────────────────
+ 30 ┤                                         ········· (30)
+ 22 ┤                                      ╭──●
+ 20 ┤                                 ·····╯
+ 16 ┤                     ····╭──● (16)
+ 12 ┤         ····╭──● (12)
+ 10 ┤     ╭───╯
+  8 ● (8)─╯
+──────────────────────────────────────────────────────────────
+    Feb 01   Feb 15   Mar 01
+● actual max reps   · projected trajectory
+```
+
+The trajectory is calculated from your first TEST session using the model's progression formula. It does not change when the plan is recalculated — only future planned sessions change.
+
+## Plan Change Notifications
+
+Every time you run `plan`, bar-scheduler compares the upcoming sessions to the previous run and prints a brief summary of what changed:
+
+```
+Plan updated:
+  2026-02-11 S: 4→5 sets
+  2026-02-17 E: TM 9→10
+```
+
+Changes are detected automatically — no extra flags needed. On the first `plan` run no diff is shown (there is no previous state to compare to).
+
+In JSON mode (`plan --json`) the diff is returned as a `plan_changes` array:
+
+```json
+{
+  "plan_changes": ["2026-02-11 S: 4→5 sets", "2026-02-17 E: TM 9→10"]
+}
 ```
 
 ## Update Bodyweight
@@ -396,7 +439,7 @@ $ bar-scheduler volume --json
 
 # Log a session and capture the summary
 $ bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \
-    --grip pronated --session-type S --sets "4x5 +0.5kg / 240s" --json
+    --grip pronated --session-type S --sets "5x4 +0.5kg / 240s" --json
 {
   "date": "2026-02-18",
   "session_type": "S",

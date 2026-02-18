@@ -556,6 +556,54 @@ def init(
         views.print_info(f"Training max: {tm}")
 
 
+def _session_snapshot(entry) -> dict:
+    """Create a compact plan snapshot dict from a timeline entry (for cache diffing)."""
+    p = entry.planned
+    if p is None:
+        return {}
+    first_set = p.sets[0] if p.sets else None
+    return {
+        "date": p.date,
+        "type": p.session_type,
+        "sets": len(p.sets),
+        "reps": first_set.target_reps if first_set else 0,
+        "weight": first_set.added_weight_kg if first_set else 0.0,
+        "rest": first_set.rest_seconds_before if first_set else 0,
+        "expected_tm": p.expected_tm,
+    }
+
+
+def _diff_plan(old: list[dict], new: list[dict]) -> list[str]:
+    """Compare old and new plan snapshots; return human-readable change strings."""
+    old_idx = {(s["date"], s["type"]): s for s in old if s}
+    new_idx = {(s["date"], s["type"]): s for s in new if s}
+    changes: list[str] = []
+
+    for key, snap in new_idx.items():
+        if key not in old_idx:
+            changes.append(f"New: {snap['date']} {snap['type']}")
+
+    for key, snap in old_idx.items():
+        if key not in new_idx:
+            changes.append(f"Removed: {snap['date']} {snap['type']}")
+
+    for key in sorted(set(old_idx) & set(new_idx)):
+        o, n = old_idx[key], new_idx[key]
+        parts: list[str] = []
+        if o["sets"] != n["sets"]:
+            parts.append(f"{o['sets']}→{n['sets']} sets")
+        if o["reps"] != n["reps"]:
+            parts.append(f"{o['reps']}→{n['reps']} reps")
+        if abs(o.get("weight", 0.0) - n.get("weight", 0.0)) > 0.01:
+            parts.append(f"+{o['weight']:.1f}→+{n['weight']:.1f} kg")
+        if o["expected_tm"] != n["expected_tm"]:
+            parts.append(f"TM {o['expected_tm']}→{n['expected_tm']}")
+        if parts:
+            changes.append(f"{n['date']} {n['type']}: {', '.join(parts)}")
+
+    return changes
+
+
 @app.command()
 def plan(
     weeks: Annotated[
@@ -643,6 +691,16 @@ def plan(
     # Build unified timeline and display
     timeline = views.build_timeline(plans, user_state.history)
 
+    # Plan change detection: diff upcoming sessions vs previous cache
+    old_cache = store.load_plan_cache()
+    new_cache = [
+        _session_snapshot(e)
+        for e in timeline
+        if e.status in ("next", "planned") and e.planned is not None
+    ]
+    plan_changes = _diff_plan(old_cache, new_cache) if old_cache is not None else []
+    store.save_plan_cache(new_cache)
+
     if json_out:
         ff = status.fitness_fatigue_state
         sessions_json = []
@@ -678,8 +736,15 @@ def plan(
                 "readiness_z_score": round(ff.readiness_z_score(), 4),
             },
             "sessions": sessions_json,
+            "plan_changes": plan_changes,
         }, indent=2))
         return
+
+    if plan_changes:
+        views.console.print("[yellow]Plan updated:[/yellow]")
+        for c in plan_changes[:5]:
+            views.console.print(f"  {c}")
+        views.console.print()
 
     views.print_unified_plan(timeline, status)
 
@@ -756,7 +821,7 @@ def _interactive_sets() -> str:
     Prompt the user to enter sets one by one.
 
     Accepts compact plan format on the first entry (before any sets have been entered):
-        4x5 +0.5kg / 240s   → expands to 4 sets of 5 reps, +0.5 kg, 240 s rest
+        5x4 +0.5kg / 240s   → expands to 4 sets of 5 reps, +0.5 kg, 240 s rest
         4, 3x8 / 60s         → 1 set of 4 + 3 sets of 8, 60 s rest
 
     Also accepts per-set formats:
@@ -768,7 +833,7 @@ def _interactive_sets() -> str:
     views.console.print("[bold]Enter sets one per line.[/bold]")
     views.console.print(
         "  Compact: [cyan]NxM +Wkg / Rs[/cyan]"
-        "  e.g. [green]4x5 +0.5kg / 240s[/green]  [green]5x6 / 120s[/green]"
+        "  e.g. [green]5x4 +0.5kg / 240s[/green]  [green]6x5 / 120s[/green]"
     )
     views.console.print(
         "  Per-set: [cyan]reps@+weight/rest[/cyan] or [cyan]reps weight rest[/cyan]"
@@ -1144,10 +1209,18 @@ def plot_max(
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
     ] = False,
+    show_trajectory: Annotated[
+        bool,
+        typer.Option("--trajectory", "-t", help="Overlay projected goal trajectory line"),
+    ] = False,
 ) -> None:
     """
     Display ASCII plot of max reps progress.
+
+    Use --trajectory to overlay a dotted line showing the planned growth
+    from your first test to the target (30 reps).
     """
+    from ..core.config import TARGET_MAX_REPS, TM_FACTOR, expected_reps_per_week
     from ..core.metrics import get_test_sessions, session_max_reps as _max_reps
 
     store = get_store(history_path)
@@ -1163,16 +1236,37 @@ def plot_max(
         views.print_error(str(e))
         raise typer.Exit(1)
 
+    # Compute trajectory if requested
+    traj_points: list[tuple[datetime, float]] | None = None
+    traj_json: list[dict] | None = None
+    if show_trajectory:
+        test_sessions = get_test_sessions(sessions)
+        if test_sessions:
+            first_test = test_sessions[0]
+            start_dt = datetime.strptime(first_test.date, "%Y-%m-%d")
+            initial_tm = training_max_from_baseline(_max_reps(first_test))
+            traj_points = []
+            d, tm_f = start_dt, float(initial_tm)
+            while tm_f < TARGET_MAX_REPS and d <= start_dt + timedelta(weeks=104):
+                traj_points.append((d, tm_f / TM_FACTOR))
+                tm_f = min(tm_f + expected_reps_per_week(int(tm_f)), float(TARGET_MAX_REPS))
+                d += timedelta(weeks=1)
+            traj_points.append((d, float(TARGET_MAX_REPS)))
+            traj_json = [
+                {"date": pt.strftime("%Y-%m-%d"), "projected_max": round(val, 2)}
+                for pt, val in traj_points
+            ]
+
     if json_out:
         data_points = [
             {"date": s.date, "max_reps": _max_reps(s)}
             for s in get_test_sessions(sessions)
             if _max_reps(s) > 0
         ]
-        print(json.dumps({"data_points": data_points}, indent=2))
+        print(json.dumps({"data_points": data_points, "trajectory": traj_json}, indent=2))
         return
 
-    views.print_max_plot(sessions)
+    views.print_max_plot(sessions, trajectory=traj_points)
 
 
 @app.command("update-weight")

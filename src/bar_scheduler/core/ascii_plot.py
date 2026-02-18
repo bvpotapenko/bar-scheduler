@@ -15,6 +15,7 @@ def create_max_reps_plot(
     width: int = 60,
     height: int = 20,
     target: int = 30,
+    trajectory: list[tuple[datetime, float]] | None = None,
 ) -> str:
     """
     Create an ASCII plot of max reps progress over time.
@@ -50,6 +51,13 @@ def create_max_reps_plot(
     # Calculate ranges
     min_date = points[0][0]
     max_date = points[-1][0]
+
+    # Extend x-axis to cover trajectory if provided (trajectory goes into the future)
+    if trajectory:
+        traj_end = trajectory[-1][0]
+        if traj_end > max_date:
+            max_date = traj_end
+
     date_range = (max_date - min_date).days
     if date_range == 0:
         date_range = 1
@@ -79,6 +87,19 @@ def create_max_reps_plot(
         y = int(((reps - y_min) / y_range) * (plot_height - 1))
         y = plot_height - 1 - y  # Flip y-axis
         plot_points.append((x, y, reps))
+
+    # Draw trajectory (planned growth line) as · dots — done before actual points
+    if trajectory:
+        for traj_date, traj_val in trajectory:
+            days_from_start = (traj_date - min_date).days
+            if days_from_start < 0:
+                continue
+            x = int((days_from_start / date_range) * (plot_width - 1)) if date_range > 0 else 0
+            y_raw = (traj_val - y_min) / y_range
+            y = int(plot_height - 1 - y_raw * (plot_height - 1))
+            if 0 <= x < plot_width and 0 <= y < plot_height:
+                if grid[y][x] == " ":
+                    grid[y][x] = "·"
 
     # Draw connecting lines
     for i in range(len(plot_points) - 1):
@@ -150,28 +171,26 @@ def create_max_reps_plot(
     # X-axis
     lines.append("─" * width)
 
-    # X-axis labels (dates)
+    # X-axis labels (dates) — span the full date range including trajectory
     x_labels = "    "
-    if len(points) >= 2:
-        # Show first, middle, and last dates
-        dates_to_show = [
-            (0, points[0][0]),
-            (plot_width // 2, points[len(points) // 2][0]),
-            (plot_width - 10, points[-1][0]),
-        ]
-
-        label_line = [" "] * plot_width
-        for x_pos, date in dates_to_show:
-            date_str = date.strftime("%b %d")
-            for i, c in enumerate(date_str):
-                if 0 <= x_pos + i < plot_width:
-                    label_line[x_pos + i] = c
-
-        x_labels += "".join(label_line)
-    else:
-        x_labels += points[0][0].strftime("%b %d").center(plot_width)
+    mid_date = min_date + (max_date - min_date) / 2
+    dates_to_show = [
+        (0, min_date),
+        (plot_width // 2, mid_date),
+        (plot_width - 10, max_date),
+    ]
+    label_line = [" "] * plot_width
+    for x_pos, date in dates_to_show:
+        date_str = date.strftime("%b %d")
+        for i, c in enumerate(date_str):
+            if 0 <= x_pos + i < plot_width:
+                label_line[x_pos + i] = c
+    x_labels += "".join(label_line)
 
     lines.append(x_labels)
+
+    if trajectory:
+        lines.append("● actual max reps   · projected trajectory")
 
     return "\n".join(lines)
 

@@ -369,16 +369,16 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
 
     Format: [groups] [+Wkg] [/ Rs]
     Each group is either:
-      NxM  (N sets of M reps, any x/X/× accepted)
+      NxM  (N reps × M sets, any x/X/× accepted)
       N    (1 set of N reps — bare integer)
 
     All sets in a compact expression share the same weight and rest.
 
     Examples:
-        "4x5"                → 4 sets of 5 reps, BW, 180s rest
-        "4x5 / 240s"         → 4 sets of 5 reps, BW, 240s rest
-        "4x5 +0.5kg / 240s"  → 4 sets of 5 reps, +0.5 kg, 240s rest
-        "4, 3x8 / 60s"       → 1 set of 4 + 3 sets of 8, BW, 60s rest
+        "5x4"                → 4 sets of 5 reps, BW, 180s rest
+        "5x4 / 240s"         → 4 sets of 5 reps, BW, 240s rest
+        "5x4 +0.5kg / 240s"  → 4 sets of 5 reps, +0.5 kg, 240s rest
+        "4, 3x8 / 60s"       → 1 set of 4 + 8 sets of 3, BW, 60s rest
         "8, 7, 6, 5 / 60s"   → 4 individual sets [8,7,6,5] reps, BW, 60s rest
 
     Returns list of (reps, weight, rest) tuples, or None if format not recognised.
@@ -414,11 +414,11 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
 
     result: list[tuple[int, float, int]] = []
     for group in groups:
-        # NxM / N×M → N sets of M reps
+        # NxM / N×M → N reps × M sets
         m = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", group)
         if m:
-            n_sets = int(m.group(1))
-            n_reps = int(m.group(2))
+            n_reps = int(m.group(1))
+            n_sets = int(m.group(2))
             if n_sets < 1 or n_reps < 0:
                 return None
             for _ in range(n_sets):

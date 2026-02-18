@@ -155,7 +155,7 @@ def _fmt_prescribed(plan: SessionPlan) -> str:
     rest = plan.sets[0].rest_seconds_before
 
     if all(r == reps_list[0] for r in reps_list):
-        base = f"{len(reps_list)}x{reps_list[0]}"
+        base = f"{reps_list[0]}x{len(reps_list)}"
     else:
         counts = Counter(reps_list)
         parts_out = []
@@ -273,7 +273,7 @@ def print_unified_plan(
 
     console.print(table)
     console.print(
-        "[dim]Prescribed: 4x5 = 4 sets × 5 reps  |"
+        "[dim]Prescribed: 5x4 = 5 reps × 4 sets  |"
         "  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set[/dim]"
     )
 
@@ -629,14 +629,18 @@ def format_plan_table_with_marker(
     return table
 
 
-def print_max_plot(sessions: list[SessionResult]) -> None:
+def print_max_plot(
+    sessions: list[SessionResult],
+    trajectory: list[tuple[datetime, float]] | None = None,
+) -> None:
     """
     Print ASCII plot of max reps progress.
 
     Args:
         sessions: Sessions to plot
+        trajectory: Optional list of (date, projected_max) points for overlay
     """
-    plot = create_max_reps_plot(sessions)
+    plot = create_max_reps_plot(sessions, trajectory=trajectory)
     console.print(plot)
 
 

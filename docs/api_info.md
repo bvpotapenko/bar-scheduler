@@ -115,6 +115,7 @@ bar-scheduler plan -w 8 --json
     "deload_recommended": false,
     "readiness_z_score": 0.12
   },
+  "plan_changes": ["2026-02-11 S: 4→5 sets", "2026-02-17 E: TM 9→10"],
   "sessions": [
     {
       "date": "2026-02-01",
@@ -153,6 +154,15 @@ bar-scheduler plan -w 8 --json
 ### `status` fields
 
 Same as `status --json` (without `fitness`/`fatigue`).
+
+### `plan_changes` field
+
+Array of human-readable strings describing what changed vs the previous `plan` run. Empty array `[]` if nothing changed or on the first run. Examples:
+
+- `"New: 2026-02-22 S"` — a new session was added to the plan
+- `"Removed: 2026-02-22 S"` — a session was removed
+- `"2026-02-11 S: 4→5 sets"` — set count changed
+- `"2026-02-11 S: 5→6 reps, TM 9→10"` — multiple fields changed in one session
 
 ### `sessions[]` fields
 
@@ -200,6 +210,7 @@ Returns the raw TEST session data points used by the progress chart.
 
 ```bash
 bar-scheduler plot-max --json
+bar-scheduler plot-max --trajectory --json
 ```
 
 ```json
@@ -208,11 +219,18 @@ bar-scheduler plot-max --json
     { "date": "2026-02-01", "max_reps": 10 },
     { "date": "2026-03-15", "max_reps": 12 },
     { "date": "2026-05-01", "max_reps": 16 }
+  ],
+  "trajectory": [
+    { "date": "2026-02-01", "projected_max": 10.0 },
+    { "date": "2026-02-08", "projected_max": 10.78 },
+    { "date": "2026-02-15", "projected_max": 11.54 }
   ]
 }
 ```
 
-Array is ordered chronologically. Only TEST sessions with at least 1 rep are included.
+`data_points` is ordered chronologically. Only TEST sessions with at least 1 rep are included.
+
+`trajectory` is `null` when `--trajectory` flag is not given. When present, it contains weekly projected max reps from the first test date to the target (30 reps), computed using the model's progression formula.
 
 ---
 
@@ -224,7 +242,7 @@ Log a session and receive a JSON summary. All interactive prompts still run norm
 bar-scheduler log-session \
   --date 2026-02-18 --bodyweight-kg 82 \
   --grip pronated --session-type S \
-  --sets "4x5 +0.5kg / 240s" \
+  --sets "5x4 +0.5kg / 240s" \
   --json
 ```
 

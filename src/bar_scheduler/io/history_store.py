@@ -325,6 +325,33 @@ class HistoryStore:
         del sessions[index]
         self._write_sessions(sessions)
 
+    def load_plan_cache(self) -> list[dict] | None:
+        """
+        Load the previously saved plan snapshot for diffing.
+
+        Returns:
+            List of session snapshot dicts or None if not found
+        """
+        cache_path = self.history_path.parent / "plan_cache.json"
+        if not cache_path.exists():
+            return None
+        try:
+            with open(cache_path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def save_plan_cache(self, sessions: list[dict]) -> None:
+        """
+        Persist upcoming plan sessions for next-run diffing.
+
+        Args:
+            sessions: List of session snapshot dicts
+        """
+        cache_path = self.history_path.parent / "plan_cache.json"
+        with open(cache_path, "w") as f:
+            json.dump(sessions, f, indent=2)
+
     def clear_history(self) -> None:
         """
         Clear all history (dangerous - use with caution).
