@@ -189,8 +189,8 @@ DAY_SPACING: Final[dict[str, int]] = {
 # =============================================================================
 
 TARGET_MAX_REPS: Final[int] = 30
-DELTA_PROGRESSION_MIN: Final[float] = 0.1  # Min reps/week progression
-DELTA_PROGRESSION_MAX: Final[float] = 0.6  # Max reps/week progression
+DELTA_PROGRESSION_MIN: Final[float] = 0.3  # Min reps/week progression
+DELTA_PROGRESSION_MAX: Final[float] = 1.0  # Max reps/week progression
 ETA_PROGRESSION: Final[float] = 1.5  # Nonlinear progression exponent
 
 # =============================================================================

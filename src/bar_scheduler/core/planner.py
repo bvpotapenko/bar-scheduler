@@ -135,9 +135,9 @@ def calculate_set_prescription(
     # Calculate number of sets (middle of range)
     base_sets = (params.sets_min + params.sets_max) // 2
 
-    # Apply autoregulation only when we have enough history (3+ sessions)
+    # Apply autoregulation only when we have enough history (5+ sessions)
     # to properly calibrate the fitness-fatigue model
-    if history_sessions >= 3:
+    if history_sessions >= 5:
         adj_sets, adj_reps = apply_autoregulation(base_sets, target_reps, ff_state)
     else:
         adj_sets, adj_reps = base_sets, target_reps
@@ -168,11 +168,12 @@ def calculate_set_prescription(
 
     elif session_type == "S":
         # Strength: potentially weighted
-        # Only add weight if training max is high enough
+        # Weight increases 0.5 kg per TM point above 9, capped at 10 kg
         added_weight = 0.0
-        if training_max >= 10:
-            # Add modest weight to bring reps into target range
-            added_weight = 5.0 if training_max >= 12 else 2.5
+        if training_max > 9:
+            raw = (training_max - 9) * 0.5
+            added_weight = round(raw * 2) / 2  # round to nearest 0.5 kg
+            added_weight = min(added_weight, 10.0)
 
         for i in range(adj_sets):
             sets.append(
@@ -199,15 +200,22 @@ def calculate_set_prescription(
     return sets
 
 
+# Grip rotation cycles per session type.
+# E and TEST are always pronated for consistency/safety.
+_GRIP_CYCLE: dict[str, list[str]] = {
+    "S": ["pronated", "neutral", "supinated"],
+    "H": ["pronated", "neutral", "supinated"],
+    "T": ["pronated", "neutral"],
+    "E": ["pronated"],
+    "TEST": ["pronated"],
+}
+
+
 def select_grip(session_type: SessionType, history: list[SessionResult]) -> Grip:
     """
-    Select appropriate grip for a session.
+    Select appropriate grip for a session (used for one-off lookups).
 
-    - S: pronated (standard)
-    - H: alternate between neutral and pronated
-    - E: pronated
-    - T: pronated
-    - TEST: pronated
+    For plan generation use _init_grip_counts + _next_grip instead.
 
     Args:
         session_type: Session type
@@ -216,15 +224,25 @@ def select_grip(session_type: SessionType, history: list[SessionResult]) -> Grip
     Returns:
         Selected grip
     """
-    if session_type in ("S", "E", "T", "TEST"):
-        return "pronated"
+    cycle = _GRIP_CYCLE.get(session_type, ["pronated"])
+    count = sum(1 for s in history if s.session_type == session_type)
+    return cycle[count % len(cycle)]  # type: ignore
 
-    # H sessions: alternate
-    h_sessions = [s for s in history if s.session_type == "H"]
-    if h_sessions and h_sessions[-1].grip == "pronated":
-        return "neutral"
 
-    return "pronated"
+def _init_grip_counts(history: list[SessionResult]) -> dict[str, int]:
+    """Count past sessions of each type from history (for grip rotation)."""
+    counts: dict[str, int] = {}
+    for s in history:
+        counts[s.session_type] = counts.get(s.session_type, 0) + 1
+    return counts
+
+
+def _next_grip(session_type: str, counts: dict[str, int]) -> str:
+    """Return next grip for session_type and advance the counter."""
+    cycle = _GRIP_CYCLE.get(session_type, ["pronated"])
+    grip = cycle[counts.get(session_type, 0) % len(cycle)]
+    counts[session_type] = counts.get(session_type, 0) + 1
+    return grip
 
 
 def create_synthetic_test_session(
@@ -338,6 +356,10 @@ def generate_plan(
     sessions_in_week = 0
     sessions_per_week = user_state.profile.preferred_days_per_week
 
+    # Grip rotation: initialise counters from history so planned sessions
+    # continue the rotation seamlessly from where history left off.
+    grip_counts = _init_grip_counts(history)
+
     for date, session_type in session_dates:
         date_str = date.strftime("%Y-%m-%d")
 
@@ -353,8 +375,8 @@ def generate_plan(
         # Use integer TM for prescriptions
         current_tm = int(tm_float)
 
-        # Select grip
-        grip = select_grip(session_type, history)  # type: ignore
+        # Select grip via rotation (advances counter for this session type)
+        grip = _next_grip(session_type, grip_counts)  # type: ignore
 
         # Calculate sets based on current TM
         sets = calculate_set_prescription(

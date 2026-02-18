@@ -73,6 +73,37 @@ class HistoryStore:
         except (json.JSONDecodeError, ValidationError, KeyError):
             return None
 
+    def get_plan_start_date(self) -> str | None:
+        """
+        Get the plan start date from profile.json.
+
+        Returns:
+            ISO date string or None if not set
+        """
+        if not self.profile_path.exists():
+            return None
+        try:
+            with open(self.profile_path, "r") as f:
+                data = json.load(f)
+            return data.get("plan_start_date")
+        except (json.JSONDecodeError, KeyError):
+            return None
+
+    def set_plan_start_date(self, date: str) -> None:
+        """
+        Store the plan start date in profile.json.
+
+        Args:
+            date: ISO date string (YYYY-MM-DD)
+        """
+        if not self.profile_path.exists():
+            return
+        with open(self.profile_path, "r") as f:
+            data = json.load(f)
+        data["plan_start_date"] = date
+        with open(self.profile_path, "w") as f:
+            json.dump(data, f, indent=2)
+
     def save_profile(self, profile: UserProfile, bodyweight_kg: float) -> None:
         """
         Save user profile to profile.json.
@@ -277,6 +308,22 @@ class HistoryStore:
         return [
             s for s in sessions if datetime.strptime(s.date, "%Y-%m-%d") > target
         ]
+
+    def delete_session_at(self, index: int) -> None:
+        """
+        Delete the session at the given 0-based index in sorted history.
+
+        Args:
+            index: 0-based index
+
+        Raises:
+            IndexError: If index is out of range
+        """
+        sessions = self.load_history()
+        if index < 0 or index >= len(sessions):
+            raise IndexError(f"Session index {index} out of range (0–{len(sessions) - 1})")
+        del sessions[index]
+        self._write_sessions(sessions)
 
     def clear_history(self) -> None:
         """

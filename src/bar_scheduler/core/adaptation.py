@@ -320,7 +320,7 @@ def apply_autoregulation(
 
     if z < READINESS_Z_LOW:
         # Reduce sets, keep reps
-        adjusted_sets = max(2, int(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
+        adjusted_sets = max(3, int(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
         return (adjusted_sets, base_reps)
 
     if z > READINESS_Z_HIGH:

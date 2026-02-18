@@ -360,15 +360,26 @@ def json_line_to_session(line: str) -> SessionResult:
     return dict_to_session_result(data)
 
 
+_DEFAULT_REST_SECONDS = 180  # Used when rest is omitted from a set
+
+
 def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
     """
-    Parse a sets string in format: reps@+kg/rest,reps@+kg/rest,...
+    Parse a sets string.
 
-    Rest can be omitted for the last set (defaults to 0).
+    Accepted formats per set (comma-separated):
+        reps@+kg/rest   e.g. "8@0/180"   canonical
+        reps@+kg        e.g. "8@0"        rest defaults to 180 s
+        reps kg rest    e.g. "8 0 180"    space-separated
+        reps kg         e.g. "8 0"        space, rest defaults to 180 s
+        reps            e.g. "8"          bare int, weight=0, rest=180 s
+
+    Rest can be omitted from any set; defaults to 180 s.
 
     Examples:
-        "8@0/180,6@0/120,6@0/120,5@0/120"
-        "6@0/60,5@0/60,6@0"  # last set without rest
+        "8@0/180,6@0/120,5@0"
+        "8 0 180, 6 0 120, 5 0"
+        "15@10/240, 1@0"
 
     Args:
         sets_str: Sets string to parse
@@ -385,27 +396,44 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
     sets: list[tuple[int, float, int]] = []
     parts = [p.strip() for p in sets_str.split(",") if p.strip()]
 
-    for i, part in enumerate(parts):
-        is_last = i == len(parts) - 1
+    for part in parts:
+        # Try formats in priority order:
+        # 1. reps@+weight/rest  (canonical with rest)
+        # 2. reps@+weight       (canonical, rest omitted)
+        # 3. reps weight rest   (space-separated)
+        # 4. reps weight        (space-separated, rest omitted)
+        # 5. reps               (bare integer, weight=0)
+        match_at_rest = re.match(r"^(\d+)@\+?(-?\d+\.?\d*)/(\d+)$", part)
+        match_at = re.match(r"^(\d+)@\+?(-?\d+\.?\d*)$", part)
+        match_sp_rest = re.match(r"^(\d+)\s+(\+?-?\d+\.?\d*)\s+(\d+)$", part)
+        match_sp = re.match(r"^(\d+)\s+(\+?-?\d+\.?\d*)$", part)
+        match_bare = re.match(r"^(\d+)$", part)
 
-        # Parse: reps@weight/rest or reps@weight (rest optional for last set)
-        # Weight can be: 0, +0, +5, +10.5, etc.
-        match_with_rest = re.match(r"^(\d+)@\+?(-?\d+\.?\d*)/(\d+)$", part)
-        match_no_rest = re.match(r"^(\d+)@\+?(-?\d+\.?\d*)$", part)
-
-        if match_with_rest:
-            reps = int(match_with_rest.group(1))
-            weight = float(match_with_rest.group(2))
-            rest = int(match_with_rest.group(3))
-        elif match_no_rest and is_last:
-            # Allow omitting rest for last set
-            reps = int(match_no_rest.group(1))
-            weight = float(match_no_rest.group(2))
-            rest = 0
+        if match_at_rest:
+            reps = int(match_at_rest.group(1))
+            weight = float(match_at_rest.group(2))
+            rest = int(match_at_rest.group(3))
+        elif match_at:
+            reps = int(match_at.group(1))
+            weight = float(match_at.group(2))
+            rest = _DEFAULT_REST_SECONDS
+        elif match_sp_rest:
+            reps = int(match_sp_rest.group(1))
+            weight = float(match_sp_rest.group(2))
+            rest = int(match_sp_rest.group(3))
+        elif match_sp:
+            reps = int(match_sp.group(1))
+            weight = float(match_sp.group(2))
+            rest = _DEFAULT_REST_SECONDS
+        elif match_bare:
+            reps = int(match_bare.group(1))
+            weight = 0.0
+            rest = _DEFAULT_REST_SECONDS
         else:
             raise ValidationError(
-                f"Invalid set format: '{part}'. Expected format: reps@+kg/rest (e.g., 8@0/180 or 6@+5/120). "
-                f"Rest can be omitted for the last set only."
+                f"Invalid set format: '{part}'.\n"
+                f"Use: reps@weight/rest (e.g. 8@0/180), reps@weight (e.g. 6@+5),\n"
+                f"     or space-separated: reps weight rest (e.g. 8 0 180)."
             )
 
         if reps < 0:

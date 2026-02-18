@@ -31,8 +31,69 @@ OVERPERFORMANCE_REP_THRESHOLD = 2  # reps above TM to suggest TEST
 app = typer.Typer(
     name="bar-scheduler",
     help="Evidence-informed pull-up training planner to reach 30 strict pull-ups.",
-    no_args_is_help=True,
+    no_args_is_help=False,
+    invoke_without_command=True,
 )
+
+
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context) -> None:
+    """
+    Pull-up training planner. Run without a command for interactive mode.
+    """
+    if ctx.invoked_subcommand is not None:
+        return  # A sub-command was given — let it handle things
+
+    # ── Interactive main menu ───────────────────────────────────────────────
+    views.console.print()
+    views.console.print("[bold cyan]bar-scheduler[/bold cyan] — pull-up training planner")
+    views.console.print()
+
+    menu = {
+        "1": ("plan",          "Show training log & plan"),
+        "2": ("log-session",   "Log today's session"),
+        "3": ("show-history",  "Show full history"),
+        "4": ("plot-max",      "Progress chart"),
+        "5": ("status",        "Current status"),
+        "6": ("update-weight", "Update bodyweight"),
+        "i": ("init",          "Setup / edit profile"),
+        "d": ("delete-record", "Delete a session by ID"),
+        "0": ("quit",          "Quit"),
+    }
+
+    for key, (_, desc) in menu.items():
+        views.console.print(f"  \\[{key}] {desc}")
+
+    views.console.print()
+    choice = views.console.input("Choose [1]: ").strip() or "1"
+
+    if choice == "0":
+        raise typer.Exit(0)
+
+    cmd_map = {k: v[0] for k, v in menu.items()}
+    chosen = cmd_map.get(choice)
+
+    if chosen is None:
+        views.print_error(f"Unknown choice: {choice}")
+        raise typer.Exit(1)
+
+    # Invoke the chosen sub-command via typer
+    if chosen == "plan":
+        ctx.invoke(plan)
+    elif chosen == "log-session":
+        ctx.invoke(log_session)
+    elif chosen == "show-history":
+        ctx.invoke(show_history)
+    elif chosen == "plot-max":
+        ctx.invoke(plot_max)
+    elif chosen == "status":
+        ctx.invoke(status)
+    elif chosen == "update-weight":
+        ctx.invoke(update_weight)
+    elif chosen == "init":
+        ctx.invoke(init)
+    elif chosen == "delete-record":
+        _menu_delete_record()
 
 
 def get_store(history_path: Path | None) -> HistoryStore:
@@ -40,6 +101,103 @@ def get_store(history_path: Path | None) -> HistoryStore:
     if history_path is None:
         history_path = get_default_history_path()
     return HistoryStore(history_path)
+
+
+def _menu_delete_record() -> None:
+    """Interactive delete-session helper called from the main menu."""
+    store = get_store(None)
+    try:
+        sessions = store.load_history()
+    except Exception as e:
+        views.print_error(str(e))
+        return
+
+    if not sessions:
+        views.print_info("No sessions to delete.")
+        return
+
+    views.print_history(sessions)
+
+    while True:
+        raw = views.console.input("Delete session # (Enter to cancel): ").strip()
+        if not raw:
+            views.print_info("Cancelled.")
+            return
+        try:
+            record_id = int(raw)
+        except ValueError:
+            views.print_error("Enter a number")
+            continue
+
+        if record_id < 1 or record_id > len(sessions):
+            views.print_error(f"Enter a number between 1 and {len(sessions)}")
+            continue
+
+        target = sessions[record_id - 1]
+        if views.confirm_action(f"Delete {target.date} ({target.session_type})?"):
+            store.delete_session_at(record_id - 1)
+            views.print_success(
+                f"Deleted session #{record_id}: {target.date} ({target.session_type})"
+            )
+        else:
+            views.print_info("Cancelled.")
+        return
+
+
+def _prompt_baseline(store: HistoryStore, bodyweight_kg: float) -> int | None:
+    """
+    Prompt user to enter their baseline max pull-ups when no history exists.
+
+    Logs a TEST session and returns the rep count, or None if cancelled.
+    """
+    views.console.print()
+    views.print_warning("No training history yet.")
+    views.console.print(
+        "\nTo generate a plan we need your current pull-up max.\n"
+        "  [1] I know my max reps — enter it now\n"
+        "  [2] I'm a beginner — use 1 rep as a starting point\n"
+        "  [3] Cancel"
+    )
+    choice = views.console.input("\nChoice [1]: ").strip() or "1"
+
+    if choice == "3":
+        return None
+
+    if choice == "2":
+        max_reps = 1
+    else:
+        while True:
+            raw = views.console.input("Your current max pull-ups (strict, full ROM): ").strip()
+            try:
+                max_reps = int(raw)
+                if max_reps < 1:
+                    raise ValueError
+                break
+            except ValueError:
+                views.print_error("Enter a whole number ≥ 1")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    test_set = SetResult(
+        target_reps=max_reps,
+        actual_reps=max_reps,
+        rest_seconds_before=180,
+        added_weight_kg=0.0,
+        rir_target=0,
+        rir_reported=0,
+    )
+    session = SessionResult(
+        date=today,
+        bodyweight_kg=bodyweight_kg,
+        grip="pronated",
+        session_type="TEST",
+        planned_sets=[test_set],
+        completed_sets=[test_set],
+        notes="Baseline max test (entered during plan setup)",
+    )
+    store.append_session(session)
+    tm = training_max_from_baseline(max_reps)
+    views.print_success(f"Logged baseline: {max_reps} reps. Training max (TM): {tm}.")
+    return max_reps
 
 
 @app.command()
@@ -129,6 +287,19 @@ def init(
                 views.print_success(f"Backed up existing history to {backup_path}")
                 existing_sessions = 0
             # choice == "1" means keep existing, just update profile
+            # Capture old profile before overwriting (for change display)
+            if choice not in ("2", "3", ""):
+                old_profile = store.load_profile()
+                old_bw = store.load_bodyweight()
+            else:
+                old_profile = None
+                old_bw = None
+        else:
+            old_profile = None
+            old_bw = None
+    else:
+        old_profile = None
+        old_bw = None
 
     # Create profile
     profile = UserProfile(
@@ -145,13 +316,32 @@ def init(
     if existing_sessions > 0:
         views.print_success(f"Updated profile at {store.profile_path}")
         views.print_info(f"Kept existing history with {existing_sessions} sessions")
+        if old_profile is not None:
+            views.console.print()
+            views.console.print("[bold]Profile changes:[/bold]")
+
+            def _chg(label: str, old: object, new: object) -> None:
+                marker = " [green](changed)[/green]" if old != new else ""
+                views.console.print(f"  {label}: {old} → {new}{marker}")
+
+            _chg("Height", f"{old_profile.height_cm} cm", f"{height_cm} cm")
+            _chg("Sex", old_profile.sex, sex)
+            _chg("Days/week", old_profile.preferred_days_per_week, days_per_week)
+            _chg("Target max reps", old_profile.target_max_reps, target_max)
+            old_bw_str = f"{old_bw:.1f} kg" if old_bw is not None else "?"
+            _chg("Bodyweight", old_bw_str, f"{bodyweight_kg:.1f} kg")
     else:
         views.print_success(f"Initialized profile at {store.profile_path}")
         views.print_success(f"History file: {store.history_path}")
 
+    # Set plan start date (2 days from today, the first training day)
+    today = datetime.now()
+    plan_start = (today + timedelta(days=2)).strftime("%Y-%m-%d")
+    store.set_plan_start_date(plan_start)
+
     if baseline_max is not None:
         # Log a baseline test session
-        today = datetime.now().strftime("%Y-%m-%d")
+        today_str = today.strftime("%Y-%m-%d")
         test_set = SetResult(
             target_reps=baseline_max,
             actual_reps=baseline_max,
@@ -161,7 +351,7 @@ def init(
             rir_reported=0,
         )
         session = SessionResult(
-            date=today,
+            date=today_str,
             bodyweight_kg=bodyweight_kg,
             grip="pronated",
             session_type="TEST",
@@ -178,13 +368,9 @@ def init(
 
 @app.command()
 def plan(
-    start_date: Annotated[
-        Optional[str],
-        typer.Option("--start-date", help="Start date (YYYY-MM-DD, default: after last session)"),
-    ] = None,
     weeks: Annotated[
         Optional[int],
-        typer.Option("--weeks", "-w", help="Number of weeks to plan"),
+        typer.Option("--weeks", "-w", help="Number of weeks to show ahead (default: 4)"),
     ] = None,
     history_path: Annotated[
         Optional[Path],
@@ -194,16 +380,13 @@ def plan(
         Optional[int],
         typer.Option("--baseline-max", "-b", help="Baseline max reps (if no history)"),
     ] = None,
-    show_history: Annotated[
-        int,
-        typer.Option("--history", "-H", help="Show N recent sessions from history"),
-    ] = 5,
 ) -> None:
     """
-    Generate and display a training plan.
+    Show the full training log: past results + upcoming plan in one view.
 
-    Shows current status, recent history, and upcoming sessions.
-    Highlights where you are now based on last logged session.
+    Past sessions show what was planned vs what was actually done.
+    Future sessions show what is prescribed next.
+    The > marker shows your next session.
     """
     store = get_store(history_path)
 
@@ -222,23 +405,36 @@ def plan(
         views.print_error(f"Invalid data: {e}")
         raise typer.Exit(1)
 
-    # Smart start date: if history exists, start after last session
-    if start_date is None:
-        if user_state.history:
-            last_session_date = user_state.history[-1].date
-            last_dt = datetime.strptime(last_session_date, "%Y-%m-%d")
-            # Start 2 days after last session (minimum recovery)
-            start_date = (last_dt + timedelta(days=2)).strftime("%Y-%m-%d")
-        else:
-            start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    # Check if we have history or baseline
     if not user_state.history and baseline_max is None:
-        views.print_error("No history available. Provide --baseline-max or log a TEST session.")
-        raise typer.Exit(1)
+        baseline_max = _prompt_baseline(store, user_state.current_bodyweight_kg)
+        if baseline_max is None:
+            raise typer.Exit(0)
+        # Reload state now that the baseline TEST session has been logged
+        user_state = store.load_user_state()
+
+    # Determine where the plan started (set by init; fall back to first history date)
+    plan_start_date = store.get_plan_start_date()
+    if plan_start_date is None:
+        if user_state.history:
+            # Fall back: use the day after first history entry
+            first_dt = datetime.strptime(user_state.history[0].date, "%Y-%m-%d")
+            plan_start_date = (first_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            plan_start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Generate plan from plan_start_date for enough weeks to cover history + ahead
+    # Calculate how many weeks since plan start to cover history
+    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
+    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
+    weeks_ahead = weeks if weeks is not None else 4
+    total_weeks = weeks_since_start + weeks_ahead
+
+    # Clamp to reasonable range
+    from ..core.config import MAX_PLAN_WEEKS
+    total_weeks = max(2, min(total_weeks, MAX_PLAN_WEEKS * 3))
 
     try:
-        plans = generate_plan(user_state, start_date, weeks, baseline_max)
+        plans = generate_plan(user_state, plan_start_date, total_weeks, baseline_max)
     except ValueError as e:
         views.print_error(str(e))
         raise typer.Exit(1)
@@ -250,36 +446,79 @@ def plan(
         baseline_max,
     )
 
-    # Show recent history if available
-    if show_history > 0 and user_state.history:
-        recent_history = user_state.history[-show_history:]
-        views.print_recent_history(recent_history)
+    # Build unified timeline and display
+    timeline = views.build_timeline(plans, user_state.history)
+    views.print_unified_plan(timeline, status)
 
-    views.print_plan_with_context(plans, status, weeks, user_state.history)
+
+def _interactive_sets() -> str:
+    """
+    Prompt the user to enter sets one by one.
+
+    Accepted formats per set:
+        8@0/180   reps @ weight / rest  (canonical)
+        8@0       rest defaults to 180 s
+        8 0 180   space-separated reps weight rest
+        8 0       space-separated, rest defaults to 180 s
+        8         bare reps, weight=0, rest=180 s
+    Empty line ends input.
+    """
+    views.console.print()
+    views.console.print("[bold]Enter sets one per line.[/bold]")
+    views.console.print(
+        "  Formats: [cyan]reps@+weight/rest[/cyan] "
+        "or [cyan]reps weight rest[/cyan]"
+        "  e.g. [green]8@0/180[/green]  [green]6@+5/240[/green]  [green]8 0 180[/green]  [green]8[/green]"
+    )
+    views.console.print("  Press [bold]Enter[/bold] on an empty line when done.\n")
+
+    parts: list[str] = []
+    set_num = 1
+    while True:
+        raw = views.console.input(f"  Set {set_num}: ").strip()
+        if not raw:
+            if parts:
+                break
+            views.print_warning("Enter at least one set.")
+            continue
+        # Quick sanity check: must start with a digit
+        if not raw[0].isdigit():
+            views.print_error("Invalid format. Start with reps, e.g. 8@0/180 or 8 0 180")
+            continue
+        # Validate immediately — re-prompt on error instead of crashing later
+        try:
+            parse_sets_string(raw)
+        except ValidationError as e:
+            views.print_error(str(e))
+            continue
+        parts.append(raw)
+        set_num += 1
+
+    return ", ".join(parts)
 
 
 @app.command("log-session")
 def log_session(
     date: Annotated[
-        str,
-        typer.Option("--date", "-d", help="Session date (YYYY-MM-DD)"),
-    ],
+        Optional[str],
+        typer.Option("--date", "-d", help="Session date (YYYY-MM-DD, default: today)"),
+    ] = None,
     bodyweight_kg: Annotated[
-        float,
+        Optional[float],
         typer.Option("--bodyweight-kg", "-w", help="Bodyweight in kg"),
-    ],
+    ] = None,
     grip: Annotated[
-        str,
-        typer.Option("--grip", "-g", help="Grip type (pronated/supinated/neutral)"),
-    ],
+        Optional[str],
+        typer.Option("--grip", "-g", help="Grip type: pronated | supinated | neutral"),
+    ] = None,
     session_type: Annotated[
-        str,
-        typer.Option("--session-type", "-t", help="Session type (S/H/E/T/TEST)"),
-    ],
+        Optional[str],
+        typer.Option("--session-type", "-t", help="Session type: S | H | E | T | TEST"),
+    ] = None,
     sets: Annotated[
-        str,
-        typer.Option("--sets", "-s", help="Sets: reps@+kg/rest,reps@+kg/rest,... (e.g., 8@0/180,6@0/120)"),
-    ],
+        Optional[str],
+        typer.Option("--sets", "-s", help="Sets: reps@+kg/rest,... e.g. 8@0/180,6@0"),
+    ] = None,
     history_path: Annotated[
         Optional[Path],
         typer.Option("--history-path", "-p", help="Path to history JSONL file"),
@@ -292,8 +531,11 @@ def log_session(
     """
     Log a completed training session.
 
-    Sets format: reps@+kg/rest,reps@+kg/rest,...
-    Example: 8@0/180,6@0/120,6@0/120,5@0/120
+    Run without options for interactive step-by-step entry.
+    Or supply all options for one-liner use:
+
+      bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \\
+        --grip pronated --session-type S --sets "8@0/180,6@0/120,6@0"
     """
     store = get_store(history_path)
 
@@ -302,9 +544,64 @@ def log_session(
         views.print_info("Run 'init' first to create profile and history.")
         raise typer.Exit(1)
 
-    # Validate inputs
+    # ── Interactive prompts for missing values ──────────────────────────────
+
+    # Date
+    if date is None:
+        default_date = datetime.now().strftime("%Y-%m-%d")
+        raw = views.console.input(f"Date [{default_date}]: ").strip()
+        date = raw if raw else default_date
+
+    # Bodyweight
+    if bodyweight_kg is None:
+        # Try to use last known bodyweight as default
+        saved_bw = store.load_bodyweight()
+        bw_hint = f" [{saved_bw:.1f}]" if saved_bw else ""
+        while True:
+            raw = views.console.input(f"Bodyweight kg{bw_hint}: ").strip()
+            if not raw and saved_bw:
+                bodyweight_kg = saved_bw
+                break
+            try:
+                bodyweight_kg = float(raw)
+                if bodyweight_kg <= 0:
+                    raise ValueError
+                break
+            except ValueError:
+                views.print_error("Enter a positive number, e.g. 82.5")
+
+    # Grip
+    if grip is None:
+        views.console.print("Grip: [1] pronated  [2] neutral  [3] supinated")
+        grip_map = {"1": "pronated", "2": "neutral", "3": "supinated",
+                    "pronated": "pronated", "neutral": "neutral", "supinated": "supinated"}
+        while True:
+            raw = views.console.input("Grip [1]: ").strip() or "1"
+            grip = grip_map.get(raw.lower())
+            if grip:
+                break
+            views.print_error("Choose 1, 2, 3 or type pronated/neutral/supinated")
+
+    # Session type
+    if session_type is None:
+        views.console.print("Session type: [S] Strength  [H] Hypertrophy  [E] Endurance  [T] Technique  [TEST] Max test")
+        valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "test": "TEST",
+                       "S": "S", "H": "H", "E": "E", "T": "T", "TEST": "TEST"}
+        while True:
+            raw = views.console.input("Type [S]: ").strip() or "S"
+            session_type = valid_types.get(raw.upper(), valid_types.get(raw))
+            if session_type:
+                break
+            views.print_error("Choose S, H, E, T, or TEST")
+
+    # Sets
+    if sets is None:
+        sets = _interactive_sets()
+
+    # ── Validate all inputs ─────────────────────────────────────────────────
+
     if grip not in ("pronated", "supinated", "neutral"):
-        views.print_error("Grip must be 'pronated', 'supinated', or 'neutral'")
+        views.print_error("Grip must be pronated, supinated, or neutral")
         raise typer.Exit(1)
 
     if session_type not in ("S", "H", "E", "T", "TEST"):
@@ -315,27 +612,26 @@ def log_session(
         views.print_error("Bodyweight must be positive")
         raise typer.Exit(1)
 
-    # Parse sets
     try:
         parsed_sets = parse_sets_string(sets)
     except ValidationError as e:
         views.print_error(f"Invalid sets format: {e}")
         raise typer.Exit(1)
 
-    # Create set results
+    # ── Build and save session ──────────────────────────────────────────────
+
     set_results: list[SetResult] = []
     for reps, weight, rest in parsed_sets:
         set_result = SetResult(
             target_reps=reps,
-            actual_reps=reps,  # Logged sessions have actual = target
+            actual_reps=reps,
             rest_seconds_before=rest,
             added_weight_kg=weight,
-            rir_target=2,  # Default
+            rir_target=2,
             rir_reported=None,
         )
         set_results.append(set_result)
 
-    # Create session
     session = SessionResult(
         date=date,
         bodyweight_kg=bodyweight_kg,
@@ -352,44 +648,78 @@ def log_session(
         views.print_error(f"Invalid session data: {e}")
         raise typer.Exit(1)
 
+    # Auto-update profile bodyweight if it changed
+    try:
+        saved_bw = store.load_bodyweight()
+        if saved_bw is None or abs(bodyweight_kg - saved_bw) > 0.05:
+            store.update_bodyweight(bodyweight_kg)
+    except Exception:
+        pass
+
+    views.console.print()
     views.print_success(f"Logged {session_type} session for {date}")
 
-    # Show summary
     total_reps = sum(s.actual_reps for s in set_results if s.actual_reps)
-    max_reps = max((s.actual_reps for s in set_results if s.actual_reps and s.added_weight_kg == 0), default=0)
-
+    max_reps_bw = max(
+        (s.actual_reps for s in set_results if s.actual_reps and s.added_weight_kg == 0),
+        default=0,
+    )
+    max_reps_weighted = max(
+        (round(s.actual_reps * (1 + s.added_weight_kg / bodyweight_kg))
+         for s in set_results if s.actual_reps and s.added_weight_kg > 0),
+        default=0,
+    )
+    max_reps = max(max_reps_bw, max_reps_weighted)
     views.print_info(f"Total reps: {total_reps}")
-    if max_reps > 0:
-        views.print_info(f"Max (bodyweight): {max_reps}")
+    if max_reps_bw > 0:
+        views.print_info(f"Max (bodyweight): {max_reps_bw}")
+    if max_reps_weighted > max_reps_bw:
+        views.print_info(f"Max (BW-equivalent from weighted): {max_reps_weighted}")
 
-    # Check for overperformance (suggest TEST if significantly above TM)
+    # Overperformance / personal best detection
     if session_type != "TEST" and max_reps > 0:
         try:
             user_state = store.load_user_state()
-            status = get_training_status(
-                user_state.history,
-                user_state.current_bodyweight_kg,
-            )
-            tm = status.training_max
-            test_max = status.latest_test_max
+            train_status = get_training_status(user_state.history, user_state.current_bodyweight_kg)
+            tm = train_status.training_max
+            test_max = train_status.latest_test_max or 0
 
-            # If max reps significantly exceeds TM, suggest TEST
-            if max_reps >= tm + OVERPERFORMANCE_REP_THRESHOLD:
+            if max_reps > test_max:
+                # New personal best — auto-log a TEST session silently
+                test_set = SetResult(
+                    target_reps=max_reps,
+                    actual_reps=max_reps,
+                    rest_seconds_before=180,
+                    added_weight_kg=0.0,
+                    rir_target=0,
+                    rir_reported=0,
+                )
+                test_session = SessionResult(
+                    date=date,
+                    bodyweight_kg=bodyweight_kg,
+                    grip="pronated",
+                    session_type="TEST",
+                    planned_sets=[test_set],
+                    completed_sets=[test_set],
+                    notes="Auto-logged from session personal best",
+                )
+                store.append_session(test_session)
+                new_tm = training_max_from_baseline(max_reps)
+                est_note = " (BW-equivalent from weighted set)" if max_reps_weighted > max_reps_bw else ""
+                views.console.print()
+                views.print_success(
+                    f"New personal best! Auto-logged TEST ({max_reps} reps{est_note}) — TM updated to {new_tm}."
+                )
+            elif max_reps >= tm + OVERPERFORMANCE_REP_THRESHOLD:
                 views.console.print()
                 views.print_warning(
                     f"Great performance! Your max ({max_reps}) exceeds TM ({tm}) by {max_reps - tm} reps."
                 )
-                if test_max and max_reps > test_max:
-                    views.print_info(
-                        f"This also beats your latest test max ({test_max}). "
-                        "Consider logging a TEST session to update your baseline!"
-                    )
-                else:
-                    views.print_info(
-                        "Consider logging a TEST session soon to update your baseline."
-                    )
+                views.print_info(
+                    "The plan won't update automatically — log a TEST session to set a new baseline."
+                )
         except Exception:
-            pass  # Silently ignore errors during overperformance check
+            pass
 
 
 @app.command("show-history")
@@ -546,6 +876,58 @@ def volume(
         raise typer.Exit(1)
 
     views.print_volume_chart(sessions, weeks)
+
+
+@app.command("delete-record")
+def delete_record(
+    record_id: Annotated[
+        int,
+        typer.Argument(help="Session ID to delete (see # column in show-history)"),
+    ],
+    history_path: Annotated[
+        Optional[Path],
+        typer.Option("--history-path", "-p", help="Path to history JSONL file"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Skip confirmation prompt"),
+    ] = False,
+) -> None:
+    """
+    Remove a session by its ID.
+
+    Use 'show-history' to see session IDs in the # column.
+    """
+    store = get_store(history_path)
+
+    try:
+        sessions = store.load_history()
+    except (FileNotFoundError, ValidationError) as e:
+        views.print_error(str(e))
+        raise typer.Exit(1)
+
+    if not sessions:
+        views.print_error("No sessions in history.")
+        raise typer.Exit(1)
+
+    if record_id < 1 or record_id > len(sessions):
+        views.print_error(f"Record ID must be between 1 and {len(sessions)}")
+        raise typer.Exit(1)
+
+    target = sessions[record_id - 1]
+    views.console.print(f"Session to delete: [bold]{target.date}[/bold] ({target.session_type})")
+
+    if not force and not views.confirm_action("Delete this session?"):
+        views.print_info("Cancelled.")
+        raise typer.Exit(0)
+
+    try:
+        store.delete_session_at(record_id - 1)
+    except Exception as e:
+        views.print_error(str(e))
+        raise typer.Exit(1)
+
+    views.print_success(f"Deleted session #{record_id}: {target.date} ({target.session_type})")
 
 
 if __name__ == "__main__":
