@@ -25,10 +25,10 @@ class TimelineEntry:
 
     date: str
     week_number: int
-    planned: SessionPlan | None      # None for unplanned (extra) sessions
-    actual: SessionResult | None     # None for future sessions
+    planned: SessionPlan | None  # None for unplanned (extra) sessions
+    actual: SessionResult | None  # None for future sessions
     status: TimelineStatus
-    actual_id: int | None = None     # 1-based ID in sorted history (for delete-record)
+    actual_id: int | None = None  # 1-based ID in sorted history (for delete-record)
 
 
 console = Console()
@@ -99,14 +99,18 @@ def build_timeline(
         else:
             status = "planned"
 
-        entries.append(TimelineEntry(
-            date=plan.date,
-            week_number=plan.week_number,
-            planned=plan,
-            actual=matched,
-            status=status,
-            actual_id=history_id_map.get(id(matched)) if matched is not None else None,
-        ))
+        entries.append(
+            TimelineEntry(
+                date=plan.date,
+                week_number=plan.week_number,
+                planned=plan,
+                actual=matched,
+                status=status,
+                actual_id=(
+                    history_id_map.get(id(matched)) if matched is not None else None
+                ),
+            )
+        )
 
     # Find first non-done future entry and mark as "next"
     set_next = False
@@ -128,14 +132,16 @@ def build_timeline(
         if id(s) not in matched_history:
             # Only add if not already in plan dates
             status_extra: TimelineStatus = "done"
-            entries.append(TimelineEntry(
-                date=s.date,
-                week_number=0,
-                planned=None,
-                actual=s,
-                status=status_extra,
-                actual_id=history_id_map.get(id(s)),
-            ))
+            entries.append(
+                TimelineEntry(
+                    date=s.date,
+                    week_number=0,
+                    planned=None,
+                    actual=s,
+                    status=status_extra,
+                    actual_id=history_id_map.get(id(s)),
+                )
+            )
 
     entries.sort(key=lambda e: e.date)
     return entries
@@ -204,7 +210,9 @@ def _fmt_date_cell(date_str: str, status: TimelineStatus) -> str:
     """Format status icon + date as a single compact cell: '> 02.18(Tue)'."""
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     date_part = dt.strftime("%m.%d(%a)")
-    icon = {"done": "✓", "missed": "—", "next": ">", "planned": " ", "extra": "·"}[status]
+    icon = {"done": "✓", "missed": "—", "next": ">", "planned": " ", "extra": "·"}[
+        status
+    ]
     return f"{icon} {date_part}"
 
 
@@ -235,14 +243,20 @@ def print_unified_plan(
     table = Table(title=title, show_lines=False)
 
     # Status icon merged into date column; grip abbreviated to 1 letter
-    table.add_column("#", justify="right", style="dim", width=3)   # history ID
+    table.add_column("#", justify="right", style="dim", width=3)  # history ID
     table.add_column("Wk", justify="right", style="dim", width=3)
-    table.add_column("Date", style="cyan", width=14, no_wrap=True) # ✓ MM.DD(Ddd) — 12 chars + 2 padding
-    table.add_column("Tp", style="magenta", width=4)               # session type (M/S/H/E/T) — 1 char + 2 padding + 1 spare
-    table.add_column("G", width=3)                                 # grip abbrev (P/N/S) — 1 char + 2 padding
+    table.add_column(
+        "Date", style="cyan", width=14, no_wrap=True
+    )  # ✓ MM.DD(Ddd) — 12 chars + 2 padding
+    table.add_column(
+        "Tp", style="magenta", width=4
+    )  # session type (M/S/H/E/T) — 1 char + 2 padding + 1 spare
+    table.add_column("G", width=3)  # grip abbrev (P/N/S) — 1 char + 2 padding
     table.add_column("Prescribed", width=22)
     table.add_column("Actual", width=24)
-    table.add_column("Exp", justify="right", style="bold green", width=4)  # expected/projected test max
+    table.add_column(
+        "Exp", justify="right", style="bold green", width=4
+    )  # expected/projected test max
 
     last_wk: int | None = None
     last_tm: int | None = None
@@ -293,8 +307,14 @@ def print_unified_plan(
             row_style = None
 
         table.add_row(
-            id_str, wk_str, date_cell, type_str, grip_str,
-            prescribed_str, actual_str, tm_str,
+            id_str,
+            wk_str,
+            date_cell,
+            type_str,
+            grip_str,
+            prescribed_str,
+            actual_str,
+            tm_str,
             style=row_style,
         )
 
@@ -436,13 +456,15 @@ def format_status_display(
         lines.append(f"- Tr.Max:  {status.training_max} reps")
 
     if target_max is not None:
-        lines.append(f"- G:       {target_max} reps  (goal)")
+        lines.append(f"- Your Goal:       {target_max} reps  (goal)")
 
-    lines.extend([
-        f"- Trend (reps/week): {status.trend_slope:+.2f}",
-        f"- Plateau: {'yes' if status.is_plateau else 'no'}",
-        f"- Deload recommended: {'yes' if status.deload_recommended else 'no'}",
-    ])
+    lines.extend(
+        [
+            f"- Trend (reps/week): {status.trend_slope:+.2f}",
+            f"- Plateau: {'yes' if status.is_plateau else 'no'}",
+            f"- Deload recommended: {'yes' if status.deload_recommended else 'no'}",
+        ]
+    )
 
     ff = status.fitness_fatigue_state
     z = ff.readiness_z_score()
