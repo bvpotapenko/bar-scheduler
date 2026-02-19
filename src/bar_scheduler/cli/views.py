@@ -456,7 +456,7 @@ def format_status_display(
         lines.append(f"- Tr.Max:  {status.training_max} reps")
 
     if target_max is not None:
-        lines.append(f"- Your Goal:       {target_max} reps  (goal)")
+        lines.append(f"- My Goal: {target_max} reps")
 
     lines.extend(
         [
