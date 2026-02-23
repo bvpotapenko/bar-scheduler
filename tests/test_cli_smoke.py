@@ -10,6 +10,7 @@ Tests basic functionality:
 """
 
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -198,11 +199,12 @@ class TestCLISmoke:
         assert result1.exit_code == 0
         assert "Cur.Max: 10" in result1.output
 
-        # Log a new TEST session with higher max
+        # Log a new TEST session with higher max (use tomorrow to ensure it's after init baseline)
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         runner.invoke(app, [
             "log-session",
             "--history-path", str(history_path),
-            "--date", "2026-02-20",
+            "--date", tomorrow,
             "--bodyweight-kg", "82",
             "--grip", "pronated",
             "--session-type", "TEST",
@@ -312,11 +314,12 @@ class TestNewFeatures:
             "--baseline-max", "10",
         ])
 
-        # Log 15 BW reps — beats test max of 10
+        # Log 15 BW reps — beats test max of 10 (use tomorrow so it's after init baseline)
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         result = runner.invoke(app, [
             "log-session",
             "--history-path", str(history_path),
-            "--date", "2026-02-20",
+            "--date", tomorrow,
             "--bodyweight-kg", "82",
             "--grip", "pronated",
             "--session-type", "S",
@@ -335,12 +338,12 @@ class TestNewFeatures:
         latest_test = max(test_sessions, key=lambda s: s.date)
         assert any(s.actual_reps == 15 for s in latest_test.completed_sets)
 
-    def test_plan_starts_from_test_max_not_tm(self, temp_history_dir):
-        """Plan should start from test_max, not floor(0.9*test_max).
+    def test_plan_starts_from_training_max(self, temp_history_dir):
+        """Plan must start from training_max = floor(0.9 * test_max), not raw test_max.
 
-        Regression for: after TEST with 12 reps, plan showed TM reaching 12
-        only at week 4 — because it started from floor(0.9*12)=10 and slowly
-        grew back to the user's already-proven performance ceiling.
+        After a TEST with 12 reps, training_max = floor(0.9*12) = 10.
+        The first planned session's expected_tm should be 10, and the plan
+        grows from there rather than immediately prescribing the user's max.
         """
         import json
         history_path = temp_history_dir / "history.jsonl"
@@ -353,13 +356,13 @@ class TestNewFeatures:
             "--baseline-max", "10",
         ])
 
-        # Log a TEST session showing test_max=12 — date must be AFTER
-        # today (2026-02-19) so it is more recent than the baseline TEST
-        # logged by init, ensuring latest_test_max() returns 12 not 10.
+        # Log a TEST session showing test_max=12 — date must be AFTER today
+        # so it is more recent than the baseline TEST logged by init.
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         runner.invoke(app, [
             "log-session",
             "--history-path", str(history_path),
-            "--date", "2026-02-20",
+            "--date", tomorrow,
             "--bodyweight-kg", "82",
             "--grip", "pronated",
             "--session-type", "TEST",
@@ -373,18 +376,16 @@ class TestNewFeatures:
         assert result.exit_code == 0
         data = json.loads(result.output)
 
-        # First future (planned/next) session must start at TM >= test_max (12),
-        # not at floor(0.9*12)=10 which would mean the plan spends ~4 weeks
-        # just catching back up to the user's proven performance level.
+        # Plan must start from training_max = floor(0.9 * 12) = 10.
         future = [s for s in data["sessions"] if s["status"] in ("next", "planned")]
         assert len(future) > 0, "Plan should have future sessions"
-        assert future[0]["expected_tm"] >= 12, (
-            f"Plan should start at TM>=12 (test_max), got {future[0]['expected_tm']}"
+        assert future[0]["expected_tm"] == 10, (
+            f"Plan should start at TM=10 (floor(0.9×12)), got {future[0]['expected_tm']}"
         )
 
-        # Also verify the plan eventually grows beyond test_max (not stagnating)
+        # The plan should grow beyond 10 as weeks progress
         last_tm = future[-1]["expected_tm"]
-        assert last_tm > 12, f"Plan should progress beyond test_max=12, last TM={last_tm}"
+        assert last_tm > 10, f"Plan should progress beyond initial TM=10, last TM={last_tm}"
 
     def test_overperformance_weighted_set_bw_equivalent(self, temp_history_dir):
         """Weighted sets exceeding test max via BW-equivalent trigger auto TEST."""
@@ -456,10 +457,12 @@ class TestNewFeatures:
             "--baseline-max", "10",
         ])
 
+        # Use tomorrow so the S session is chronologically after init baseline
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         result = runner.invoke(app, [
             "log-session",
             "--history-path", str(history_path),
-            "--date", "2026-02-20",
+            "--date", tomorrow,
             "--bodyweight-kg", "82",
             "--grip", "pronated",
             "--session-type", "S",
@@ -468,11 +471,12 @@ class TestNewFeatures:
         ])
         assert result.exit_code == 0
 
-        # Verify RIR is stored in completed_sets
+        # Verify RIR is stored in completed_sets — search for the S session line
         raw = history_path.read_text()
         lines = [l for l in raw.splitlines() if l.strip()]
-        last_line = lines[-1]
-        data = json.loads(last_line)
+        s_line = next((l for l in reversed(lines) if '"session_type":"S"' in l), None)
+        assert s_line is not None
+        data = json.loads(s_line)
         completed = data.get("completed_sets", [])
         assert len(completed) == 2
         assert all(s.get("rir_reported") == 2 for s in completed)

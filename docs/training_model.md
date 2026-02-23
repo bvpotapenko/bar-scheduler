@@ -29,7 +29,29 @@ Training max рассчитывается как 90% от последнего t
 TM = floor(0.9 * latest_test_max)
 ```
 
-Это обеспечивает консервативную базу для назначений.
+Это обеспечивает консервативную базу для назначений. Все сессии плана стартуют с этого значения и прогрессируют вверх — никогда с raw test_max напрямую.
+
+## Added Weight (Strength Sessions)
+
+Для S-сессий добавленный вес масштабируется относительно веса тела:
+
+```
+added_weight = round(bodyweight_kg × 0.01 × (TM - 9), nearest 0.5 kg)
+               clamped to [0, 20 kg]
+```
+
+Это даёт одинаковый относительный стимул для атлетов разного веса. Вес добавляется только когда TM > 9.
+
+## Adaptive Rest
+
+Рекомендованное время отдыха адаптируется на основе последней сессии того же типа:
+
+- Базовое значение: середина диапазона `(rest_min + rest_max) / 2`
+- RIR ≤ 1 хотя бы в одном подходе → +30s
+- Drop-off > 35%: первый vs последний подход → +15s
+- Readiness z < –1.0 → +30s
+- Все подходы RIR ≥ 3 → –15s
+- Итог ограничен диапазоном `[rest_min, rest_max]`
 
 ## Rest Normalization
 
@@ -78,14 +100,15 @@ R(t) = G(t) - H(t)
 Дневная training load вычисляется из подходов:
 
 ```
-w(t) = sum(HR_j * S_rest_j * S_load_j * S_grip_j)
+w(t) = sum(HR_j * S_load_j * S_grip_j)
 ```
 
 Где:
 - `HR_j` = Hard Reps = reps * effort_multiplier(RIR)
-- `S_rest_j` = rest stress multiplier (короткий rest = выше stress)
 - `S_load_j` = load stress multiplier (added_weight)
 - `S_grip_j` = grip stress factor
+
+Примечание: rest_stress_multiplier намеренно **исключён** из training load. Короткий отдых уже учтён через `effective_reps()` (нормализация производительности), поэтому его включение в w(t) приводило бы к двойному подсчёту.
 
 ### Effort Multiplier
 ```
@@ -96,17 +119,23 @@ E_rir(rir) = 1 + A_RIR * max(0, 3 - rir)
 
 ## Session Types
 
-| Type | Описание | Reps Range | Rest | Sets |
-|------|----------|------------|------|------|
-| S | Strength (сила) | 3-6 | 180-300s | 3-5 |
-| H | Hypertrophy (гипертрофия) | 6-12 | 120-180s | 4-6 |
-| E | Endurance/Density (выносливость) | 3-8 | 45-90s | 5-8 |
-| T | Technique (техника) | 2-4 | 60-120s | 4-8 |
-| TEST | Max test | 1-50 | 180-300s | 1 |
+| Type | Описание | Reps fraction of TM | Rest | Sets |
+|------|----------|---------------------|------|------|
+| S | Strength (сила) | 0.35–0.55 × TM (4–6 abs) | 180–300s | 4–5 |
+| H | Hypertrophy (гипертрофия) | 0.60–0.85 × TM (6–12 abs) | 120–180s | 4–6 |
+| E | Endurance/Density (выносливость) | 0.40–0.60 × TM (3–8 abs) | 45–75s | 6–10 |
+| T | Technique (техника) | 0.20–0.40 × TM (2–4 abs) | 60–120s | 4–8 |
+| TEST | Max test | — | 180–300s | 1 |
 
 ### Weekly Schedules
-- **3 days/week**: S - H - E
-- **4 days/week**: S - H - T - E
+
+Fixed day-offset patterns to maintain true 7-day weeks:
+- **3 days/week**: Mon(+0), Wed(+2), Fri(+4) → S, H, E
+- **4 days/week**: Mon(+0), Tue(+1), Thu(+3), Sat(+5) → S, H, T, E
+
+### Autoregulation
+
+Autoregulation (adjusting sets/reps based on readiness z-score) activates only after **10+ logged sessions** (`MIN_SESSIONS_FOR_AUTOREG = 10`) to ensure the fitness-fatigue model has enough data to calibrate reliably.
 
 ## Adaptation Rules
 
@@ -138,6 +167,27 @@ delta_per_week = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESS
 - Ранний прогресс: ~0.5 reps/week
 - Около 30: ~0.1 reps/week
 
+**Применение прогрессии**: progression добавляется один раз при переходе между календарными неделями (граница = 7 дней от начала плана). Все сессии в пределах одной недели получают одинаковый TM.
+
+## Plan Stability
+
+Для обеспечения стабильности плана:
+
+- **Прошедшие сессии**: предписанные подходы берутся из записанных `planned_sets` (заморожены в момент логирования), а не перегенерируются каждый раз.
+- **Ротация типов сессий**: план продолжает ротацию (S→H→E или S→H→T→E) с позиции, следующей за последней записанной non-TEST сессией.
+- **Нумерация недель**: недели нумеруются кумулятивно от первой сессии в истории (не от начала текущего плана).
+
+## Endurance Volume (kE)
+
+Общий объём E-сессии (total_target) масштабируется с TM:
+
+```
+kE(TM) = 3.0 + 2.0 × clip((TM - 5) / 25, 0, 1)
+total_target = int(kE(TM) * TM)
+```
+
+kE растёт от 3.0 (TM=5) до 5.0 (TM=30), давая пропорционально больший объём по мере роста атлета.
+
 ## Config Constants
 
 Все константы определены в `core/config.py`:
@@ -151,6 +201,10 @@ delta_per_week = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESS
 | TM_FACTOR | 0.90 | Training max как доля от test max |
 | PLATEAU_WINDOW_DAYS | 21 | Дней без PR для plateau |
 | DELOAD_VOLUME_REDUCTION | 0.40 | Снижение volume при deload |
+| MIN_SESSIONS_FOR_AUTOREG | 10 | Минимум сессий для autoregulation |
+| WEIGHT_TM_THRESHOLD | 9 | Порог TM для добавления веса |
+| WEIGHT_INCREMENT_FRACTION_PER_TM | 0.01 | 1% веса тела за каждый TM-пункт выше порога |
+| MAX_ADDED_WEIGHT_KG | 20.0 | Максимальный добавленный вес |
 
 ## Источники
 

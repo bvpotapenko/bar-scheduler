@@ -155,12 +155,16 @@ def calculate_session_training_load(
         if set_result.actual_reps is None:
             continue
 
-        # Hard reps
+        # Hard reps (already accounts for RIR effort)
         rir = set_result.rir_reported
         hr = calculate_set_hard_reps(set_result.actual_reps, rir, estimated_max)
 
-        # Stress multipliers
-        s_rest = rest_stress_multiplier(set_result.rest_seconds_before)
+        # Stress multipliers.
+        # NOTE: rest_stress_multiplier is intentionally NOT included here.
+        # Short rest is already credited in metrics.py via effective_reps()
+        # (reps* = reps / F_rest, giving higher effective reps for short rest).
+        # Including rest_stress_multiplier would double-count: inflating both
+        # performance credit AND fatigue accumulation for the same short rest.
         s_load = load_stress_multiplier(
             session.bodyweight_kg,
             set_result.added_weight_kg,
@@ -168,7 +172,7 @@ def calculate_session_training_load(
         )
         s_grip = grip_stress_multiplier(session.grip)
 
-        total_load += hr * s_rest * s_load * s_grip
+        total_load += hr * s_load * s_grip
 
     return total_load
 
@@ -322,9 +326,8 @@ def build_fitness_fatigue_state(
         return FitnessFatigueState(
             m_hat=float(baseline_max) if baseline_max else 10.0,
             sigma_m=INITIAL_SIGMA_M,
-            # Start with neutral readiness (no penalty for new users)
             readiness_mean=0.0,
-            readiness_var=1.0,  # Unit variance to prevent extreme z-scores
+            readiness_var=10.0,  # Wide initial variance prevents extreme z-scores early on
         )
 
     # Initialize from first test session or baseline
@@ -339,9 +342,8 @@ def build_fitness_fatigue_state(
     state = FitnessFatigueState(
         m_hat=float(initial_max),
         sigma_m=INITIAL_SIGMA_M,
-        # Start with neutral readiness (no penalty for new users)
         readiness_mean=0.0,
-        readiness_var=1.0,  # Unit variance to prevent extreme z-scores
+        readiness_var=10.0,  # Wide initial variance prevents extreme z-scores early on
     )
 
     # Process history

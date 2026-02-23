@@ -92,6 +92,14 @@ DELOAD_VOLUME_REDUCTION: Final[float] = 0.40  # Volume reduction during deload
 TM_FACTOR: Final[float] = 0.90  # Training max as fraction of test max
 
 # =============================================================================
+# ADDED WEIGHT (Section 7.3.1)
+# =============================================================================
+
+WEIGHT_INCREMENT_FRACTION_PER_TM: Final[float] = 0.01  # 1% BW per TM point above threshold
+WEIGHT_TM_THRESHOLD: Final[int] = 9                    # TM must exceed this before adding weight
+MAX_ADDED_WEIGHT_KG: Final[float] = 20.0               # Absolute cap on added weight
+
+# =============================================================================
 # SESSION TYPE PARAMETERS
 # =============================================================================
 
@@ -112,25 +120,25 @@ class SessionTypeParams:
 
 SESSION_PARAMS: Final[dict[str, SessionTypeParams]] = {
     "S": SessionTypeParams(  # Strength
-        reps_fraction_low=0.50,  # Increased from 0.35 for more challenge
-        reps_fraction_high=0.70,  # Increased from 0.55
-        reps_min=4,  # Increased from 3
+        reps_fraction_low=0.35,
+        reps_fraction_high=0.55,
+        reps_min=4,
         reps_max=6,
-        sets_min=4,  # Increased from 3 for adequate volume
+        sets_min=4,
         sets_max=5,
         rest_min=180,
         rest_max=300,
         rir_target=2,
     ),
     "H": SessionTypeParams(  # Hypertrophy
-        reps_fraction_low=0.60,  # Increased from 0.55
-        reps_fraction_high=0.85,  # Increased from 0.75
+        reps_fraction_low=0.60,
+        reps_fraction_high=0.85,
         reps_min=6,
         reps_max=12,
         sets_min=4,
         sets_max=6,
-        rest_min=90,  # Reduced from 120 for more challenge
-        rest_max=150,  # Reduced from 180
+        rest_min=120,
+        rest_max=180,
         rir_target=2,
     ),
     "E": SessionTypeParams(  # Endurance/Density
@@ -206,6 +214,12 @@ UNDERPERFORMANCE_THRESHOLD: Final[float] = 0.10  # 10% underperformance
 COMPLIANCE_THRESHOLD: Final[float] = 0.70  # Minimum compliance ratio
 
 # =============================================================================
+# AUTOREGULATION GATING
+# =============================================================================
+
+MIN_SESSIONS_FOR_AUTOREG: Final[int] = 10  # Minimum sessions before autoregulation is applied
+
+# =============================================================================
 # READINESS GATING (Section 7.4)
 # =============================================================================
 
@@ -274,3 +288,23 @@ def estimate_weeks_to_target(current_max: int, target: int = TARGET_MAX_REPS) ->
         weeks += 1
 
     return min(weeks, MAX_PLAN_WEEKS * 4)
+
+
+def endurance_volume_multiplier(training_max: int) -> float:
+    """
+    Scaling factor for endurance session total-rep target.
+
+    kE grows linearly from 3.0 (TM=5) to 5.0 (TM=30):
+
+        kE = 3.0 + 2.0 * clip((TM - 5) / 25, 0, 1)
+
+    Total reps target = kE(TM) * TM
+
+    Args:
+        training_max: Current training max reps
+
+    Returns:
+        Volume multiplier (3.0 to 5.0)
+    """
+    fraction = min(1.0, max(0.0, (training_max - 5) / 25))
+    return 3.0 + 2.0 * fraction

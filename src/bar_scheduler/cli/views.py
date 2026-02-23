@@ -147,18 +147,23 @@ def build_timeline(
     return entries
 
 
-def _fmt_prescribed(plan: SessionPlan) -> str:
-    """Format a planned session as a compact single-line string."""
-    if not plan.sets:
+def _fmt_prescribed_sets(sets: list, session_type: str) -> str:
+    """
+    Format a list of sets (PlannedSet or SetResult) as a compact string.
+
+    Works with any object that has .target_reps, .added_weight_kg,
+    .rest_seconds_before attributes.
+    """
+    if not sets:
         return "(no sets)"
-    if plan.session_type == "TEST":
+    if session_type == "TEST":
         return "1x max reps"
 
     from collections import Counter
 
-    reps_list = [s.target_reps for s in plan.sets]
-    weight = plan.sets[0].added_weight_kg
-    rest = plan.sets[0].rest_seconds_before
+    reps_list = [s.target_reps for s in sets]
+    weight = sets[0].added_weight_kg
+    rest = sets[0].rest_seconds_before
 
     if all(r == reps_list[0] for r in reps_list):
         base = f"{reps_list[0]}x{len(reps_list)}"
@@ -172,6 +177,11 @@ def _fmt_prescribed(plan: SessionPlan) -> str:
 
     weight_str = f" +{weight:.1f}kg" if weight > 0 else ""
     return f"{base}{weight_str} / {rest}s"
+
+
+def _fmt_prescribed(plan: SessionPlan) -> str:
+    """Format a planned session as a compact single-line string."""
+    return _fmt_prescribed_sets(plan.sets, plan.session_type)
 
 
 def _fmt_actual(session: SessionResult) -> str:
@@ -293,7 +303,19 @@ def print_unified_plan(
         type_str = _TYPE_DISPLAY.get(raw_type, raw_type)
         grip_str = _GRIP_ABBR.get(raw_grip, raw_grip[:1].upper() if raw_grip else "")
 
-        prescribed_str = _fmt_prescribed(entry.planned) if entry.planned else ""
+        # For completed sessions: show the historically stored planned_sets
+        # (frozen at log time) so past prescriptions are immutable across
+        # plan regenerations.  Fall back to the regenerated plan only when
+        # no stored prescription is available (e.g. sessions logged without
+        # a prior plan).
+        if entry.actual and entry.actual.planned_sets:
+            prescribed_str = _fmt_prescribed_sets(
+                entry.actual.planned_sets, entry.actual.session_type
+            )
+        elif entry.planned:
+            prescribed_str = _fmt_prescribed(entry.planned)
+        else:
+            prescribed_str = ""
         actual_str = _fmt_actual(entry.actual) if entry.actual else ""
 
         # Style for the row

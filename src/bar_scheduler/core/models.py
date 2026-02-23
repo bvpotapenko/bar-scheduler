@@ -145,17 +145,15 @@ class SessionPlan:
     def __post_init__(self) -> None:
         """Validate session plan data."""
         SessionResult._validate_date(self.date)
+        if self.grip not in ("pronated", "supinated", "neutral"):
+            raise ValueError(f"Invalid grip: {self.grip}")
+        if self.session_type not in ("S", "H", "E", "T", "TEST"):
+            raise ValueError(f"Invalid session_type: {self.session_type}")
 
     @property
     def total_reps(self) -> int:
         """Sum of target reps for all sets in this session."""
         return sum(s.target_reps for s in self.sets)
-
-        if self.grip not in ("pronated", "supinated", "neutral"):
-            raise ValueError(f"Invalid grip: {self.grip}")
-
-        if self.session_type not in ("S", "H", "E", "T", "TEST"):
-            raise ValueError(f"Invalid session_type: {self.session_type}")
 
     def to_session_result(self, bodyweight_kg: float) -> SessionResult:
         """Convert to a SessionResult for logging."""
