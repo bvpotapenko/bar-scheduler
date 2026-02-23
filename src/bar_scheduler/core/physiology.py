@@ -15,7 +15,6 @@ from .config import (
     C_READINESS,
     GAMMA_LOAD,
     GAMMA_S,
-    GRIP_STRESS_FACTORS,
     INITIAL_SIGMA_M,
     K_FATIGUE,
     K_FITNESS,
@@ -74,36 +73,45 @@ def load_stress_multiplier(
     bodyweight_kg: float,
     added_load_kg: float,
     reference_bodyweight_kg: float,
+    bw_fraction: float = 1.0,
 ) -> float:
     """
     Calculate stress multiplier for added load.
 
     S_load = L_rel^gamma_L
 
+    Where L_rel = (BW * bw_fraction + added) / BW_ref
+
     Args:
         bodyweight_kg: Session bodyweight
         added_load_kg: Added external load
         reference_bodyweight_kg: Reference bodyweight
+        bw_fraction: Fraction of BW that is the working load (1.0=pull-up, 0.92=dip, 0.0=BSS)
 
     Returns:
         Load stress multiplier
     """
-    total = bodyweight_kg + added_load_kg
+    effective_bw = bodyweight_kg * bw_fraction
+    total = effective_bw + added_load_kg
     l_rel = total / reference_bodyweight_kg
     return l_rel ** GAMMA_LOAD
 
 
-def grip_stress_multiplier(grip: str) -> float:
+def grip_stress_multiplier(grip: str, variant_factors: dict[str, float] | None = None) -> float:
     """
-    Get grip stress multiplier.
+    Get grip/variant stress multiplier.
 
     Args:
-        grip: Grip type
+        grip: Grip or variant name
+        variant_factors: Per-variant stress factors from ExerciseDefinition;
+                         defaults to 1.0 for any grip if not provided
 
     Returns:
-        Grip stress multiplier (close to 1.0)
+        Stress multiplier (close to 1.0)
     """
-    return GRIP_STRESS_FACTORS.get(grip, 1.0)
+    if variant_factors is None:
+        return 1.0
+    return variant_factors.get(grip, 1.0)
 
 
 def calculate_set_hard_reps(
@@ -135,16 +143,25 @@ def calculate_session_training_load(
     session: SessionResult,
     estimated_max: int,
     reference_bodyweight_kg: float,
+    bw_fraction: float = 1.0,
+    variant_factors: dict[str, float] | None = None,
 ) -> float:
     """
     Calculate training load impulse w(t) for a session.
 
-    w(t) = sum(HR_j * S_rest_j * S_load_j * S_grip_j)
+    w(t) = sum(HR_j * S_load_j * S_variant_j)
+
+    NOTE: rest_stress_multiplier is intentionally NOT included here.
+    Short rest is already credited in metrics.py via effective_reps()
+    (reps* = reps / F_rest, giving higher effective reps for short rest).
+    Including rest_stress would double-count fatigue accumulation.
 
     Args:
         session: Completed session
         estimated_max: Current estimated max reps
         reference_bodyweight_kg: Reference bodyweight
+        bw_fraction: Fraction of BW that is the working load
+        variant_factors: Per-variant stress multipliers from ExerciseDefinition
 
     Returns:
         Training load impulse
@@ -155,22 +172,16 @@ def calculate_session_training_load(
         if set_result.actual_reps is None:
             continue
 
-        # Hard reps (already accounts for RIR effort)
         rir = set_result.rir_reported
         hr = calculate_set_hard_reps(set_result.actual_reps, rir, estimated_max)
 
-        # Stress multipliers.
-        # NOTE: rest_stress_multiplier is intentionally NOT included here.
-        # Short rest is already credited in metrics.py via effective_reps()
-        # (reps* = reps / F_rest, giving higher effective reps for short rest).
-        # Including rest_stress_multiplier would double-count: inflating both
-        # performance credit AND fatigue accumulation for the same short rest.
         s_load = load_stress_multiplier(
             session.bodyweight_kg,
             set_result.added_weight_kg,
             reference_bodyweight_kg,
+            bw_fraction,
         )
-        s_grip = grip_stress_multiplier(session.grip)
+        s_grip = grip_stress_multiplier(session.grip, variant_factors)
 
         total_load += hr * s_load * s_grip
 
@@ -308,6 +319,8 @@ def build_fitness_fatigue_state(
     history: list[SessionResult],
     reference_bodyweight_kg: float,
     baseline_max: int | None = None,
+    bw_fraction: float = 1.0,
+    variant_factors: dict[str, float] | None = None,
 ) -> FitnessFatigueState:
     """
     Build fitness-fatigue state from training history.
@@ -364,7 +377,7 @@ def build_fitness_fatigue_state(
 
         # Calculate training load
         training_load = calculate_session_training_load(
-            session, int(state.m_hat), reference_bodyweight_kg
+            session, int(state.m_hat), reference_bodyweight_kg, bw_fraction, variant_factors
         )
 
         # Update fitness/fatigue

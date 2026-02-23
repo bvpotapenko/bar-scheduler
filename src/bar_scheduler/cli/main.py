@@ -18,7 +18,8 @@ from typing import Annotated, Optional
 import typer
 
 from ..core.adaptation import get_training_status
-from ..core.metrics import session_max_reps, training_max_from_baseline
+from ..core.exercises.registry import get_exercise
+from ..core.metrics import estimate_1rm, session_max_reps, training_max_from_baseline
 from ..core.models import SessionResult, SetResult, UserProfile
 from ..core.planner import explain_plan_entry, generate_plan
 from ..io.history_store import HistoryStore, get_default_history_path
@@ -27,6 +28,12 @@ from . import views
 
 # Overperformance: if max reps in session significantly exceeds training max
 OVERPERFORMANCE_REP_THRESHOLD = 2  # reps above TM to suggest TEST
+
+# Shared --exercise option type
+ExerciseOption = Annotated[
+    str,
+    typer.Option("--exercise", "-e", help="Exercise ID: pull_up (default), dip, bss"),
+]
 
 
 app = typer.Typer(
@@ -103,10 +110,10 @@ def main_callback(ctx: typer.Context) -> None:
         _menu_delete_record()
 
 
-def get_store(history_path: Path | None) -> HistoryStore:
+def get_store(history_path: Path | None, exercise_id: str = "pull_up") -> HistoryStore:
     """Get history store from path or default."""
     if history_path is None:
-        history_path = get_default_history_path()
+        history_path = get_default_history_path(exercise_id)
     return HistoryStore(history_path)
 
 
@@ -622,6 +629,7 @@ def plan(
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Show the full training log: past results + upcoming plan in one view.
@@ -630,7 +638,8 @@ def plan(
     Future sessions show what is prescribed next.
     The > marker shows your next session.
     """
-    store = get_store(history_path)
+    exercise = get_exercise(exercise_id)
+    store = get_store(history_path, exercise_id)
 
     if not store.exists():
         views.print_error(f"History file not found: {store.history_path}")
@@ -689,7 +698,7 @@ def plan(
     total_weeks = max(2, min(total_weeks, MAX_PLAN_WEEKS * 3))
 
     try:
-        plans = generate_plan(user_state, plan_start_date, total_weeks, baseline_max)
+        plans = generate_plan(user_state, plan_start_date, total_weeks, baseline_max, exercise=exercise)
     except ValueError as e:
         views.print_error(str(e))
         raise typer.Exit(1)
@@ -786,11 +795,13 @@ def explain(
         Optional[int],
         typer.Option("--weeks", "-w", help="Plan horizon in weeks"),
     ] = None,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """Show exactly how a planned session's parameters were calculated."""
     from ..core.config import MAX_PLAN_WEEKS
 
-    store = get_store(history_path)
+    exercise = get_exercise(exercise_id)
+    store = get_store(history_path, exercise_id)
 
     try:
         user_state = store.load_user_state()
@@ -820,7 +831,7 @@ def explain(
     # Resolve "next" → first upcoming planned session date
     if date.lower() == "next":
         try:
-            plans = generate_plan(user_state, plan_start_date, total_weeks)
+            plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise)
         except ValueError as e:
             views.print_error(str(e))
             raise typer.Exit(1)
@@ -831,7 +842,7 @@ def explain(
             raise typer.Exit(1)
         date = nxt.date
 
-    result = explain_plan_entry(user_state, plan_start_date, date, total_weeks)
+    result = explain_plan_entry(user_state, plan_start_date, date, total_weeks, exercise=exercise)
     views.console.print()
     views.console.print(result)
     views.console.print()
@@ -944,6 +955,7 @@ def log_session(
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Log a completed training session.
@@ -954,7 +966,8 @@ def log_session(
       bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \\
         --grip pronated --session-type S --sets "8@0/180,6@0/120,6@0"
     """
-    store = get_store(history_path)
+    exercise = get_exercise(exercise_id)
+    store = get_store(history_path, exercise_id)
 
     if not store.exists():
         views.print_error(f"History file not found: {store.history_path}")
@@ -987,17 +1000,21 @@ def log_session(
             except ValueError:
                 views.print_error("Enter a positive number, e.g. 82.5")
 
-    # Grip
+    # Grip / variant — show exercise-specific options
     if grip is None:
-        views.console.print("Grip: [1] pronated  [2] neutral  [3] supinated")
-        grip_map = {"1": "pronated", "2": "neutral", "3": "supinated",
-                    "pronated": "pronated", "neutral": "neutral", "supinated": "supinated"}
+        variants = exercise.variants
+        hint = "  ".join(f"[{i+1}] {v}" for i, v in enumerate(variants))
+        views.console.print(f"Variant: {hint}")
+        grip_map: dict[str, str] = {}
+        for i, v in enumerate(variants, 1):
+            grip_map[str(i)] = v
+            grip_map[v] = v
         while True:
-            raw = views.console.input("Grip [1]: ").strip() or "1"
+            raw = views.console.input("Variant [1]: ").strip() or "1"
             grip = grip_map.get(raw.lower())
             if grip:
                 break
-            views.print_error("Choose 1, 2, 3 or type pronated/neutral/supinated")
+            views.print_error(f"Choose 1–{len(variants)} or type the variant name")
 
     # Session type
     if session_type is None:
@@ -1038,8 +1055,8 @@ def log_session(
 
     # ── Validate all inputs ─────────────────────────────────────────────────
 
-    if grip not in ("pronated", "supinated", "neutral"):
-        views.print_error("Grip must be pronated, supinated, or neutral")
+    if grip not in exercise.variants:
+        views.print_error(f"Variant must be one of: {', '.join(exercise.variants)}")
         raise typer.Exit(1)
 
     if session_type not in ("S", "H", "E", "T", "TEST"):
@@ -1090,6 +1107,7 @@ def log_session(
         bodyweight_kg=bodyweight_kg,
         grip=grip,  # type: ignore
         session_type=session_type,  # type: ignore
+        exercise_id=exercise_id,
         planned_sets=planned_sets,
         completed_sets=set_results,
         notes=notes,
@@ -1211,13 +1229,14 @@ def show_history(
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Display training history as a table.
     """
     from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
 
-    store = get_store(history_path)
+    store = get_store(history_path, exercise_id)
 
     if not store.exists():
         views.print_error(f"History file not found: {store.history_path}")
@@ -1274,6 +1293,7 @@ def plot_max(
         bool,
         typer.Option("--trajectory", "-t", help="Overlay projected goal trajectory line"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Display ASCII plot of max reps progress.
@@ -1284,7 +1304,7 @@ def plot_max(
     from ..core.config import TARGET_MAX_REPS, TM_FACTOR, expected_reps_per_week
     from ..core.metrics import get_test_sessions, session_max_reps as _max_reps
 
-    store = get_store(history_path)
+    store = get_store(history_path, exercise_id)
 
     if not store.exists():
         views.print_error(f"History file not found: {store.history_path}")
@@ -1374,11 +1394,12 @@ def status(
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Show current training status.
     """
-    store = get_store(history_path)
+    store = get_store(history_path, exercise_id)
 
     if not store.exists():
         views.print_error(f"History file not found: {store.history_path}")
@@ -1429,11 +1450,12 @@ def volume(
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Show weekly volume chart.
     """
-    store = get_store(history_path)
+    store = get_store(history_path, exercise_id)
 
     if not store.exists():
         views.print_error(f"History file not found: {store.history_path}")
@@ -1479,13 +1501,14 @@ def delete_record(
         bool,
         typer.Option("--force", "-f", help="Skip confirmation prompt"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Remove a session by its ID.
 
     Use 'show-history' to see session IDs in the # column.
     """
-    store = get_store(history_path)
+    store = get_store(history_path, exercise_id)
 
     try:
         sessions = store.load_history()
@@ -1515,6 +1538,70 @@ def delete_record(
         raise typer.Exit(1)
 
     views.print_success(f"Deleted session #{record_id}: {target.date} ({target.session_type})")
+
+
+@app.command("1rm")
+def onerepmax(
+    history_path: Annotated[
+        Optional[Path],
+        typer.Option("--history-path", "-p", help="Path to history JSONL file"),
+    ] = None,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
+    exercise_id: ExerciseOption = "pull_up",
+) -> None:
+    """
+    Estimate 1-rep max using the Epley formula.
+
+    Scans recent sessions for the best loaded set and computes:
+      1RM = total_load × (1 + reps / 30)   [Epley]
+
+    For pull-ups: total_load = bodyweight + added_weight.
+    For BSS:      total_load = added_weight (external only).
+    """
+    exercise = get_exercise(exercise_id)
+    store = get_store(history_path, exercise_id)
+
+    if not store.exists():
+        views.print_error(f"History file not found: {store.history_path}")
+        views.print_info("Run 'init' first to create profile and history.")
+        raise typer.Exit(1)
+
+    try:
+        user_state = store.load_user_state()
+    except (FileNotFoundError, ValidationError) as e:
+        views.print_error(str(e))
+        raise typer.Exit(1)
+
+    result = estimate_1rm(exercise, user_state.current_bodyweight_kg, user_state.history)
+
+    if result is None:
+        views.print_error("Not enough data to estimate 1RM. Log some sessions first.")
+        raise typer.Exit(1)
+
+    if json_out:
+        print(json.dumps(result, indent=2))
+        return
+
+    bw = user_state.current_bodyweight_kg
+    added = result["best_added_weight_kg"]
+    bw_frac = result["bw_fraction"]
+    if exercise.onerm_includes_bodyweight:
+        load_details = f"{bw:.1f} kg BW × {bw_frac} + {added:.1f} kg added"
+    else:
+        load_details = f"{added:.1f} kg external load"
+
+    views.console.print()
+    views.console.print(f"[bold cyan]1RM Estimate — {exercise.display_name}[/bold cyan]")
+    views.console.print(f"  Method:        Epley (1RM = load × (1 + reps/30))")
+    views.console.print(f"  Bodyweight:    {bw:.1f} kg")
+    views.console.print(f"  Best set:      {result['best_reps']} reps @ +{added:.1f} kg added  ({result['best_date']})")
+    views.console.print(f"  Total load:    {result['effective_load_kg']:.1f} kg  ({load_details})")
+    views.console.print(f"  [bold green]1RM ≈ {result['1rm_kg']:.1f} kg[/bold green]")
+    views.console.print(f"  {exercise.onerm_explanation}")
+    views.console.print()
 
 
 if __name__ == "__main__":

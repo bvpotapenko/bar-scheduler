@@ -1,8 +1,10 @@
 """
-Plan generation for pull-up training.
+Plan generation for bar-scheduler.
 
 Generates deterministic multi-week training plans based on
-current status, history, and adaptation rules.
+current status, history, and adaptation rules.  The plan is
+parameterised by an ExerciseDefinition so the same engine works
+for pull-ups, dips, BSS, and any future exercise.
 """
 
 from datetime import datetime, timedelta
@@ -16,7 +18,6 @@ from .config import (
     DAY_SPACING,
     DEFAULT_PLAN_WEEKS,
     DROP_OFF_THRESHOLD,
-    MAX_ADDED_WEIGHT_KG,
     MAX_PLAN_WEEKS,
     MIN_PLAN_WEEKS,
     MIN_SESSIONS_FOR_AUTOREG,
@@ -25,15 +26,14 @@ from .config import (
     READINESS_Z_LOW,
     SCHEDULE_3_DAYS,
     SCHEDULE_4_DAYS,
-    SESSION_PARAMS,
     TM_FACTOR,
     WEEKLY_HARD_SETS_MIN,
-    WEIGHT_INCREMENT_FRACTION_PER_TM,
-    WEIGHT_TM_THRESHOLD,
     endurance_volume_multiplier,
     estimate_weeks_to_target,
     expected_reps_per_week,
 )
+from .exercises.base import ExerciseDefinition
+from .exercises.pull_up import PULL_UP
 from .metrics import training_max_from_baseline
 from .models import (
     Grip,
@@ -139,6 +139,7 @@ def calculate_adaptive_rest(
     session_type: SessionType,
     recent_sessions: list[SessionResult],
     ff_state,
+    exercise: ExerciseDefinition = PULL_UP,
 ) -> int:
     """
     Calculate adaptive rest based on recent same-type session performance and readiness.
@@ -154,11 +155,12 @@ def calculate_adaptive_rest(
         session_type: Session type
         recent_sessions: Last few sessions of this same type from history
         ff_state: Fitness-fatigue state
+        exercise: ExerciseDefinition with session params
 
     Returns:
         Recommended rest in seconds
     """
-    params = SESSION_PARAMS[session_type]
+    params = exercise.session_params[session_type]
     rest = (params.rest_min + params.rest_max) // 2
 
     if not recent_sessions:
@@ -197,6 +199,81 @@ def calculate_adaptive_rest(
     return max(params.rest_min, min(params.rest_max, rest))
 
 
+def _calculate_added_weight(
+    exercise: ExerciseDefinition,
+    training_max: int,
+    bodyweight_kg: float,
+    last_test_weight: float = 0.0,
+) -> float:
+    """
+    Calculate added weight for a Strength session.
+
+    For bw_plus_external exercises:
+        added = (BW × bw_fraction) × weight_increment_fraction × (TM - threshold)
+        rounded to nearest 0.5 kg, capped at max_added_weight_kg.
+
+    For external_only exercises (BSS):
+        Use the dumbbell weight from the last TEST session (last_test_weight).
+
+    Args:
+        exercise: Exercise definition
+        training_max: Current training max
+        bodyweight_kg: Current bodyweight
+        last_test_weight: Added weight from last TEST session (used for BSS)
+
+    Returns:
+        Added weight in kg
+    """
+    if exercise.load_type == "external_only":
+        return last_test_weight
+
+    if training_max <= exercise.weight_tm_threshold:
+        return 0.0
+
+    pts = training_max - exercise.weight_tm_threshold
+    eff_bw = bodyweight_kg * exercise.bw_fraction
+    raw = eff_bw * exercise.weight_increment_fraction * pts
+    rounded = round(raw * 2) / 2  # nearest 0.5 kg
+    return min(rounded, exercise.max_added_weight_kg)
+
+
+def _insert_test_sessions(
+    session_dates: list[tuple[datetime, str]],
+    history: list[SessionResult],
+    test_frequency_weeks: int,
+    plan_start: datetime,
+) -> list[tuple[datetime, str]]:
+    """
+    Insert TEST sessions at configured intervals.
+
+    Replaces the regular session on the day a TEST becomes due.
+
+    Args:
+        session_dates: Original (date, session_type) list
+        history: Training history
+        test_frequency_weeks: How often to schedule a TEST
+        plan_start: Plan start date (used as fallback for last_test calculation)
+
+    Returns:
+        Modified session list with TEST sessions injected
+    """
+    test_hist = [s for s in history if s.session_type == "TEST"]
+    if test_hist:
+        last_test = datetime.strptime(test_hist[-1].date, "%Y-%m-%d")
+    else:
+        # Treat plan start as if test was due right before (trigger at first week boundary)
+        last_test = plan_start - timedelta(days=test_frequency_weeks * 7)
+
+    result: list[tuple[datetime, str]] = []
+    for date, stype in session_dates:
+        if (date - last_test).days >= test_frequency_weeks * 7:
+            result.append((date, "TEST"))
+            last_test = date
+        else:
+            result.append((date, stype))
+    return result
+
+
 def calculate_set_prescription(
     session_type: SessionType,
     training_max: int,
@@ -204,6 +281,8 @@ def calculate_set_prescription(
     bodyweight_kg: float,
     history_sessions: int = 0,
     recent_same_type: list[SessionResult] | None = None,
+    exercise: ExerciseDefinition = PULL_UP,
+    last_test_weight: float = 0.0,
 ) -> list[PlannedSet]:
     """
     Calculate set prescription for a session.
@@ -215,11 +294,13 @@ def calculate_set_prescription(
         bodyweight_kg: Current bodyweight
         history_sessions: Number of sessions in history (for autoregulation gating)
         recent_same_type: Recent sessions of the same type (for adaptive rest)
+        exercise: ExerciseDefinition with session params and weight formula
+        last_test_weight: Added weight from last TEST session (used for BSS)
 
     Returns:
         List of PlannedSet
     """
-    params = SESSION_PARAMS[session_type]
+    params = exercise.session_params[session_type]
 
     # Calculate target reps per set
     reps_low = max(params.reps_min, int(training_max * params.reps_fraction_low))
@@ -238,7 +319,7 @@ def calculate_set_prescription(
         adj_sets, adj_reps = base_sets, target_reps
 
     # Adaptive rest based on recent same-type sessions and readiness
-    rest = calculate_adaptive_rest(session_type, recent_same_type or [], ff_state)
+    rest = calculate_adaptive_rest(session_type, recent_same_type or [], ff_state, exercise)
 
     sets: list[PlannedSet] = []
 
@@ -262,16 +343,8 @@ def calculate_set_prescription(
             current_reps = max(params.reps_min, current_reps - 1)
 
     elif session_type == "S":
-        # Strength: potentially weighted
-        # Weight = bodyweight × 1% per TM point above threshold, rounded to 0.5 kg
-        added_weight = 0.0
-        if training_max > WEIGHT_TM_THRESHOLD:
-            points_above = training_max - WEIGHT_TM_THRESHOLD
-            raw = bodyweight_kg * WEIGHT_INCREMENT_FRACTION_PER_TM * points_above
-            added_weight = round(raw * 2) / 2  # round to nearest 0.5 kg
-            added_weight = min(added_weight, MAX_ADDED_WEIGHT_KG)
-
-        for i in range(adj_sets):
+        added_weight = _calculate_added_weight(exercise, training_max, bodyweight_kg, last_test_weight)
+        for _ in range(adj_sets):
             sets.append(
                 PlannedSet(
                     target_reps=adj_reps,
@@ -282,8 +355,8 @@ def calculate_set_prescription(
             )
 
     else:
-        # H, T, TEST: bodyweight sets
-        for i in range(adj_sets):
+        # H, T, TEST: bodyweight sets (no added weight)
+        for _ in range(adj_sets):
             sets.append(
                 PlannedSet(
                     target_reps=adj_reps,
@@ -296,46 +369,53 @@ def calculate_set_prescription(
     return sets
 
 
-# Grip rotation cycles per session type.
-# E and TEST are always pronated for consistency/safety.
-_GRIP_CYCLE: dict[str, list[str]] = {
-    "S": ["pronated", "neutral", "supinated"],
-    "H": ["pronated", "neutral", "supinated"],
-    "T": ["pronated", "neutral"],
-    "E": ["pronated"],
-    "TEST": ["pronated"],
-}
-
-
-def select_grip(session_type: SessionType, history: list[SessionResult]) -> Grip:
+def select_grip(
+    session_type: SessionType,
+    history: list[SessionResult],
+    exercise: ExerciseDefinition = PULL_UP,
+) -> Grip:
     """
-    Select appropriate grip for a session (used for one-off lookups).
+    Select appropriate grip/variant for a session (one-off lookup).
 
     For plan generation use _init_grip_counts + _next_grip instead.
 
     Args:
         session_type: Session type
         history: Training history for alternation
+        exercise: ExerciseDefinition with grip_cycles
 
     Returns:
-        Selected grip
+        Selected grip/variant
     """
-    cycle = _GRIP_CYCLE.get(session_type, ["pronated"])
+    cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
     count = sum(1 for s in history if s.session_type == session_type)
     return cycle[count % len(cycle)]  # type: ignore
 
 
-def _init_grip_counts(history: list[SessionResult]) -> dict[str, int]:
-    """Count past sessions of each type from history (for grip rotation)."""
+def _init_grip_counts(
+    history: list[SessionResult],
+    exercise: ExerciseDefinition = PULL_UP,
+) -> dict[str, int]:
+    """
+    Count past sessions of each type from history for grip rotation.
+
+    Only counts sessions for the specified exercise so that a dip plan
+    doesn't inherit pull-up grip rotation counts.
+    """
     counts: dict[str, int] = {}
     for s in history:
-        counts[s.session_type] = counts.get(s.session_type, 0) + 1
+        if s.exercise_id == exercise.exercise_id:
+            counts[s.session_type] = counts.get(s.session_type, 0) + 1
     return counts
 
 
-def _next_grip(session_type: str, counts: dict[str, int]) -> str:
-    """Return next grip for session_type and increment counts[session_type] in-place."""
-    cycle = _GRIP_CYCLE.get(session_type, ["pronated"])
+def _next_grip(
+    session_type: str,
+    counts: dict[str, int],
+    exercise: ExerciseDefinition = PULL_UP,
+) -> str:
+    """Return next grip/variant for session_type and increment counts in-place."""
+    cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
     grip = cycle[counts.get(session_type, 0) % len(cycle)]
     counts[session_type] = counts.get(session_type, 0) + 1
     return grip
@@ -345,6 +425,7 @@ def create_synthetic_test_session(
     date: str,
     bodyweight_kg: float,
     baseline_max: int,
+    exercise_id: str = "pull_up",
 ) -> SessionResult:
     """
     Create a synthetic TEST session for initialization.
@@ -353,6 +434,7 @@ def create_synthetic_test_session(
         date: Session date (ISO format)
         bodyweight_kg: Bodyweight
         baseline_max: Baseline max reps
+        exercise_id: Exercise identifier
 
     Returns:
         Synthetic session result
@@ -371,6 +453,7 @@ def create_synthetic_test_session(
         bodyweight_kg=bodyweight_kg,
         grip="pronated",
         session_type="TEST",
+        exercise_id=exercise_id,
         planned_sets=[test_set],
         completed_sets=[test_set],
         notes="Synthetic baseline test",
@@ -382,6 +465,7 @@ def generate_plan(
     start_date: str,
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
+    exercise: ExerciseDefinition | None = None,
 ) -> list[SessionPlan]:
     """
     Generate a deterministic training plan with progressive overload.
@@ -391,12 +475,16 @@ def generate_plan(
         start_date: Start date for the plan (ISO format)
         weeks_ahead: Number of weeks to plan (None = estimate)
         baseline_max: Baseline max if no history
+        exercise: ExerciseDefinition to parameterise the plan (default: PULL_UP)
 
     Returns:
         List of SessionPlan for the planning horizon
     """
-    # Handle empty history
-    history = user_state.history.copy()
+    if exercise is None:
+        exercise = PULL_UP
+
+    # Filter history to this exercise
+    history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
 
     if not history and baseline_max is None:
         raise ValueError(
@@ -410,6 +498,7 @@ def generate_plan(
             today.strftime("%Y-%m-%d"),
             user_state.current_bodyweight_kg,
             baseline_max,  # type: ignore
+            exercise.exercise_id,
         )
         history = [synthetic]
 
@@ -433,11 +522,10 @@ def generate_plan(
     # The target is only used for estimating plan length.
     tm_float = float(tm)
     uncapped_tm_float = float(tm)
-    target = user_state.profile.target_max_reps
+    target = int(exercise.target_value)
 
     # Determine plan length
     if weeks_ahead is None:
-        # Estimate based on progression
         estimated = estimate_weeks_to_target(tm, target)
         weeks_ahead = max(MIN_PLAN_WEEKS, min(DEFAULT_PLAN_WEEKS, estimated))
     else:
@@ -454,10 +542,13 @@ def generate_plan(
         start_rotation_idx=start_rotation_idx,
     )
 
+    # Insert auto-TEST sessions at configured intervals
+    session_dates = _insert_test_sessions(
+        session_dates, history, exercise.test_frequency_weeks, start
+    )
+
     # Compute cumulative week offset from the very first session in history.
-    # This ensures week_number in planned sessions reflects continuous training
-    # weeks rather than resetting to 1 on every plan regeneration.
-    original_history = user_state.history  # pre-synthetic
+    original_history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
     if original_history:
         first_date = datetime.strptime(original_history[0].date, "%Y-%m-%d")
         week_offset = (start - first_date).days // 7
@@ -470,11 +561,22 @@ def generate_plan(
 
     # Grip rotation: initialise counters from history so planned sessions
     # continue the rotation seamlessly from where history left off.
-    grip_counts = _init_grip_counts(history)
+    grip_counts = _init_grip_counts(history, exercise)
 
-    # Weekly progression tracking: apply progression once per calendar week
-    # (not per session-count cycle) to avoid multiplying by sessions/week.
-    current_plan_week_idx = 0  # Calendar week index within this plan (0-based)
+    # For BSS: find last TEST added weight to use as the dumbbell weight in training
+    last_test_weight = 0.0
+    if exercise.load_type == "external_only":
+        test_hist = [s for s in history if s.session_type == "TEST"]
+        if test_hist and test_hist[-1].completed_sets:
+            weights = [
+                s.added_weight_kg for s in test_hist[-1].completed_sets
+                if s.added_weight_kg > 0
+            ]
+            if weights:
+                last_test_weight = weights[-1]
+
+    # Weekly progression tracking: apply progression once per calendar week.
+    current_plan_week_idx = 0
 
     for date, session_type in session_dates:
         date_str = date.strftime("%Y-%m-%d")
@@ -484,7 +586,7 @@ def generate_plan(
 
         # Apply progression exactly once when entering a new calendar week
         if session_week_idx > current_plan_week_idx:
-            progression = expected_reps_per_week(int(tm_float))
+            progression = expected_reps_per_week(int(tm_float), target)
             tm_float += progression
             uncapped_tm_float += progression
             current_plan_week_idx = session_week_idx
@@ -492,8 +594,8 @@ def generate_plan(
         # Use integer TM for prescriptions
         current_tm = int(tm_float)
 
-        # Select grip via rotation (advances counter for this session type)
-        grip = _next_grip(session_type, grip_counts)  # type: ignore
+        # Select grip/variant via rotation
+        grip = _next_grip(session_type, grip_counts, exercise)
 
         # Calculate sets based on current TM
         recent_same_type = [s for s in history if s.session_type == session_type][-5:]
@@ -504,19 +606,20 @@ def generate_plan(
             user_state.current_bodyweight_kg,
             history_sessions=len(history),
             recent_same_type=recent_same_type,
+            exercise=exercise,
+            last_test_weight=last_test_weight,
         )
 
-        # All sessions in the same calendar week show the same expected_tm.
-        # Progression is applied at week boundaries, not fractionally per session.
         expected_tm_after = int(uncapped_tm_float)
 
         plan = SessionPlan(
             date=date_str,
             grip=grip,
             session_type=session_type,  # type: ignore
+            exercise_id=exercise.exercise_id,
             sets=sets,
             expected_tm=expected_tm_after,
-            week_number=week_offset + session_week_idx + 1,  # cumulative from first history session
+            week_number=week_offset + session_week_idx + 1,
         )
         plans.append(plan)
 
@@ -529,6 +632,7 @@ def explain_plan_entry(
     target_date: str,
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
+    exercise: ExerciseDefinition | None = None,
 ) -> str:
     """
     Generate a step-by-step Rich-markup explanation of a planned session.
@@ -546,7 +650,10 @@ def explain_plan_entry(
     Returns:
         Rich-markup string ready for console.print()
     """
-    history = user_state.history.copy()
+    if exercise is None:
+        exercise = PULL_UP
+
+    history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
 
     if not history and baseline_max is None:
         return "[yellow]No history available. Run 'init --baseline-max N' first.[/yellow]"
@@ -557,6 +664,7 @@ def explain_plan_entry(
             (start_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
             user_state.current_bodyweight_kg,
             baseline_max,  # type: ignore
+            exercise.exercise_id,
         )
         history = [synthetic]
 
@@ -569,7 +677,7 @@ def explain_plan_entry(
     z_score = ff_state.readiness_z_score()
 
     tm_float = float(initial_tm)
-    user_target = user_state.profile.target_max_reps
+    user_target = int(exercise.target_value)
     days_per_week = user_state.profile.preferred_days_per_week
 
     if weeks_ahead is None:
@@ -582,19 +690,20 @@ def explain_plan_entry(
     schedule = get_schedule_template(days_per_week)
     start_rotation_idx = get_next_session_type_index(history, schedule)
     session_dates = calculate_session_days(start, days_per_week, weeks_ahead, start_rotation_idx)
+    session_dates = _insert_test_sessions(session_dates, history, exercise.test_frequency_weeks, start)
 
     # Cumulative week offset from first history session
-    original_history = user_state.history
+    original_history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
     if original_history:
         first_date = datetime.strptime(original_history[0].date, "%Y-%m-%d")
         week_offset = (start - first_date).days // 7
     else:
         week_offset = 0
 
-    grip_counts = _init_grip_counts(history)
+    grip_counts = _init_grip_counts(history, exercise)
     grip_history_counts = dict(grip_counts)
-    current_plan_week_idx = 0  # calendar week index within plan
-    weekly_log: list[tuple[int, float, float, float]] = []  # (week, prog, tm_before, tm_after)
+    current_plan_week_idx = 0
+    weekly_log: list[tuple[int, float, float, float]] = []
 
     TYPE_NAMES = {
         "S": "Strength", "H": "Hypertrophy", "E": "Endurance",
@@ -606,7 +715,7 @@ def explain_plan_entry(
         session_week_idx = (date - start).days // 7
 
         if session_week_idx > current_plan_week_idx:
-            prog = expected_reps_per_week(int(tm_float))
+            prog = expected_reps_per_week(int(tm_float), user_target)
             old_tm = tm_float
             tm_float += prog
             weekly_log.append((week_offset + session_week_idx, prog, old_tm, tm_float))
@@ -614,17 +723,17 @@ def explain_plan_entry(
 
         current_tm = int(tm_float)
         count_before = grip_counts.get(session_type, 0)
-        grip = _next_grip(session_type, grip_counts)
-        cycle = _GRIP_CYCLE.get(session_type, ["pronated"])
+        grip = _next_grip(session_type, grip_counts, exercise)
+        cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
 
         week_num = week_offset + session_week_idx + 1
-        expected_tm_after = int(tm_float)  # same for all sessions in same week
+        expected_tm_after = int(tm_float)
 
         if date_str != target_date:
             continue
 
         # ── Found the target session — build explanation ────────────────────
-        params = SESSION_PARAMS[session_type]
+        params = exercise.session_params[session_type]
         type_name = TYPE_NAMES.get(session_type, session_type)
 
         reps_low = max(params.reps_min, int(current_tm * params.reps_fraction_low))
@@ -643,11 +752,7 @@ def explain_plan_entry(
             elif z_score > READINESS_Z_HIGH:
                 adj_reps = base_reps + 1
 
-        added_weight = 0.0
-        if session_type == "S" and current_tm > 9:
-            raw_w = (current_tm - 9) * 0.5
-            added_weight = round(raw_w * 2) / 2
-            added_weight = min(added_weight, 10.0)
+        added_weight = _calculate_added_weight(exercise, current_tm, user_state.current_bodyweight_kg)
 
         rule = "─" * 54
         L: list[str] = []
@@ -755,16 +860,26 @@ def explain_plan_entry(
         # WEIGHT (S) or VOLUME (E)
         if session_type == "S":
             L.append(f"\n[bold]ADDED WEIGHT: {added_weight:.1f} kg[/bold]")
-            if current_tm > 9:
-                raw_w = (current_tm - 9) * 0.5
+            thr = exercise.weight_tm_threshold
+            frac = exercise.weight_increment_fraction
+            bwf = exercise.bw_fraction
+            if exercise.load_type == "external_only":
+                L.append("  External-load exercise — dumbbell weight from last TEST session.")
+            elif current_tm > thr:
+                eff_bw = user_state.current_bodyweight_kg * bwf
+                raw_w = eff_bw * frac * (current_tm - thr)
                 rounded = round(raw_w * 2) / 2
-                L.append(f"  TM = {current_tm} > 9 → ({current_tm} − 9) × 0.5 = {raw_w:.1f} kg.")
+                L.append(
+                    f"  TM = {current_tm} > {thr} → BW×{bwf}×{frac}×(TM−{thr})"
+                    f" = {eff_bw:.1f}×{frac}×{current_tm - thr} = {raw_w:.2f} kg."
+                )
                 L.append(
                     f"  Rounded to nearest 0.5 kg: {rounded:.1f} kg."
-                    f"  Cap at 10 kg → [bold green]{added_weight:.1f} kg[/bold green]."
+                    f"  Cap at {exercise.max_added_weight_kg:.0f} kg"
+                    f" → [bold green]{added_weight:.1f} kg[/bold green]."
                 )
             else:
-                L.append(f"  TM = {current_tm} ≤ 9 → bodyweight only (0 kg added).")
+                L.append(f"  TM = {current_tm} ≤ {thr} → bodyweight only (0 kg added).")
         elif session_type == "E":
             ke = endurance_volume_multiplier(current_tm)
             total_target = int(ke * current_tm)
@@ -791,12 +906,13 @@ def explain_plan_entry(
         )
 
         # EXPECTED TM AFTER
-        next_week_tm = tm_float + expected_reps_per_week(current_tm)
+        next_week_prog = expected_reps_per_week(current_tm, user_target)
+        next_week_tm = tm_float + next_week_prog
         L.append(f"\n[bold]EXPECTED TM AFTER: {expected_tm_after}[/bold]")
         L.append(f"  TM is updated once per calendar week boundary.")
         L.append(f"  Current TM (this week): int({tm_float:.2f}) = {current_tm}.")
         L.append(
-            f"  Next week's TM ≈ {tm_float:.2f} + {expected_reps_per_week(current_tm):.2f}"
+            f"  Next week's TM ≈ {tm_float:.2f} + {next_week_prog:.2f}"
             f" = {next_week_tm:.2f} → int = {int(next_week_tm)}."
         )
         L.append(

@@ -13,7 +13,6 @@ from .config import (
     F_REST_MIN,
     GAMMA_BW,
     GAMMA_REST,
-    GRIP_FACTORS,
     REST_MIN_CLAMP,
     REST_REF_SECONDS,
     TM_FACTOR,
@@ -66,11 +65,12 @@ def bodyweight_normalized_reps(
     session_bodyweight_kg: float,
     reference_bodyweight_kg: float,
     added_load_kg: float = 0.0,
+    bw_fraction: float = 1.0,
 ) -> float:
     """
     Normalize reps for bodyweight differences.
 
-    L_rel = (bw + load) / bw_ref
+    L_rel = (bw * bw_fraction + load) / bw_ref
     reps** = reps* * L_rel^gamma_bw
 
     Args:
@@ -78,26 +78,33 @@ def bodyweight_normalized_reps(
         session_bodyweight_kg: Bodyweight at time of session
         reference_bodyweight_kg: Reference bodyweight for comparison
         added_load_kg: Added external load
+        bw_fraction: Fraction of BW that is the working load (1.0=pull-up, 0.92=dip, 0.0=BSS)
 
     Returns:
         Bodyweight-normalized rep count
     """
-    total_load = session_bodyweight_kg + added_load_kg
+    effective_bw = session_bodyweight_kg * bw_fraction
+    total_load = effective_bw + added_load_kg
+    if reference_bodyweight_kg <= 0:
+        return reps
     l_rel = total_load / reference_bodyweight_kg
     return reps * (l_rel ** GAMMA_BW)
 
 
-def grip_factor(grip: str) -> float:
+def grip_factor(grip: str, variant_factors: dict[str, float] | None = None) -> float:
     """
-    Get grip normalization factor.
+    Get variant normalization factor.
 
     Args:
-        grip: Grip type ("pronated", "neutral", "supinated")
+        grip: Variant/grip name (e.g. "pronated", "standard")
+        variant_factors: Exercise-specific normalization map; defaults to 1.0 for any grip
 
     Returns:
-        Grip normalization factor (close to 1.0)
+        Normalization factor (typically close to 1.0)
     """
-    return GRIP_FACTORS.get(grip, 1.0)
+    if variant_factors is None:
+        return 1.0
+    return variant_factors.get(grip, 1.0)
 
 
 def standardized_reps(
@@ -107,11 +114,13 @@ def standardized_reps(
     reference_bodyweight_kg: float,
     added_load_kg: float = 0.0,
     grip: str = "pronated",
+    variant_factors: dict[str, float] | None = None,
+    bw_fraction: float = 1.0,
 ) -> float:
     """
-    Calculate fully standardized reps accounting for rest, bodyweight, and grip.
+    Calculate fully standardized reps accounting for rest, bodyweight, and grip/variant.
 
-    reps_std = reps** * F_grip
+    reps_std = reps** * F_variant
 
     Args:
         actual_reps: Raw rep count
@@ -119,7 +128,9 @@ def standardized_reps(
         session_bodyweight_kg: Bodyweight at session
         reference_bodyweight_kg: Reference bodyweight
         added_load_kg: Added load
-        grip: Grip type
+        grip: Grip/variant name
+        variant_factors: Per-variant normalization factors (from ExerciseDefinition)
+        bw_fraction: Fraction of BW that is the working load
 
     Returns:
         Fully standardized rep count
@@ -129,11 +140,11 @@ def standardized_reps(
 
     # Step 2: Bodyweight normalization
     bw_norm = bodyweight_normalized_reps(
-        rest_norm, session_bodyweight_kg, reference_bodyweight_kg, added_load_kg
+        rest_norm, session_bodyweight_kg, reference_bodyweight_kg, added_load_kg, bw_fraction
     )
 
-    # Step 3: Grip normalization
-    return bw_norm * grip_factor(grip)
+    # Step 3: Variant/grip normalization
+    return bw_norm * grip_factor(grip, variant_factors)
 
 
 def session_max_reps(session: SessionResult) -> int:
@@ -292,7 +303,7 @@ def estimate_pullup_1rm(
     window_sessions: int = 5,
 ) -> float | None:
     """
-    Estimate pull-up 1RM from recent weighted sets.
+    Estimate pull-up 1RM from recent weighted sets (legacy, pull-up specific).
 
     Uses median of recent weighted set estimates via Epley formula.
 
@@ -304,7 +315,6 @@ def estimate_pullup_1rm(
     Returns:
         Estimated 1RM or None if insufficient data
     """
-    # Collect weighted sets from recent sessions
     weighted_estimates: list[float] = []
 
     for session in history[-window_sessions:]:
@@ -317,12 +327,75 @@ def estimate_pullup_1rm(
     if not weighted_estimates:
         return None
 
-    # Return median
     sorted_estimates = sorted(weighted_estimates)
     n = len(sorted_estimates)
     if n % 2 == 0:
         return (sorted_estimates[n // 2 - 1] + sorted_estimates[n // 2]) / 2
     return sorted_estimates[n // 2]
+
+
+def estimate_1rm(
+    exercise,  # ExerciseDefinition — avoid circular import by not type-hinting here
+    bodyweight_kg: float,
+    history: list[SessionResult],
+    window_sessions: int = 5,
+) -> dict | None:
+    """
+    Estimate 1RM for any exercise using the Epley formula.
+
+    For BW-based exercises (bw_fraction > 0):
+        effective_load = BW × bw_fraction + added_weight
+    For external-only exercises (bw_fraction == 0):
+        effective_load = added_weight
+
+    Best set = set with highest Epley estimate across last window_sessions.
+
+    Args:
+        exercise: ExerciseDefinition with bw_fraction and load_type
+        bodyweight_kg: Current bodyweight in kg
+        history: Training history
+        window_sessions: Number of recent sessions to scan
+
+    Returns:
+        Dict with keys: 1rm_kg, best_reps, best_added_weight_kg, best_date,
+        effective_load_kg, onerm_includes_bodyweight, explanation.
+        Returns None if no usable sets found.
+    """
+    best_1rm = 0.0
+    best_info: dict | None = None
+
+    for session in history[-window_sessions:]:
+        for s in session.completed_sets:
+            if s.actual_reps is None or s.actual_reps <= 0:
+                continue
+            # For BW exercises any set counts (incl. BW-only: added=0, total=BW*bw_frac)
+            # For external_only we need actual load info
+            if exercise.load_type == "external_only":
+                if s.added_weight_kg <= 0:
+                    continue
+                eff_load = s.added_weight_kg
+            else:
+                eff_load = bodyweight_kg * exercise.bw_fraction + s.added_weight_kg
+
+            if eff_load <= 0:
+                continue
+
+            est = epley_1rm(eff_load, s.actual_reps)
+            if est > best_1rm:
+                best_1rm = est
+                best_info = {
+                    "1rm_kg": round(est, 1),
+                    "best_reps": s.actual_reps,
+                    "best_added_weight_kg": s.added_weight_kg,
+                    "best_date": session.date,
+                    "effective_load_kg": round(eff_load, 1),
+                    "onerm_includes_bodyweight": exercise.onerm_includes_bodyweight,
+                    "bodyweight_kg": bodyweight_kg,
+                    "bw_fraction": exercise.bw_fraction,
+                    "explanation": exercise.onerm_explanation,
+                }
+
+    return best_info
 
 
 def linear_trend_max_reps(

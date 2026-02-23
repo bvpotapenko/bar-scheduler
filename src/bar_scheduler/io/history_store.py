@@ -392,16 +392,27 @@ class HistoryStore:
             self.history_path.write_text("")
 
 
-def get_default_history_path() -> Path:
+def get_default_history_path(exercise_id: str = "pull_up") -> Path:
     """
-    Get the default history file path.
+    Get the default history file path for an exercise.
 
-    Uses ~/.bar-scheduler/history.jsonl
+    Pull-up history is routed to the legacy ``history.jsonl`` when it exists
+    (backward compat) and to ``pull_up_history.jsonl`` otherwise.
+    All other exercises get their own ``<exercise_id>_history.jsonl``.
+
+    Args:
+        exercise_id: Exercise identifier (default: "pull_up")
 
     Returns:
         Default history path
     """
-    return Path.home() / ".bar-scheduler" / "history.jsonl"
+    base = Path.home() / ".bar-scheduler"
+    if exercise_id == "pull_up":
+        legacy = base / "history.jsonl"
+        if legacy.exists():
+            return legacy
+        return base / "pull_up_history.jsonl"
+    return base / f"{exercise_id}_history.jsonl"
 
 
 def get_default_store() -> HistoryStore:

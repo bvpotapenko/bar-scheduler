@@ -1,14 +1,17 @@
 """
-Data models for the pull-up planner.
+Data models for bar-scheduler.
 
 All core dataclasses representing training data, sessions, and plans.
+Grip/variant values are exercise-specific strings; validation is delegated
+to ExerciseDefinition rather than enforced at the model level.
 """
 
 from dataclasses import dataclass, field
 from typing import Literal
 
-# Type aliases for enums
-Grip = Literal["pronated", "supinated", "neutral"]
+# Grip is now a plain str to support non-pull-up variant names
+# (e.g. "standard", "chest_lean" for dips; "deficit" for BSS).
+Grip = str
 SessionType = Literal["S", "H", "E", "T", "TEST"]
 Sex = Literal["male", "female"]
 
@@ -90,8 +93,9 @@ class SessionResult:
 
     date: str  # ISO format: YYYY-MM-DD
     bodyweight_kg: float
-    grip: Grip
+    grip: Grip  # exercise-specific variant string (e.g. "pronated", "standard")
     session_type: SessionType
+    exercise_id: str = "pull_up"
     planned_sets: list[SetResult] = field(default_factory=list)
     completed_sets: list[SetResult] = field(default_factory=list)
     notes: str | None = None
@@ -104,8 +108,7 @@ class SessionResult:
         if self.bodyweight_kg <= 0:
             raise ValueError("bodyweight_kg must be positive")
 
-        if self.grip not in ("pronated", "supinated", "neutral"):
-            raise ValueError(f"Invalid grip: {self.grip}")
+        # Grip validation is exercise-specific; not enforced here.
 
         if self.session_type not in ("S", "H", "E", "T", "TEST"):
             raise ValueError(f"Invalid session_type: {self.session_type}")
@@ -136,8 +139,9 @@ class SessionPlan:
     """
 
     date: str  # ISO format: YYYY-MM-DD
-    grip: Grip
+    grip: Grip  # exercise-specific variant string
     session_type: SessionType
+    exercise_id: str = "pull_up"
     sets: list[PlannedSet] = field(default_factory=list)
     expected_tm: int = 0  # Expected training max after completing this session
     week_number: int = 1  # Week number in the plan (1-indexed)
@@ -145,8 +149,7 @@ class SessionPlan:
     def __post_init__(self) -> None:
         """Validate session plan data."""
         SessionResult._validate_date(self.date)
-        if self.grip not in ("pronated", "supinated", "neutral"):
-            raise ValueError(f"Invalid grip: {self.grip}")
+        # Grip validation is exercise-specific; not enforced here.
         if self.session_type not in ("S", "H", "E", "T", "TEST"):
             raise ValueError(f"Invalid session_type: {self.session_type}")
 
@@ -162,6 +165,7 @@ class SessionPlan:
             bodyweight_kg=bodyweight_kg,
             grip=self.grip,
             session_type=self.session_type,
+            exercise_id=self.exercise_id,
             planned_sets=[s.to_set_result() for s in self.sets],
             completed_sets=[],
         )

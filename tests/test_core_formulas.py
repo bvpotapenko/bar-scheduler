@@ -25,7 +25,6 @@ from bar_scheduler.core.config import (
     GAMMA_LOAD,
     GAMMA_REST,
     GAMMA_S,
-    GRIP_STRESS_FACTORS,
     K_FATIGUE,
     K_FITNESS,
     READINESS_VOLUME_REDUCTION,
@@ -601,14 +600,23 @@ class TestLoadStressMultiplier:
 
 class TestGripStressMultiplier:
 
-    def test_values_match_config(self):
+    def test_none_variant_factors_returns_one(self):
         from bar_scheduler.core.physiology import grip_stress_multiplier
+        # Without exercise-specific factors, multiplier is 1.0 regardless of grip
         for grip in ("pronated", "neutral", "supinated"):
-            assert grip_stress_multiplier(grip) == pytest.approx(GRIP_STRESS_FACTORS[grip])
+            assert grip_stress_multiplier(grip) == pytest.approx(1.0)
 
-    def test_supinated_highest_stress(self):
+    def test_variant_factors_passthrough(self):
         from bar_scheduler.core.physiology import grip_stress_multiplier
-        assert grip_stress_multiplier("supinated") > grip_stress_multiplier("neutral")
+        # Custom factors are respected
+        factors = {"pronated": 1.0, "neutral": 0.95, "supinated": 1.05}
+        assert grip_stress_multiplier("supinated", factors) == pytest.approx(1.05)
+        assert grip_stress_multiplier("neutral", factors) == pytest.approx(0.95)
+
+    def test_unknown_variant_defaults_to_one(self):
+        from bar_scheduler.core.physiology import grip_stress_multiplier
+        factors = {"standard": 1.0}
+        assert grip_stress_multiplier("unknown_variant", factors) == pytest.approx(1.0)
 
 
 # ===========================================================================

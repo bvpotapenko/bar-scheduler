@@ -1,6 +1,8 @@
 # bar-scheduler
 
-Evidence-informed pull-up training planner to reach 30 strict pull-ups.
+Evidence-informed training planner for bodyweight strength exercises.
+Supports **Pull-Up**, **Parallel Bar Dip**, and **Bulgarian Split Squat (DB)**
+— all sharing one planning engine.
 
 ![Training Log](./img/training_log.png)
 ![Weekly Volume](./img/weekly_volume.png)
@@ -61,6 +63,37 @@ bar-scheduler plot-max
 | `status` | Show current training status |
 | `volume` | Show weekly volume chart |
 | `explain DATE` | Step-by-step breakdown of how a session's parameters were calculated |
+| `1rm` | Estimate 1-rep max using the Epley formula |
+
+## Multi-Exercise Support
+
+All data commands accept `--exercise` / `-e` to select an exercise (default: `pull_up`):
+
+```bash
+# Dip plan
+bar-scheduler plan --exercise dip
+
+# Log a dip session (shows standard/chest_lean/tricep_upright variants)
+bar-scheduler log-session --exercise dip
+
+# BSS status
+bar-scheduler status --exercise bss
+
+# Estimate pull-up 1RM
+bar-scheduler 1rm
+
+# BSS 1RM (external load only — no bodyweight included)
+bar-scheduler 1rm --exercise bss
+```
+
+Separate history files are used per exercise:
+- Pull-up: `~/.bar-scheduler/history.jsonl` (legacy) or `pull_up_history.jsonl`
+- Dip: `~/.bar-scheduler/dip_history.jsonl`
+- BSS: `~/.bar-scheduler/bss_history.jsonl`
+
+See [docs/exercises/](docs/exercises/) for per-exercise biomechanics, variant
+details, and test protocols. All three protocols are also summarised in
+[docs/assessment_protocols.md](docs/assessment_protocols.md).
 
 ## JSON Output
 

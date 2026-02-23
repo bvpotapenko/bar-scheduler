@@ -52,20 +52,23 @@ def validate_date(date_str: str) -> str:
 
 def validate_grip(grip: str) -> Grip:
     """
-    Validate grip type.
+    Validate grip / variant name.
+
+    Grip is now a plain ``str`` that can hold any exercise variant
+    (e.g. "pronated", "standard", "front_foot_elevated").  The only
+    requirement is that it is a non-empty string.
 
     Args:
-        grip: Grip string to validate
+        grip: Grip / variant string
 
     Returns:
         Validated grip
 
     Raises:
-        ValidationError: If grip is invalid
+        ValidationError: If grip is empty or not a string
     """
-    valid_grips = ("pronated", "supinated", "neutral")
-    if grip not in valid_grips:
-        raise ValidationError(f"Invalid grip: {grip}. Must be one of {valid_grips}")
+    if not isinstance(grip, str) or not grip.strip():
+        raise ValidationError(f"Invalid grip: {grip!r}. Must be a non-empty string.")
     return grip  # type: ignore
 
 
@@ -275,6 +278,7 @@ def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
         "bodyweight_kg": session.bodyweight_kg,
         "grip": session.grip,
         "session_type": session.session_type,
+        "exercise_id": session.exercise_id,
         "completed_sets": [_completed_set_to_dict(s) for s in session.completed_sets],
         "notes": session.notes,
     }
@@ -307,6 +311,7 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
         bodyweight_kg=float(data["bodyweight_kg"]),
         grip=data["grip"],
         session_type=data["session_type"],
+        exercise_id=data.get("exercise_id", "pull_up"),
         planned_sets=[dict_to_set_result(s) for s in data.get("planned_sets", [])],
         completed_sets=[dict_to_set_result(s) for s in data.get("completed_sets", [])],
         notes=data.get("notes"),

@@ -1,12 +1,17 @@
 """
-Configuration constants for the pull-up training model.
+Generic configuration constants for the bar-scheduler training engine.
 
-All adjustable parameters are centralized here for easy tuning.
+Exercise-specific parameters (grip factors, session type params, added-weight
+formula, target reps) now live in core/exercises/ and are passed via
+ExerciseDefinition.  Only universal model constants remain here.
+
 See docs/training_model.md for detailed explanations.
 """
 
-from dataclasses import dataclass
 from typing import Final
+
+# Re-export SessionTypeParams so existing callers don't break.
+from .exercises.base import SessionTypeParams  # noqa: F401
 
 # =============================================================================
 # REST NORMALIZATION (Section 2.1 of training model)
@@ -23,16 +28,6 @@ REST_MIN_CLAMP: Final[int] = 30  # Minimum rest to avoid division issues
 # =============================================================================
 
 GAMMA_BW: Final[float] = 1.0  # Exponent for bodyweight adjustment
-
-# =============================================================================
-# GRIP NORMALIZATION (Section 2.3)
-# =============================================================================
-
-GRIP_FACTORS: Final[dict[str, float]] = {
-    "pronated": 1.00,
-    "neutral": 1.00,
-    "supinated": 1.00,
-}
 
 # =============================================================================
 # EWMA FOR MAX ESTIMATION (Section 3.2)
@@ -61,12 +56,6 @@ GAMMA_S: Final[float] = 0.15  # Exponent for rest stress
 S_REST_MAX: Final[float] = 1.5  # Maximum rest stress multiplier
 GAMMA_LOAD: Final[float] = 1.5  # Exponent for added load stress
 
-GRIP_STRESS_FACTORS: Final[dict[str, float]] = {
-    "pronated": 1.00,
-    "neutral": 0.95,
-    "supinated": 1.05,
-}
-
 # =============================================================================
 # WITHIN-SESSION FATIGUE (Section 6)
 # =============================================================================
@@ -94,87 +83,6 @@ TM_FACTOR: Final[float] = 0.90  # Training max as fraction of test max
 # =============================================================================
 # ADDED WEIGHT (Section 7.3.1)
 # =============================================================================
-
-WEIGHT_INCREMENT_FRACTION_PER_TM: Final[float] = 0.01  # 1% BW per TM point above threshold
-WEIGHT_TM_THRESHOLD: Final[int] = 9                    # TM must exceed this before adding weight
-MAX_ADDED_WEIGHT_KG: Final[float] = 20.0               # Absolute cap on added weight
-
-# =============================================================================
-# SESSION TYPE PARAMETERS
-# =============================================================================
-
-@dataclass(frozen=True)
-class SessionTypeParams:
-    """Parameters for each session type."""
-
-    reps_fraction_low: float  # Lower bound as fraction of TM
-    reps_fraction_high: float  # Upper bound as fraction of TM
-    reps_min: int  # Absolute minimum reps
-    reps_max: int  # Absolute maximum reps
-    sets_min: int
-    sets_max: int
-    rest_min: int  # Rest in seconds
-    rest_max: int
-    rir_target: int
-
-
-SESSION_PARAMS: Final[dict[str, SessionTypeParams]] = {
-    "S": SessionTypeParams(  # Strength
-        reps_fraction_low=0.35,
-        reps_fraction_high=0.55,
-        reps_min=4,
-        reps_max=6,
-        sets_min=4,
-        sets_max=5,
-        rest_min=180,
-        rest_max=300,
-        rir_target=2,
-    ),
-    "H": SessionTypeParams(  # Hypertrophy
-        reps_fraction_low=0.60,
-        reps_fraction_high=0.85,
-        reps_min=6,
-        reps_max=12,
-        sets_min=4,
-        sets_max=6,
-        rest_min=120,
-        rest_max=180,
-        rir_target=2,
-    ),
-    "E": SessionTypeParams(  # Endurance/Density
-        reps_fraction_low=0.40,  # Increased from 0.35
-        reps_fraction_high=0.60,  # Increased from 0.55
-        reps_min=3,
-        reps_max=8,
-        sets_min=6,  # Increased from 5
-        sets_max=10,  # Increased from 8
-        rest_min=45,
-        rest_max=75,  # Reduced from 90
-        rir_target=3,
-    ),
-    "T": SessionTypeParams(  # Technique
-        reps_fraction_low=0.20,
-        reps_fraction_high=0.40,
-        reps_min=2,
-        reps_max=4,
-        sets_min=4,
-        sets_max=8,
-        rest_min=60,
-        rest_max=120,
-        rir_target=5,
-    ),
-    "TEST": SessionTypeParams(  # Max test
-        reps_fraction_low=1.0,
-        reps_fraction_high=1.0,
-        reps_min=1,
-        reps_max=50,
-        sets_min=1,
-        sets_max=1,
-        rest_min=180,
-        rest_max=300,
-        rir_target=0,
-    ),
-}
 
 # =============================================================================
 # WEEKLY SCHEDULE TEMPLATES
@@ -239,22 +147,23 @@ DEFAULT_PLAN_WEEKS: Final[int] = 4
 EXPECTED_WEEKS_PER_REP: Final[float] = 2.0  # Roughly 0.5 reps per week
 
 
-def expected_reps_per_week(training_max: int) -> float:
+def expected_reps_per_week(training_max: int, target: int = TARGET_MAX_REPS) -> float:
     """
     Calculate expected progression rate based on current level.
 
-    As training max approaches 30, progression slows nonlinearly.
+    As training max approaches the target, progression slows nonlinearly.
 
     Args:
         training_max: Current training max reps
+        target: Exercise target (default TARGET_MAX_REPS=30 for pull-ups)
 
     Returns:
         Expected reps gained per week
     """
-    if training_max >= TARGET_MAX_REPS:
+    if training_max >= target:
         return 0.0
 
-    fraction_to_goal = 1 - (training_max / TARGET_MAX_REPS)
+    fraction_to_goal = 1 - (training_max / target)
     delta = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESSION_MIN) * (
         fraction_to_goal ** ETA_PROGRESSION
     )
@@ -269,7 +178,7 @@ def estimate_weeks_to_target(current_max: int, target: int = TARGET_MAX_REPS) ->
 
     Args:
         current_max: Current max reps
-        target: Target max reps (default 30)
+        target: Target max reps (default TARGET_MAX_REPS=30)
 
     Returns:
         Estimated weeks to reach target
@@ -281,7 +190,7 @@ def estimate_weeks_to_target(current_max: int, target: int = TARGET_MAX_REPS) ->
     current = float(current_max)
 
     while current < target and weeks < MAX_PLAN_WEEKS * 4:  # Safety limit
-        rate = expected_reps_per_week(int(current))
+        rate = expected_reps_per_week(int(current), target)
         if rate <= 0:
             break
         current += rate

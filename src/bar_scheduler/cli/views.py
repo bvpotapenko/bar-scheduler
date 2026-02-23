@@ -181,7 +181,10 @@ def _fmt_prescribed_sets(sets: list, session_type: str) -> str:
 
 def _fmt_prescribed(plan: SessionPlan) -> str:
     """Format a planned session as a compact single-line string."""
-    return _fmt_prescribed_sets(plan.sets, plan.session_type)
+    text = _fmt_prescribed_sets(plan.sets, plan.session_type)
+    if plan.exercise_id == "bss":
+        text += " (per leg)"
+    return text
 
 
 def _fmt_actual(session: SessionResult) -> str:

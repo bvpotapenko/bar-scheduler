@@ -631,3 +631,143 @@ class TestJSONAndTrajectory:
         assert result.exit_code == 0
         # Either the trajectory dot character or the legend text should appear
         assert "·" in result.output or "projected" in result.output
+
+
+# ===========================================================================
+# Multi-exercise architecture tests (Steps 1–12)
+# ===========================================================================
+
+class TestMultiExercise:
+    """Tests for the multi-exercise architecture."""
+
+    def test_exercise_registry(self):
+        """get_exercise returns known definitions; raises ValueError for unknown."""
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.exercises.base import ExerciseDefinition
+
+        pu = get_exercise("pull_up")
+        assert isinstance(pu, ExerciseDefinition)
+        assert pu.exercise_id == "pull_up"
+
+        dip = get_exercise("dip")
+        assert dip.exercise_id == "dip"
+        assert dip.bw_fraction == pytest.approx(0.92)
+
+        bss = get_exercise("bss")
+        assert bss.load_type == "external_only"
+
+        with pytest.raises(ValueError):
+            get_exercise("unknown_exercise")
+
+    def test_dip_added_weight(self):
+        """Dip added-weight formula: BW×0.92×0.012×(TM−12), rounded to 0.5 kg."""
+        from bar_scheduler.core.planner import _calculate_added_weight
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        dip = get_exercise("dip")
+        # TM=15, BW=82: raw = 82*0.92*0.012*3 = 2.716 → nearest 0.5 = 2.5
+        result = _calculate_added_weight(dip, training_max=15, bodyweight_kg=82.0)
+        assert result == pytest.approx(2.5)
+
+    def test_bss_uses_test_weight(self):
+        """BSS Strength sessions inherit dumbbell weight from last TEST session."""
+        from bar_scheduler.core.planner import _calculate_added_weight
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        bss = get_exercise("bss")
+        # external_only: always returns last_test_weight regardless of TM
+        result = _calculate_added_weight(bss, training_max=12, bodyweight_kg=82.0,
+                                         last_test_weight=24.0)
+        assert result == pytest.approx(24.0)
+
+        # With no test weight, returns 0
+        result_zero = _calculate_added_weight(bss, training_max=12, bodyweight_kg=82.0)
+        assert result_zero == pytest.approx(0.0)
+
+    def test_auto_test_insertion(self):
+        """Plan inserts TEST session when freq_weeks threshold is reached."""
+        from bar_scheduler.core.planner import _insert_test_sessions
+        from datetime import datetime, timedelta
+
+        # Build a 6-week plan: sessions every 2 days (simplified)
+        start = datetime(2026, 3, 1)
+        session_dates = [
+            (start + timedelta(days=i * 2), "S") for i in range(21)  # ~6 weeks
+        ]
+        # No history — threshold triggers immediately (last_test = start - 21 days)
+        result = _insert_test_sessions(session_dates, [], test_frequency_weeks=3, plan_start=start)
+        test_sessions = [(d, t) for d, t in result if t == "TEST"]
+        assert len(test_sessions) >= 2  # should see at least 2 TEST insertions in 6 weeks
+
+    def test_1rm_pullup(self):
+        """Epley 1RM for pull-up: BW=82, 5 reps @ +10 kg → (82+10)×(1+5/30) ≈ 107.3 kg."""
+        from bar_scheduler.core.metrics import estimate_1rm
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.models import SessionResult, SetResult
+
+        pull_up = get_exercise("pull_up")
+        s = SetResult(target_reps=5, actual_reps=5, rest_seconds_before=180,
+                      added_weight_kg=10.0, rir_target=2)
+        session = SessionResult(date="2026-03-01", bodyweight_kg=82.0, grip="pronated",
+                                session_type="S", exercise_id="pull_up",
+                                planned_sets=[], completed_sets=[s])
+        result = estimate_1rm(pull_up, 82.0, [session])
+        assert result is not None
+        assert result["1rm_kg"] == pytest.approx(92.0 * (1 + 5 / 30), rel=1e-3)
+
+    def test_1rm_bss(self):
+        """Epley 1RM for BSS (external_only): 8 reps @ 48 kg → 48×(1+8/30) ≈ 60.8 kg."""
+        from bar_scheduler.core.metrics import estimate_1rm
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.models import SessionResult, SetResult
+
+        bss = get_exercise("bss")
+        s = SetResult(target_reps=8, actual_reps=8, rest_seconds_before=90,
+                      added_weight_kg=48.0, rir_target=2)
+        session = SessionResult(date="2026-03-01", bodyweight_kg=82.0, grip="standard",
+                                session_type="S", exercise_id="bss",
+                                planned_sets=[], completed_sets=[s])
+        result = estimate_1rm(bss, 82.0, [session])
+        assert result is not None
+        assert result["1rm_kg"] == pytest.approx(48.0 * (1 + 8 / 30), rel=1e-3)
+
+    def test_bss_unilateral_display(self):
+        """_fmt_prescribed appends '(per leg)' for BSS sessions."""
+        from bar_scheduler.core.models import SessionPlan, PlannedSet
+        from bar_scheduler.cli.views import _fmt_prescribed
+
+        ps = PlannedSet(target_reps=8, rest_seconds_before=60, added_weight_kg=24.0,
+                        rir_target=2)
+        plan = SessionPlan(date="2026-03-01", grip="standard", session_type="S",
+                           exercise_id="bss", sets=[ps], expected_tm=12, week_number=1)
+        text = _fmt_prescribed(plan)
+        assert "(per leg)" in text
+
+        # Pull-up plan should NOT have the suffix
+        plan_pu = SessionPlan(date="2026-03-01", grip="pronated", session_type="S",
+                              exercise_id="pull_up", sets=[ps], expected_tm=12, week_number=1)
+        assert "(per leg)" not in _fmt_prescribed(plan_pu)
+
+    def test_exercise_id_serialization(self):
+        """exercise_id round-trips through serialization; absent field defaults to pull_up."""
+        from bar_scheduler.io.serializers import session_result_to_dict, dict_to_session_result
+        from bar_scheduler.core.models import SessionResult, SetResult
+
+        s = SetResult(target_reps=8, actual_reps=8, rest_seconds_before=180,
+                      added_weight_kg=0.0, rir_target=2)
+
+        # Dip session round-trips
+        session = SessionResult(date="2026-03-01", bodyweight_kg=82.0, grip="standard",
+                                session_type="H", exercise_id="dip",
+                                planned_sets=[], completed_sets=[s])
+        d = session_result_to_dict(session)
+        assert d["exercise_id"] == "dip"
+        loaded = dict_to_session_result(d)
+        assert loaded.exercise_id == "dip"
+
+        # Legacy record without exercise_id defaults to pull_up
+        d_legacy = dict(d)
+        d_legacy.pop("exercise_id")
+        d_legacy["grip"] = "pronated"  # use a pull-up grip for legacy record
+        loaded_legacy = dict_to_session_result(d_legacy)
+        assert loaded_legacy.exercise_id == "pull_up"
