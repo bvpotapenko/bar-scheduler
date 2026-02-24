@@ -92,6 +92,14 @@ def init(
         except Exception:
             existing_sessions = 0
 
+        # Always load existing profile so optional fields are preserved
+        try:
+            old_profile = store.load_profile()
+            old_bw = store.load_bodyweight()
+        except Exception:
+            old_profile = None
+            old_bw = None
+
         if existing_sessions > 0 and not force:
             views.print_warning(f"Found existing history with {existing_sessions} sessions.")
             views.console.print("\nOptions:")
@@ -114,10 +122,7 @@ def init(
                 store.history_path.rename(backup_path)
                 views.print_success(f"Backed up existing history to {backup_path}")
                 existing_sessions = 0
-            # choice == "1" means keep existing, just update profile
-            if choice not in ("2", "3", ""):
-                old_profile = store.load_profile()
-                old_bw = store.load_bodyweight()
+                old_profile = None  # fresh start — don't inherit old profile fields
 
     # Merge per-exercise days: inherit existing overrides, set this exercise's value.
     # For non-pull_up exercises, preserve the existing global preferred_days_per_week
@@ -131,13 +136,26 @@ def init(
             global_days = old_profile.preferred_days_per_week
     merged_exercise_days[exercise_id] = days_per_week
 
-    # Create profile
+    # Create profile — preserve optional fields from existing profile when re-initialising
     profile = UserProfile(
         height_cm=height_cm,
         sex=sex,  # type: ignore
         preferred_days_per_week=global_days,
         target_max_reps=target_max,
         exercise_days=merged_exercise_days,
+        exercises_enabled=(
+            old_profile.exercises_enabled if old_profile is not None
+            else ["pull_up", "dip", "bss"]
+        ),
+        max_session_duration_minutes=(
+            old_profile.max_session_duration_minutes if old_profile is not None else 60
+        ),
+        rest_preference=(
+            old_profile.rest_preference if old_profile is not None else "normal"
+        ),
+        injury_notes=(
+            old_profile.injury_notes if old_profile is not None else ""
+        ),
     )
 
     # Initialize store (creates file if not exists)

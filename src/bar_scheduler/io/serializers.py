@@ -392,6 +392,10 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
         "sex": profile.sex,
         "preferred_days_per_week": profile.preferred_days_per_week,
         "target_max_reps": profile.target_max_reps,
+        "exercises_enabled": list(profile.exercises_enabled),
+        "max_session_duration_minutes": profile.max_session_duration_minutes,
+        "rest_preference": profile.rest_preference,
+        "injury_notes": profile.injury_notes,
     }
     if profile.exercise_days:
         d["exercise_days"] = dict(profile.exercise_days)
@@ -426,12 +430,20 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
     raw_exercise_days = data.get("exercise_days") or {}
     exercise_days = {k: int(v) for k, v in raw_exercise_days.items()}
 
+    rest_pref = data.get("rest_preference", "normal")
+    if rest_pref not in ("short", "normal", "long"):
+        rest_pref = "normal"
+
     return UserProfile(
         height_cm=int(data["height_cm"]),
         sex=data["sex"],
         preferred_days_per_week=int(data.get("preferred_days_per_week", 3)),
         target_max_reps=int(data.get("target_max_reps", 30)),
         exercise_days=exercise_days,
+        exercises_enabled=list(data.get("exercises_enabled", ["pull_up", "dip", "bss"])),
+        max_session_duration_minutes=int(data.get("max_session_duration_minutes", 60)),
+        rest_preference=rest_pref,
+        injury_notes=str(data.get("injury_notes", "")),
     )
 
 

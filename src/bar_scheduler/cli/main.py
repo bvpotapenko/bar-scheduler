@@ -33,13 +33,14 @@ def main_callback(ctx: typer.Context) -> None:
         "5": ("status",        "Current status"),
         "6": ("update-weight", "Update bodyweight"),
         "7": ("volume",        "Weekly volume chart"),
-        "e": ("explain",       "Explain how a session was planned"),
-        "r": ("1rm",           "Estimate 1-rep max"),
+        "e": ("explain",          "Explain how a session was planned"),
+        "r": ("1rm",              "Estimate 1-rep max"),
         "s": ("skip",             "Rest day — shift plan forward"),
         "u": ("update-equipment", "Update training equipment"),
         "i": ("init",             "Setup / edit profile"),
         "d": ("delete-record",    "Delete a session by ID"),
-        "0": ("quit",          "Quit"),
+        "a": ("help-adaptation",  "How the planner adapts over time"),
+        "0": ("quit",             "Quit"),
     }
 
     for key, (_, desc) in menu.items():
@@ -84,6 +85,8 @@ def main_callback(ctx: typer.Context) -> None:
         profile._menu_init()
     elif chosen == "delete-record":
         sessions._menu_delete_record()
+    elif chosen == "help-adaptation":
+        ctx.invoke(analysis.help_adaptation)
 
 
 if __name__ == "__main__":

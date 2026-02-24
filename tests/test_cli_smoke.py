@@ -901,3 +901,239 @@ class TestEquipmentIntegration:
             valid_from="2026-01-01",
         )
         assert bss_is_degraded(with_elevation) is False
+
+
+# =============================================================================
+# New feature tests: profile fields, help-adaptation, YAML config loader
+# =============================================================================
+
+
+class TestProfileFields:
+    """Tests for new UserProfile fields added in task.md §6."""
+
+    def test_default_new_fields(self):
+        """UserProfile has correct defaults for new fields."""
+        from bar_scheduler.core.models import UserProfile
+
+        p = UserProfile(height_cm=175, sex="male")
+        assert p.exercises_enabled == ["pull_up", "dip", "bss"]
+        assert p.max_session_duration_minutes == 60
+        assert p.rest_preference == "normal"
+        assert p.injury_notes == ""
+
+    def test_is_exercise_enabled(self):
+        """is_exercise_enabled respects the exercises_enabled list."""
+        from bar_scheduler.core.models import UserProfile
+
+        p = UserProfile(
+            height_cm=175,
+            sex="male",
+            exercises_enabled=["pull_up", "dip"],
+        )
+        assert p.is_exercise_enabled("pull_up") is True
+        assert p.is_exercise_enabled("dip") is True
+        assert p.is_exercise_enabled("bss") is False
+
+    def test_invalid_rest_preference_raises(self):
+        """rest_preference must be 'short', 'normal', or 'long'."""
+        from bar_scheduler.core.models import UserProfile
+
+        with pytest.raises(ValueError, match="rest_preference"):
+            UserProfile(height_cm=175, sex="male", rest_preference="very_slow")
+
+    def test_profile_serialisation_round_trip(self):
+        """New fields survive to_dict / from_dict round-trip."""
+        from bar_scheduler.core.models import UserProfile
+        from bar_scheduler.io.serializers import dict_to_user_profile, user_profile_to_dict
+
+        p = UserProfile(
+            height_cm=180,
+            sex="female",
+            preferred_days_per_week=4,
+            exercises_enabled=["pull_up"],
+            max_session_duration_minutes=45,
+            rest_preference="short",
+            injury_notes="left elbow tendinopathy",
+        )
+        d = user_profile_to_dict(p)
+        assert d["exercises_enabled"] == ["pull_up"]
+        assert d["max_session_duration_minutes"] == 45
+        assert d["rest_preference"] == "short"
+        assert d["injury_notes"] == "left elbow tendinopathy"
+
+        p2 = dict_to_user_profile(d)
+        assert p2.exercises_enabled == ["pull_up"]
+        assert p2.max_session_duration_minutes == 45
+        assert p2.rest_preference == "short"
+        assert p2.injury_notes == "left elbow tendinopathy"
+
+    def test_backwards_compat_missing_fields(self):
+        """Old profile JSON without new fields deserialises with defaults."""
+        from bar_scheduler.io.serializers import dict_to_user_profile
+
+        old_dict = {
+            "height_cm": 175,
+            "sex": "male",
+            "preferred_days_per_week": 3,
+            "target_max_reps": 30,
+            # new fields deliberately absent
+        }
+        p = dict_to_user_profile(old_dict)
+        assert p.exercises_enabled == ["pull_up", "dip", "bss"]
+        assert p.max_session_duration_minutes == 60
+        assert p.rest_preference == "normal"
+        assert p.injury_notes == ""
+
+    def test_init_command_preserves_new_fields(self, tmp_path):
+        """Re-running init does not reset exercises_enabled or injury_notes."""
+        import json as _json
+
+        history_path = tmp_path / "history.jsonl"
+
+        # Initial init
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--height-cm", "175",
+            "--sex", "male",
+            "--days-per-week", "3",
+            "--bodyweight-kg", "80",
+        ])
+
+        # Manually patch the profile to set custom values
+        profile_path = tmp_path / "profile.json"
+        data = _json.loads(profile_path.read_text())
+        data["exercises_enabled"] = ["pull_up"]
+        data["injury_notes"] = "shoulder impingement"
+        data["rest_preference"] = "long"
+        profile_path.write_text(_json.dumps(data))
+
+        # Re-run init (keep existing history)
+        runner.invoke(app, [
+            "init",
+            "--history-path", str(history_path),
+            "--height-cm", "178",  # changed
+            "--sex", "male",
+            "--days-per-week", "3",
+            "--bodyweight-kg", "80",
+            "--force",
+        ])
+
+        # Profile should keep custom new fields
+        data2 = _json.loads(profile_path.read_text())
+        assert data2.get("exercises_enabled") == ["pull_up"]
+        assert data2.get("injury_notes") == "shoulder impingement"
+        assert data2.get("rest_preference") == "long"
+
+
+class TestHelpAdaptation:
+    """Tests for the help-adaptation CLI command."""
+
+    def test_help_adaptation_runs(self):
+        """help-adaptation command exits 0 and prints the table."""
+        result = runner.invoke(app, ["help-adaptation"])
+        assert result.exit_code == 0
+
+    def test_help_adaptation_contains_stages(self):
+        """Output mentions all adaptation stages."""
+        result = runner.invoke(app, ["help-adaptation"])
+        assert "Day 1" in result.output
+        assert "Weeks 1" in result.output
+        assert "Weeks 3" in result.output
+        assert "Weeks 6" in result.output
+        assert "Weeks 12" in result.output
+
+    def test_help_adaptation_contains_tips(self):
+        """Output contains practical tips section."""
+        result = runner.invoke(app, ["help-adaptation"])
+        assert "TIPS" in result.output or "tips" in result.output.lower()
+        assert "TEST" in result.output
+
+    def test_help_adaptation_in_help_text(self):
+        """help-adaptation is visible in the app's command list."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "help-adaptation" in result.output or "adaptation" in result.output.lower()
+
+
+class TestYAMLConfigLoader:
+    """Tests for the YAML config loader (task.md #14)."""
+
+    def test_load_model_config_returns_dict(self):
+        """load_model_config() returns a dict (even if yaml is unavailable)."""
+        from bar_scheduler.core.engine.config_loader import load_model_config
+
+        cfg = load_model_config()
+        assert isinstance(cfg, dict)
+
+    def test_bundled_yaml_has_expected_sections(self):
+        """Bundled exercises.yaml contains all required config sections."""
+        from bar_scheduler.core.engine.config_loader import load_model_config
+
+        cfg = load_model_config()
+        # Only check if YAML loaded; it may be empty if PyYAML not installed
+        if not cfg:
+            pytest.skip("PyYAML not available — skipping YAML content checks")
+
+        expected_sections = [
+            "rest_normalization",
+            "fitness_fatigue",
+            "progression",
+            "plateau",
+            "autoregulation",
+            "volume",
+        ]
+        for section in expected_sections:
+            assert section in cfg, f"Missing section: {section}"
+
+    def test_bundled_yaml_rest_ref_seconds(self):
+        """REST_REF_SECONDS in YAML matches config.py default (180)."""
+        from bar_scheduler.core.engine.config_loader import load_model_config
+
+        cfg = load_model_config()
+        if not cfg:
+            pytest.skip("PyYAML not available")
+
+        val = cfg.get("rest_normalization", {}).get("REST_REF_SECONDS")
+        assert val == 180, f"Expected 180, got {val}"
+
+    def test_user_override_merges(self, tmp_path, monkeypatch):
+        """User override at ~/.bar-scheduler/exercises.yaml is merged."""
+        from bar_scheduler.core.engine import config_loader
+
+        override_dir = tmp_path / ".bar-scheduler"
+        override_dir.mkdir()
+        override_file = override_dir / "exercises.yaml"
+        override_file.write_text(
+            "rest_normalization:\n  REST_REF_SECONDS: 240\n"
+        )
+
+        # Patch get_user_yaml_path to return our temp file
+        monkeypatch.setattr(config_loader, "get_user_yaml_path", lambda: override_file)
+
+        cfg = config_loader.load_model_config()
+        if not cfg:
+            pytest.skip("PyYAML not available")
+
+        val = cfg.get("rest_normalization", {}).get("REST_REF_SECONDS")
+        assert val == 240, f"User override should give 240, got {val}"
+
+    def test_deep_merge_preserves_other_keys(self, tmp_path, monkeypatch):
+        """User override only changes specified keys; others remain from bundled."""
+        from bar_scheduler.core.engine import config_loader
+
+        override_dir = tmp_path / ".bar-scheduler"
+        override_dir.mkdir()
+        override_file = override_dir / "exercises.yaml"
+        # Override only one fitness_fatigue constant
+        override_file.write_text("fitness_fatigue:\n  TAU_FATIGUE: 5.0\n")
+        monkeypatch.setattr(config_loader, "get_user_yaml_path", lambda: override_file)
+
+        cfg = config_loader.load_model_config()
+        if not cfg:
+            pytest.skip("PyYAML not available")
+
+        ff = cfg.get("fitness_fatigue", {})
+        assert ff.get("TAU_FATIGUE") == 5.0
+        # TAU_FITNESS should still be the bundled default (42.0)
+        assert ff.get("TAU_FITNESS") == 42.0

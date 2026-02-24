@@ -251,3 +251,65 @@ def onerepmax(
     views.console.print(f"  [bold green]1RM ≈ {result['1rm_kg']:.1f} kg[/bold green]")
     views.console.print(f"  {exercise.onerm_explanation}")
     views.console.print()
+
+
+# ---------------------------------------------------------------------------
+# Adaptation timeline help text (task.md §7)
+# ---------------------------------------------------------------------------
+
+_ADAPTATION_GUIDE = """\
+HOW THE PLANNER LEARNS FROM YOUR DATA
+
+This planner is adaptive. Here is what it knows at each stage:
+
+┌─────────────────┬──────────────────────────────────────────────────────┐
+│ Stage           │ What the model can do                                │
+├─────────────────┼──────────────────────────────────────────────────────┤
+│ Day 1           │ Generic safe plan from your baseline max.            │
+│ (no history)    │ Conservative volume. No weighted work until TM > 9.  │
+│                 │ RECOMMENDATION: Just follow the plan and log.        │
+├─────────────────┼──────────────────────────────────────────────────────┤
+│ Weeks 1–2       │ EWMA max estimate starts tracking.                   │
+│ (3–8 sessions)  │ Rest normalization active (short rest gets credit).  │
+│                 │ NO autoregulation yet (not enough data).             │
+│                 │ RECOMMENDATION: Log rest times accurately.           │
+├─────────────────┼──────────────────────────────────────────────────────┤
+│ Weeks 3–4       │ AUTOREGULATION ACTIVATES (≥10 sessions).             │
+│ (10–16 sessions)│ Plateau detection possible.                          │
+│                 │ Rest adaptation kicks in (RIR + drop-off based).     │
+│                 │ RECOMMENDATION: Do your first re-test (TEST session).│
+├─────────────────┼──────────────────────────────────────────────────────┤
+│ Weeks 6–8       │ Individual fatigue profile fitted.                   │
+│ (24–32 sessions)│ Set-to-set predictions improve.                      │
+│                 │ Deload triggers become reliable.                     │
+│                 │ RECOMMENDATION: Trust the deload if recommended.     │
+├─────────────────┼──────────────────────────────────────────────────────┤
+│ Weeks 12+       │ Full training profile established.                   │
+│ (48+ sessions)  │ Long-term fitness adaptation curve accurate.         │
+│                 │ Progression rate calibrated to your response.        │
+│                 │ RECOMMENDATION: Model is at peak accuracy.           │
+└─────────────────┴──────────────────────────────────────────────────────┘
+
+TIPS FOR BEST RESULTS:
+• Log every session, including bad ones (RIR=0, incomplete sets = valuable data)
+• Log rest times, even approximate
+• Do a TEST session every 3–4 weeks (anchors the max estimate)
+• Update bodyweight when it changes by ≥1 kg
+• Past prescriptions are frozen — only future sessions adapt
+• Different exercises have separate plans and separate adaptation timelines
+"""
+
+
+@app.command("help-adaptation")
+def help_adaptation() -> None:
+    """
+    Explain how the planner adapts over time.
+
+    Shows the adaptation timeline: what the model can predict at each
+    stage (day 1, weeks 1–2, weeks 3–4, weeks 6–8, weeks 12+) and
+    tips for getting the best results.
+
+    See also: docs/adaptation_guide.md
+    """
+    views.console.print()
+    views.console.print(_ADAPTATION_GUIDE)

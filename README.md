@@ -67,6 +67,7 @@ bar-scheduler plot-max
 | `skip` | Shift plan forward N days; `--days N` (default 1); `--force` |
 | `update-equipment` | Update training equipment (band class, machine kg, BSS surface); `--exercise` |
 | `1rm` | Estimate 1-rep max using the Epley formula; `--exercise` |
+| `help-adaptation` | Show the adaptation timeline: what the model can predict at each stage |
 
 ## Multi-Exercise Support
 
@@ -377,43 +378,167 @@ uv run pytest
 - [Core Training Formulas](core_training_formulas_fatigue.md) — detailed mathematical model specification
 - [References](REFERENCES.md) — scientific sources and citations
 
+## Profile Configuration
+
+`~/.bar-scheduler/profile.json` stores your personal settings.  Key fields:
+
+```json
+{
+  "height_cm": 175,
+  "sex": "male",
+  "preferred_days_per_week": 3,
+  "target_max_reps": 30,
+  "exercise_days": { "pull_up": 3, "dip": 4, "bss": 3 },
+  "exercises_enabled": ["pull_up", "dip", "bss"],
+  "max_session_duration_minutes": 60,
+  "rest_preference": "normal",
+  "injury_notes": ""
+}
+```
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `exercises_enabled` | list of exercise IDs | Which exercises are active |
+| `max_session_duration_minutes` | integer | Used in plan display notes |
+| `rest_preference` | `"short"` / `"normal"` / `"long"` | Biases the adaptive-rest calculation |
+| `injury_notes` | free text | Your own record; not used by the engine |
+
+Edit this file directly, or re-run `bar-scheduler init` to update core fields while preserving custom values.
+
+---
+
+## Config Customisation (#14)
+
+Model constants (time constants, progression rates, rest normalization exponents, etc.)
+are documented in `src/bar_scheduler/exercises.yaml`.
+
+To customise without editing source code, create `~/.bar-scheduler/exercises.yaml`
+with only the values you want to change:
+
+```yaml
+# Override example: slower fatigue decay and tighter progression
+fitness_fatigue:
+  TAU_FATIGUE: 5.0      # default: 7 days
+
+progression:
+  DELTA_PROGRESSION_MAX: 0.7   # default: 1.0 reps/week
+```
+
+Any key you omit falls back to the bundled default.  Requires `PyYAML`:
+```bash
+pip install PyYAML
+```
+
+See [docs/training_model.md](docs/training_model.md) for the full constant reference
+with YAML paths and explanations.
+
+---
+
+## Adaptation Timeline
+
+The planner adapts to your data over time.  A quick summary:
+
+| Stage | Sessions | What's active |
+|-------|----------|---------------|
+| Day 1 | 0 | Generic plan from baseline max; conservative volume |
+| Weeks 1–2 | 3–8 | EWMA max tracking; rest normalization |
+| Weeks 3–4 | 10–16 | **Autoregulation** unlocks; adaptive rest; plateau detection |
+| Weeks 6–8 | 24–32 | Individual fatigue profile; deload triggers reliable |
+| Weeks 12+ | 48+ | Full profile; long-term fitness curve calibrated |
+
+```bash
+bar-scheduler help-adaptation   # full guide in the terminal
+```
+
+See [docs/adaptation_guide.md](docs/adaptation_guide.md) for the complete guide.
+
+---
+
+## FAQ: Plan Changes
+
+**Why did my plan change after logging a session?**
+
+Only future sessions are regenerated.  Past prescriptions are frozen (stored in
+`planned_sets` in the history file).  If you see a change in a future session,
+it is because the engine updated its fitness-fatigue estimate after your new log.
+
+**Why did the planner insert a TEST session I didn't ask for?**
+
+The planner automatically schedules a TEST session every N weeks per exercise:
+- Pull-ups and dips: every 3 weeks
+- BSS: every 4 weeks
+
+You can log the TEST session at any time; the planner will adapt from there.
+
+**Why is my plan showing the same TM week after week?**
+
+TM progresses once per calendar week (not once per session).  If you train 4
+days in one week, all four sessions share the same TM.  Progression happens at
+the next calendar-week boundary.
+
+**How do I skip a rest day or travel week?**
+
+```bash
+bar-scheduler skip --days 7   # shift all future sessions by 7 days
+```
+
+---
+
 ## Project Structure
 
 ```
 bar-scheduler/
 ├── pyproject.toml
 ├── README.md
+├── CHANGELOG.md
 ├── REFERENCES.md                         # Scientific citations
-├── core_training_formulas_fatigue.md     # Detailed model spec
 ├── docs/
-│   ├── training_model.md
+│   ├── training_model.md                 # Model formulas, ExerciseDefinition schema, 1RM, config
+│   ├── adaptation_guide.md               # Adaptation timeline guide
+│   ├── assessment_protocols.md           # Test protocols for all exercises
 │   ├── cli_examples.md
 │   ├── formulas_reference.md
 │   ├── api_info.md
-│   └── exercises/                        # Per-exercise biomechanics docs
+│   ├── exercises/                        # Per-exercise biomechanics docs
+│   │   ├── pull_up.md
+│   │   ├── dip.md
+│   │   └── bss.md
+│   └── references/
+│       └── max_estimation.md
 ├── src/bar_scheduler/
+│   ├── exercises.yaml            # Model constants (YAML, user-overridable)
 │   ├── core/
-│   │   ├── config.py         # All constants (tunable)
-│   │   ├── models.py         # Dataclasses
-│   │   ├── metrics.py        # Pure functions
-│   │   ├── physiology.py     # Fitness-fatigue model
-│   │   ├── adaptation.py     # Plateau/deload logic
-│   │   ├── planner.py        # Plan generation
-│   │   ├── max_estimator.py  # Track B max estimation
-│   │   └── ascii_plot.py     # ASCII plotting
+│   │   ├── config.py             # Python constants (matches exercises.yaml)
+│   │   ├── models.py             # Dataclasses
+│   │   ├── metrics.py            # Pure functions
+│   │   ├── physiology.py         # Fitness-fatigue model
+│   │   ├── adaptation.py         # Plateau/deload logic
+│   │   ├── planner.py            # Plan generation
+│   │   ├── max_estimator.py      # Track B max estimation
+│   │   ├── equipment.py          # Equipment / Leff calculations
+│   │   ├── ascii_plot.py         # ASCII plotting
+│   │   ├── exercises/            # ExerciseDefinition per exercise
+│   │   │   ├── base.py           # ExerciseDefinition + SessionTypeParams
+│   │   │   ├── pull_up.py
+│   │   │   ├── dip.py
+│   │   │   ├── bss.py
+│   │   │   └── registry.py       # get_exercise()
+│   │   └── engine/
+│   │       └── config_loader.py  # YAML → typed config
 │   ├── io/
-│   │   ├── serializers.py    # JSON serialization
-│   │   └── history_store.py  # JSONL storage
+│   │   ├── serializers.py        # JSON serialization
+│   │   └── history_store.py      # JSONL storage
 │   └── cli/
-│       ├── main.py           # Typer CLI entry point + interactive menu
-│       ├── views.py          # Rich formatting
+│       ├── main.py               # Typer CLI entry point + interactive menu
+│       ├── views.py              # Rich formatting
 │       └── commands/
-│           ├── profile.py    # init, update-weight
-│           ├── planning.py   # plan, explain, skip
-│           ├── sessions.py   # log-session, delete-record, show-history
-│           └── analysis.py   # status, volume, plot-max, 1rm
+│           ├── profile.py        # init, update-weight, update-equipment
+│           ├── planning.py       # plan, explain, skip
+│           ├── sessions.py       # log-session, delete-record, show-history
+│           └── analysis.py       # status, volume, plot-max, 1rm, help-adaptation
 └── tests/
-    └── test_cli_smoke.py     # Smoke tests
+    ├── test_cli_smoke.py         # CLI integration tests
+    └── test_core_formulas.py     # Unit tests for all formulas
 ```
 
 ## License

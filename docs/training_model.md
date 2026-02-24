@@ -188,23 +188,160 @@ total_target = int(kE(TM) * TM)
 
 kE растёт от 3.0 (TM=5) до 5.0 (TM=30), давая пропорционально больший объём по мере роста атлета.
 
-## Config Constants
+## ExerciseDefinition Schema
 
-Все константы определены в `core/config.py`:
+Each supported exercise is described by an `ExerciseDefinition` dataclass
+(`core/exercises/base.py`).  The planner engine is fully parameterised by this
+object — no exercise-specific code exists outside the exercise files.
 
-| Constant | Default | Описание |
-|----------|---------|----------|
-| REST_REF_SECONDS | 180 | Reference rest interval |
-| GAMMA_REST | 0.20 | Rest factor exponent |
-| TAU_FATIGUE | 7 | Fatigue time constant (days) |
-| TAU_FITNESS | 42 | Fitness time constant (days) |
-| TM_FACTOR | 0.90 | Training max как доля от test max |
-| PLATEAU_WINDOW_DAYS | 21 | Дней без PR для plateau |
-| DELOAD_VOLUME_REDUCTION | 0.40 | Снижение volume при deload |
-| MIN_SESSIONS_FOR_AUTOREG | 10 | Минимум сессий для autoregulation |
-| WEIGHT_TM_THRESHOLD | 9 | Порог TM для добавления веса |
-| WEIGHT_INCREMENT_FRACTION_PER_TM | 0.01 | 1% веса тела за каждый TM-пункт выше порога |
-| MAX_ADDED_WEIGHT_KG | 20.0 | Максимальный добавленный вес |
+```python
+@dataclass(frozen=True)
+class ExerciseDefinition:
+    exercise_id: str           # "pull_up" | "dip" | "bss"
+    display_name: str          # Human-readable name
+    muscle_group: str          # "upper_pull" | "upper_push" | "lower"
+
+    # Load model
+    bw_fraction: float         # Fraction of BW that is the load
+    load_type: str             # "bw_plus_external" | "external_only"
+
+    # Variants (equivalent to grips for pull-ups)
+    variants: list[str]
+    primary_variant: str
+    variant_factors: dict[str, float]
+
+    # Session parameters per session type
+    grip_cycles: dict[str, list[str]]
+    session_params: dict[str, SessionTypeParams]
+
+    # Goal
+    target_metric: str         # "max_reps"
+    target_value: float        # e.g. 30 reps
+
+    # Assessment
+    test_protocol: str
+    test_frequency_weeks: int
+
+    # 1RM display
+    onerm_includes_bodyweight: bool
+    onerm_explanation: str
+
+    # Added weight formula
+    weight_increment_fraction: float  # % of BW per TM point above threshold
+    weight_tm_threshold: int
+    max_added_weight_kg: float
+```
+
+### bw_fraction and Effective Load (Leff)
+
+The **effective load** formula is the backbone of all load-based calculations:
+
+```
+Leff = BW × bw_fraction + added_weight_kg − assistance_kg
+```
+
+| Exercise | bw_fraction | Justification |
+|----------|------------|---------------|
+| Pull-Up  | 1.00 | Near-100 % of BW is displaced vertically |
+| Dip      | 0.92 | Hands/forearms (~5 % BW) fixed; upper arms rotate (~3 % reduction). McKenzie et al. 2022 |
+| BSS (DB) | 0.71 | Lead leg bears ~71 % of total BW. Mackey & Riemann 2021 |
+
+`bw_fraction` matters for:
+- Rest normalization (standardised reps scaled by `(Leff / Leff_ref)^γ`)
+- Training load (load_stress_multiplier)
+- 1RM estimation (Epley applied to Leff)
+
+For BSS, `load_type = "external_only"` means the planner uses the last TEST
+dumbbell weight for prescription, while `bw_fraction = 0.71` still applies to
+all Leff and load-stress calculations.
+
+---
+
+## 1RM Estimation
+
+The planner uses the **Epley formula** to estimate 1-rep max from multi-rep sets:
+
+```
+1RM = total_load × (1 + reps / 30)
+```
+
+Where `total_load` depends on the exercise:
+
+```
+total_load = BW × bw_fraction + added_weight_kg   (pull-up, dip, BSS)
+```
+
+### Accuracy
+
+The Epley formula is validated for **1–10 rep ranges**.  Estimates from 10+ reps
+are less reliable and should be treated as lower bounds.
+
+### Bodyweight inclusion
+
+| Exercise | BW included? | Why |
+|----------|-------------|-----|
+| Pull-Up  | Yes (×1.0)  | You lift your entire bodyweight |
+| Dip      | Yes (×0.92) | You lift ~92 % of your bodyweight |
+| BSS (DB) | Yes (×0.71) | Lead leg bears ~71 % of BW — included for comparability |
+
+The 1RM command shows an explanation string from `ExerciseDefinition.onerm_explanation`
+for each exercise.
+
+```bash
+bar-scheduler 1rm --exercise pull_up
+bar-scheduler 1rm --exercise dip
+bar-scheduler 1rm --exercise bss
+```
+
+---
+
+## Plan Regeneration (Immutable History)
+
+Past prescriptions are **frozen** — they are stored in `planned_sets` at the
+time of logging and never re-generated from the current model state.
+
+When you run `bar-scheduler plan`:
+
+1. **Past sessions** use `planned_sets` from the history file as-is.
+2. **Future sessions** are freshly generated from the current `UserState`.
+3. The plan **resumes** the session-type rotation from the last logged non-TEST
+   session (not from the beginning of the cycle).
+4. Week numbers increment **cumulatively** from the first session in history.
+
+This means: if you change bodyweight, get a new TEST result, or update
+equipment, **only future sessions change**.  Your training log is never
+retroactively modified.
+
+### plan_start_date
+
+The field `plan_start_date` in `profile.json` anchors the timeline.  Use
+`bar-scheduler skip` to advance it (rest days, travel) without losing history.
+
+---
+
+## Config Constants (YAML and Python)
+
+Constants are defined in two places:
+
+- **`src/bar_scheduler/exercises.yaml`** — documented YAML file, used as the
+  primary reference.  You can create a user override at
+  `~/.bar-scheduler/exercises.yaml` to customise any value without editing code.
+- **`core/config.py`** — Python constants loaded at import time.  Values here
+  match the bundled YAML defaults exactly.
+
+The loader (`core/engine/config_loader.py`) merges the bundled YAML with your
+user override on startup.
+
+| Constant | YAML path | Default | Description |
+|----------|-----------|---------|-------------|
+| `REST_REF_SECONDS` | `rest_normalization.REST_REF_SECONDS` | 180 | Reference rest interval (s) |
+| `GAMMA_REST` | `rest_normalization.GAMMA_REST` | 0.20 | Rest factor exponent |
+| `TAU_FATIGUE` | `fitness_fatigue.TAU_FATIGUE` | 7 | Fatigue time constant (days) |
+| `TAU_FITNESS` | `fitness_fatigue.TAU_FITNESS` | 42 | Fitness time constant (days) |
+| `TM_FACTOR` | `progression.TM_FACTOR` | 0.90 | Training max / test max ratio |
+| `PLATEAU_WINDOW_DAYS` | `plateau.PLATEAU_WINDOW_DAYS` | 21 | Days without PR = plateau |
+| `DELOAD_VOLUME_REDUCTION` | `volume.DELOAD_VOLUME_REDUCTION` | 0.40 | Volume cut in deload (40%) |
+| `MIN_SESSIONS_FOR_AUTOREG` | `autoregulation.MIN_SESSIONS_FOR_AUTOREG` | 10 | Gate for autoregulation |
 
 ## Источники
 

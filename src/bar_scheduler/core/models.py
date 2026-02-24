@@ -217,6 +217,11 @@ class UserProfile:
     ``exercise_days`` stores per-exercise overrides for training days per week
     (e.g. {"pull_up": 3, "dip": 4, "bss": 3}).  Exercises absent from the dict
     fall back to ``preferred_days_per_week``.
+
+    ``exercises_enabled`` lists which exercises are active (default: all three).
+    ``max_session_duration_minutes`` is used in plan display notes.
+    ``rest_preference`` ("short" | "normal" | "long") biases adaptive rest.
+    ``injury_notes`` is a free-text field for the user's own records.
     """
 
     height_cm: int
@@ -224,10 +229,18 @@ class UserProfile:
     preferred_days_per_week: int = 3  # global fallback (3 or 4)
     target_max_reps: int = 30
     exercise_days: dict = field(default_factory=dict)  # {exercise_id: days_per_week}
+    exercises_enabled: list = field(default_factory=lambda: ["pull_up", "dip", "bss"])
+    max_session_duration_minutes: int = 60
+    rest_preference: str = "normal"  # "short" | "normal" | "long"
+    injury_notes: str = ""
 
     def days_for_exercise(self, exercise_id: str) -> int:
         """Return training days per week for the given exercise."""
         return self.exercise_days.get(exercise_id, self.preferred_days_per_week)
+
+    def is_exercise_enabled(self, exercise_id: str) -> bool:
+        """Return True if the exercise is in the enabled list."""
+        return exercise_id in self.exercises_enabled
 
     def __post_init__(self) -> None:
         """Validate profile data."""
@@ -236,6 +249,12 @@ class UserProfile:
 
         if self.sex not in ("male", "female"):
             raise ValueError(f"Invalid sex: {self.sex}")
+
+        if self.rest_preference not in ("short", "normal", "long"):
+            raise ValueError(
+                f"Invalid rest_preference: {self.rest_preference!r}. "
+                "Must be 'short', 'normal', or 'long'."
+            )
 
         if self.preferred_days_per_week not in (3, 4):
             raise ValueError("preferred_days_per_week must be 3 or 4")

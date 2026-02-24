@@ -1,0 +1,150 @@
+# exercises.yaml — bar-scheduler model constants and exercise configuration
+#
+# This file documents all tunable constants used by the training engine.
+# You can override these values by creating a copy at:
+#   ~/.bar-scheduler/exercises.yaml
+# Any key omitted from your override file falls back to the defaults below.
+#
+# Reference: docs/training_model.md, docs/formulas_reference.md
+
+# =============================================================================
+# REST NORMALIZATION
+# The planner normalises reps to a reference rest interval so that a set done
+# with 90 s rest gets less "credit" than the same reps with 180 s rest.
+#   F_rest(r) = clamp((r / REST_REF_SECONDS) ^ GAMMA_REST, F_REST_MIN, F_REST_MAX)
+# =============================================================================
+rest_normalization:
+  REST_REF_SECONDS: 180         # Reference rest interval (seconds)
+  GAMMA_REST: 0.20              # Power-law exponent for F_rest
+  F_REST_MIN: 0.80              # Floor (short rest penalised at most 20%)
+  F_REST_MAX: 1.05              # Ceiling (long rest gives at most 5% bonus)
+  REST_MIN_CLAMP: 30            # Treat any rest < 30 s as 30 s
+
+# =============================================================================
+# BODYWEIGHT NORMALIZATION
+# Adjusts standardised reps for differences in bodyweight between sessions.
+#   reps_bw_norm = reps * (Leff / Leff_ref) ^ GAMMA_BW
+# =============================================================================
+bodyweight_normalization:
+  GAMMA_BW: 1.0                 # Linear scaling (1.0 = fully proportional)
+
+# =============================================================================
+# EWMA MAX ESTIMATION
+# Tracks an exponentially-weighted moving average of your max reps, used by
+# the planner to estimate capability between TEST sessions.
+# =============================================================================
+ewma_max:
+  ALPHA_MHAT: 0.25              # Smoothing factor for M_hat (0=slow, 1=fast)
+  BETA_SIGMA: 0.15              # Smoothing factor for variance σ_m
+  INITIAL_SIGMA_M: 1.5          # Initial uncertainty (reps)
+
+# =============================================================================
+# FITNESS-FATIGUE MODEL
+# Two-component Banister impulse-response model:
+#   G(t) = fitness, decay τ=42 days
+#   H(t) = fatigue, decay τ=7 days
+#   R(t) = G(t) - H(t) = readiness
+# =============================================================================
+fitness_fatigue:
+  TAU_FATIGUE: 7.0              # Fatigue time constant (days) — short memory
+  TAU_FITNESS: 42.0             # Fitness time constant (days) — long memory
+  K_FATIGUE: 1.0                # Fatigue gain coefficient
+  K_FITNESS: 0.5                # Fitness gain coefficient (slower than fatigue)
+  C_READINESS: 0.02             # Readiness→rep-adjustment scaling
+
+# =============================================================================
+# TRAINING LOAD CALCULATION
+# Session training load = sum of hard_reps * RIR_effort * load_stress * grip_stress
+# =============================================================================
+training_load:
+  A_RIR: 0.15                   # Effort multiplier per RIR below 3
+  GAMMA_S: 0.15                 # Exponent for rest-stress multiplier
+  S_REST_MAX: 1.5               # Maximum rest-stress multiplier
+  GAMMA_LOAD: 1.5               # Exponent for load stress
+
+# =============================================================================
+# WITHIN-SESSION FATIGUE
+# Models rep drop-off across sets using an exponential decay.
+#   cap(set_n) = cap(set_1) * exp(-LAMBDA_DECAY * (n-1)) * recovery_factor
+# =============================================================================
+within_session_fatigue:
+  LAMBDA_DECAY: 0.08            # Decay rate per set
+  Q_REST_RECOVERY: 0.3          # Recovery fraction from rest
+  TAU_REST_RECOVERY: 60.0       # Rest → recovery time constant (seconds)
+  DROP_OFF_THRESHOLD: 0.35      # High drop-off flag threshold (35%)
+
+# =============================================================================
+# VOLUME TARGETS
+# =============================================================================
+volume:
+  WEEKLY_HARD_SETS_MIN: 8       # Minimum hard sets per week
+  WEEKLY_HARD_SETS_MAX: 20      # Maximum hard sets per week
+  WEEKLY_VOLUME_INCREASE_RATE: 0.10   # Maximum weekly volume increase (10%)
+  DELOAD_VOLUME_REDUCTION: 0.40       # Volume cut during deload week (40%)
+  MAX_DAILY_REPS: 45            # Per-session rep ceiling (diminishing returns)
+  MAX_DAILY_SETS: 10            # Per-session set ceiling
+
+# =============================================================================
+# TRAINING MAX & PROGRESSION
+# TM = floor(TM_FACTOR × latest_test_max)
+# Weekly TM progression: DELTA_PROGRESSION_MIN … DELTA_PROGRESSION_MAX reps/week
+# =============================================================================
+progression:
+  TM_FACTOR: 0.90               # Training max = 90% of test max
+  TARGET_MAX_REPS: 30           # Default pull-up target (overridden per exercise)
+  DELTA_PROGRESSION_MIN: 0.3    # Minimum progression rate (reps/week)
+  DELTA_PROGRESSION_MAX: 1.0    # Maximum progression rate (reps/week)
+  ETA_PROGRESSION: 1.5          # Non-linear exponent (slows near target)
+
+# =============================================================================
+# PLATEAU AND DELOAD DETECTION
+# =============================================================================
+plateau:
+  PLATEAU_SLOPE_THRESHOLD: 0.05   # Below this reps/week = stalled
+  PLATEAU_WINDOW_DAYS: 21         # Days without a new best = plateau
+  TREND_WINDOW_DAYS: 21           # Window for OLS trend regression
+  FATIGUE_Z_THRESHOLD: -0.5       # Readiness z-score flagging fatigue concern
+  UNDERPERFORMANCE_THRESHOLD: 0.10  # 10% below predicted = underperformance
+  COMPLIANCE_THRESHOLD: 0.70       # Below 70% compliance triggers deload flag
+
+# =============================================================================
+# AUTOREGULATION
+# Adapts sets/reps to real-time readiness. Requires enough history to be
+# meaningful. Gated at MIN_SESSIONS_FOR_AUTOREG.
+# =============================================================================
+autoregulation:
+  MIN_SESSIONS_FOR_AUTOREG: 10  # Minimum sessions before autoregulation activates
+
+# =============================================================================
+# READINESS GATING
+# When readiness z-score < READINESS_Z_LOW the plan reduces volume.
+# When > READINESS_Z_HIGH the plan may add a rep to target sets.
+# =============================================================================
+readiness:
+  READINESS_Z_LOW: -1.0         # Volume-reduction threshold
+  READINESS_Z_HIGH: 1.0         # Progression-bonus threshold
+  READINESS_VOLUME_REDUCTION: 0.30   # Volume cut when readiness is low (30%)
+
+# =============================================================================
+# PLAN HORIZON
+# =============================================================================
+plan_horizon:
+  MIN_PLAN_WEEKS: 2
+  MAX_PLAN_WEEKS: 52
+  DEFAULT_PLAN_WEEKS: 4
+
+# =============================================================================
+# WEEKLY SCHEDULE TEMPLATES
+# 3-day: Strength → Hypertrophy → Endurance
+# 4-day: Strength → Hypertrophy → Technique → Endurance
+# Day offsets ensure minimum rest between sessions.
+# =============================================================================
+schedule:
+  SCHEDULE_3_DAYS: ["S", "H", "E"]
+  SCHEDULE_4_DAYS: ["S", "H", "T", "E"]
+  DAY_SPACING:
+    S: 1     # At least 1 rest day after Strength
+    H: 1     # At least 1 rest day after Hypertrophy
+    E: 1     # At least 1 rest day after Endurance
+    T: 0     # Technique can follow same day (low fatigue)
+    TEST: 2  # More recovery after a max test
