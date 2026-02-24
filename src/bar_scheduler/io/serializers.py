@@ -10,6 +10,8 @@ from datetime import datetime
 from typing import Any
 
 from ..core.models import (
+    EquipmentSnapshot,
+    EquipmentState,
     Grip,
     PlannedSet,
     SessionResult,
@@ -259,6 +261,55 @@ def _planned_set_result_to_dict(s: SetResult) -> dict[str, Any]:
     }
 
 
+def equipment_snapshot_to_dict(snapshot: EquipmentSnapshot) -> dict[str, Any]:
+    """Serialize EquipmentSnapshot to a compact JSON-compatible dict."""
+    d: dict[str, Any] = {
+        "active_item": snapshot.active_item,
+        "assistance_kg": snapshot.assistance_kg,
+    }
+    if snapshot.elevation_height_cm is not None:
+        d["elevation_height_cm"] = snapshot.elevation_height_cm
+    return d
+
+
+def dict_to_equipment_snapshot(data: dict[str, Any]) -> EquipmentSnapshot:
+    """Deserialize an EquipmentSnapshot from a dict (backward compat: returns None-safe)."""
+    return EquipmentSnapshot(
+        active_item=str(data.get("active_item", "")),
+        assistance_kg=float(data.get("assistance_kg", 0.0)),
+        elevation_height_cm=data.get("elevation_height_cm"),
+    )
+
+
+def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
+    """Serialize EquipmentState for storage in profile.json."""
+    d: dict[str, Any] = {
+        "exercise_id": state.exercise_id,
+        "available_items": list(state.available_items),
+        "active_item": state.active_item,
+        "valid_from": state.valid_from,
+        "valid_until": state.valid_until,
+    }
+    if state.machine_assistance_kg is not None:
+        d["machine_assistance_kg"] = state.machine_assistance_kg
+    if state.elevation_height_cm is not None:
+        d["elevation_height_cm"] = state.elevation_height_cm
+    return d
+
+
+def dict_to_equipment_state(data: dict[str, Any]) -> EquipmentState:
+    """Deserialize an EquipmentState from a profile.json dict."""
+    return EquipmentState(
+        exercise_id=str(data.get("exercise_id", "")),
+        available_items=list(data.get("available_items", [])),
+        active_item=str(data.get("active_item", "")),
+        machine_assistance_kg=data.get("machine_assistance_kg"),
+        elevation_height_cm=data.get("elevation_height_cm"),
+        valid_from=str(data.get("valid_from", "")),
+        valid_until=data.get("valid_until"),
+    )
+
+
 def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     """
     Convert SessionResult to JSON-compatible dict.
@@ -285,6 +336,9 @@ def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     # Only include planned_sets when non-empty (meaningful prescription data from cache)
     if session.planned_sets:
         d["planned_sets"] = [_planned_set_result_to_dict(s) for s in session.planned_sets]
+    # Only include equipment_snapshot when present
+    if session.equipment_snapshot is not None:
+        d["equipment_snapshot"] = equipment_snapshot_to_dict(session.equipment_snapshot)
     return d
 
 
@@ -306,12 +360,17 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
     validate_grip(data["grip"])
     validate_session_type(data["session_type"])
 
+    # Deserialize equipment snapshot if present (backward compat: absent → None)
+    eq_data = data.get("equipment_snapshot")
+    equipment_snapshot = dict_to_equipment_snapshot(eq_data) if eq_data else None
+
     return SessionResult(
         date=data["date"],
         bodyweight_kg=float(data["bodyweight_kg"]),
         grip=data["grip"],
         session_type=data["session_type"],
         exercise_id=data.get("exercise_id", "pull_up"),
+        equipment_snapshot=equipment_snapshot,
         planned_sets=[dict_to_set_result(s) for s in data.get("planned_sets", [])],
         completed_sets=[dict_to_set_result(s) for s in data.get("completed_sets", [])],
         notes=data.get("notes"),

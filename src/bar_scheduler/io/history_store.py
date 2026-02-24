@@ -9,11 +9,13 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from ..core.models import SessionResult, UserProfile, UserState
+from ..core.models import EquipmentState, SessionResult, UserProfile, UserState
 from .serializers import (
     ValidationError,
+    dict_to_equipment_state,
     dict_to_session_result,
     dict_to_user_profile,
+    equipment_state_to_dict,
     session_result_to_dict,
     session_to_json_line,
     user_profile_to_dict,
@@ -383,6 +385,90 @@ class HistoryStore:
         cache_path = self.history_path.parent / "plan_cache.json"
         with open(cache_path, "w") as f:
             json.dump(sessions, f, indent=2)
+
+    # ------------------------------------------------------------------
+    # Equipment profile persistence
+    # Equipment history is stored under profile.json → "equipment" key,
+    # as an append-only dict: {exercise_id: [EquipmentState, ...]}.
+    # ------------------------------------------------------------------
+
+    def load_equipment_history(self, exercise_id: str) -> list[EquipmentState]:
+        """
+        Load all EquipmentState entries for the given exercise.
+
+        Returns:
+            List of EquipmentState (chronological), or [] if none found
+        """
+        if not self.profile_path.exists():
+            return []
+        try:
+            with open(self.profile_path) as f:
+                data = json.load(f)
+            raw = data.get("equipment", {}).get(exercise_id, [])
+            return [dict_to_equipment_state(e) for e in raw]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return []
+
+    def load_current_equipment(self, exercise_id: str) -> EquipmentState | None:
+        """
+        Return the currently active EquipmentState for the given exercise,
+        or None if none has been set up yet.
+        """
+        history = self.load_equipment_history(exercise_id)
+        for state in reversed(history):
+            if state.valid_until is None:
+                return state
+        return None
+
+    def save_equipment_history(
+        self, exercise_id: str, history: list[EquipmentState]
+    ) -> None:
+        """
+        Persist the full equipment history list for an exercise.
+
+        Args:
+            exercise_id: Exercise identifier
+            history: Complete list of EquipmentState entries to store
+        """
+        if not self.profile_path.exists():
+            return
+        with open(self.profile_path) as f:
+            data = json.load(f)
+        if "equipment" not in data:
+            data["equipment"] = {}
+        data["equipment"][exercise_id] = [equipment_state_to_dict(e) for e in history]
+        with open(self.profile_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def update_equipment(self, new_state: EquipmentState) -> None:
+        """
+        Append a new EquipmentState entry, closing the previous one.
+
+        The currently active entry's valid_until is set to yesterday's date
+        and the new entry is appended with valid_until=None (= still current).
+
+        Args:
+            new_state: New EquipmentState to activate (valid_from must be set)
+        """
+        from datetime import datetime, timedelta
+
+        exercise_id = new_state.exercise_id
+        history = self.load_equipment_history(exercise_id)
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # Close any currently open entry
+        for entry in history:
+            if entry.valid_until is None:
+                entry.valid_until = yesterday
+
+        # Ensure new entry has a valid_from
+        if not new_state.valid_from:
+            new_state.valid_from = today
+
+        history.append(new_state)
+        self.save_equipment_history(exercise_id, history)
 
     def clear_history(self) -> None:
         """

@@ -74,25 +74,27 @@ def load_stress_multiplier(
     added_load_kg: float,
     reference_bodyweight_kg: float,
     bw_fraction: float = 1.0,
+    assistance_kg: float = 0.0,
 ) -> float:
     """
-    Calculate stress multiplier for added load.
+    Calculate stress multiplier for effective load.
 
     S_load = L_rel^gamma_L
-
-    Where L_rel = (BW * bw_fraction + added) / BW_ref
+    Leff = BW × bw_fraction + added − assistance_kg
+    L_rel = Leff / BW_ref
 
     Args:
         bodyweight_kg: Session bodyweight
-        added_load_kg: Added external load
+        added_load_kg: Added external load (belt, dumbbells)
         reference_bodyweight_kg: Reference bodyweight
-        bw_fraction: Fraction of BW that is the working load (1.0=pull-up, 0.92=dip, 0.0=BSS)
+        bw_fraction: Fraction of BW that is the working load
+        assistance_kg: Band/machine assistance subtracted from load (≥ 0)
 
     Returns:
         Load stress multiplier
     """
     effective_bw = bodyweight_kg * bw_fraction
-    total = effective_bw + added_load_kg
+    total = max(0.0, effective_bw + added_load_kg - assistance_kg)
     l_rel = total / reference_bodyweight_kg
     return l_rel ** GAMMA_LOAD
 
@@ -166,6 +168,11 @@ def calculate_session_training_load(
     Returns:
         Training load impulse
     """
+    # Extract band/machine assistance from session equipment snapshot if available
+    assistance_kg = 0.0
+    if session.equipment_snapshot is not None:
+        assistance_kg = session.equipment_snapshot.assistance_kg
+
     total_load = 0.0
 
     for set_result in session.completed_sets:
@@ -180,6 +187,7 @@ def calculate_session_training_load(
             set_result.added_weight_kg,
             reference_bodyweight_kg,
             bw_fraction,
+            assistance_kg,
         )
         s_grip = grip_stress_multiplier(session.grip, variant_factors)
 

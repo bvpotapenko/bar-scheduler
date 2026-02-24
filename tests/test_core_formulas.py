@@ -1042,3 +1042,178 @@ class TestCalculateVolumeAdjustment:
         result = calculate_volume_adjustment([session], _neutral_ff(), current_weekly_sets=14)
         expected = max(WEEKLY_HARD_SETS_MIN, int(14 * (1 - DELOAD_VOLUME_REDUCTION)))
         assert result == expected
+
+
+# ===========================================================================
+# equipment.py — compute_leff, check_band_progression, compute_equipment_adjustment
+# ===========================================================================
+
+class TestComputeLeff:
+    """Effective load formula: Leff = BW × bw_fraction + added − assistance."""
+
+    def test_band_medium_pull_up(self):
+        """BW=80, bw_fraction=1.0, BAND_MEDIUM (35 kg) → Leff = 80 - 35 = 45."""
+        from bar_scheduler.core.equipment import compute_leff
+        leff = compute_leff(bw_fraction=1.0, bodyweight_kg=80.0, added_weight_kg=0.0, assistance_kg=35.0)
+        assert leff == pytest.approx(45.0)
+
+    def test_weight_belt_pull_up(self):
+        """BW=80, bw_fraction=1.0, added=5 (weight belt) → Leff = 80 + 5 = 85."""
+        from bar_scheduler.core.equipment import compute_leff
+        leff = compute_leff(bw_fraction=1.0, bodyweight_kg=80.0, added_weight_kg=5.0, assistance_kg=0.0)
+        assert leff == pytest.approx(85.0)
+
+    def test_bss_bodyweight(self):
+        """BSS: bw_fraction=0.71, added=0, no assistance → Leff = 0.71 × 80 = 56.8."""
+        from bar_scheduler.core.equipment import compute_leff
+        leff = compute_leff(bw_fraction=0.71, bodyweight_kg=80.0, added_weight_kg=0.0)
+        assert leff == pytest.approx(56.8, rel=1e-4)
+
+    def test_bss_with_dumbbells(self):
+        """BSS: bw_fraction=0.71, BW=80, added=20 → Leff = 0.71×80 + 20 = 76.8."""
+        from bar_scheduler.core.equipment import compute_leff
+        leff = compute_leff(bw_fraction=0.71, bodyweight_kg=80.0, added_weight_kg=20.0)
+        assert leff == pytest.approx(76.8, rel=1e-4)
+
+    def test_over_assisted_clamps_to_zero(self):
+        """Excessive assistance should clamp Leff to 0, not go negative."""
+        from bar_scheduler.core.equipment import compute_leff
+        leff = compute_leff(bw_fraction=1.0, bodyweight_kg=50.0, added_weight_kg=0.0, assistance_kg=100.0)
+        assert leff == 0.0
+
+
+class TestCheckBandProgression:
+    """check_band_progression returns True when last N sessions hit the rep ceiling."""
+
+    def _make_sessions(self, reps_list: list[int]) -> list:
+        sessions = []
+        from bar_scheduler.core.models import SessionResult, SetResult
+        for i, reps in enumerate(reps_list):
+            s = SetResult(target_reps=reps, actual_reps=reps, rest_seconds_before=180, added_weight_kg=0.0, rir_target=2)
+            sessions.append(SessionResult(
+                date=f"2026-01-{i+1:02d}", bodyweight_kg=80.0, grip="pronated",
+                session_type="H", exercise_id="pull_up",
+                planned_sets=[], completed_sets=[s],
+            ))
+        return sessions
+
+    def test_two_sessions_at_ceiling_true(self):
+        from bar_scheduler.core.equipment import check_band_progression
+        from bar_scheduler.core.exercises.registry import get_exercise
+        ex = get_exercise("pull_up")
+        # H session reps_max = 12; both sessions hit 12
+        history = self._make_sessions([12, 12])
+        assert check_band_progression(history, "pull_up", ex.session_params, n_sessions=2) is True
+
+    def test_one_session_below_ceiling_false(self):
+        from bar_scheduler.core.equipment import check_band_progression
+        from bar_scheduler.core.exercises.registry import get_exercise
+        ex = get_exercise("pull_up")
+        history = self._make_sessions([12, 8])  # last session only 8 reps
+        assert check_band_progression(history, "pull_up", ex.session_params, n_sessions=2) is False
+
+    def test_too_few_sessions_false(self):
+        from bar_scheduler.core.equipment import check_band_progression
+        from bar_scheduler.core.exercises.registry import get_exercise
+        ex = get_exercise("pull_up")
+        history = self._make_sessions([12])  # only 1 session, need 2
+        assert check_band_progression(history, "pull_up", ex.session_params, n_sessions=2) is False
+
+
+class TestComputeEquipmentAdjustment:
+    """Rep factor adjustments when Leff changes by ≥10%."""
+
+    def test_10pct_increase_reduces_reps_20pct(self):
+        from bar_scheduler.core.equipment import compute_equipment_adjustment
+        adj = compute_equipment_adjustment(old_leff=80.0, new_leff=88.0)  # +10%
+        assert adj["reps_factor"] == pytest.approx(0.80)
+
+    def test_10pct_decrease_increases_reps(self):
+        from bar_scheduler.core.equipment import compute_equipment_adjustment
+        adj = compute_equipment_adjustment(old_leff=80.0, new_leff=72.0)  # -10%
+        expected_factor = round(1.0 / (72.0 / 80.0), 2)
+        assert adj["reps_factor"] == pytest.approx(expected_factor, rel=1e-3)
+
+    def test_minor_change_no_adjustment(self):
+        from bar_scheduler.core.equipment import compute_equipment_adjustment
+        adj = compute_equipment_adjustment(old_leff=80.0, new_leff=85.0)  # +6.25% — < 10%
+        assert adj["reps_factor"] == pytest.approx(1.0)
+
+    def test_zero_old_leff_no_adjustment(self):
+        from bar_scheduler.core.equipment import compute_equipment_adjustment
+        adj = compute_equipment_adjustment(old_leff=0.0, new_leff=80.0)
+        assert adj["reps_factor"] == pytest.approx(1.0)
+
+
+class TestLoadStressWithAssistance:
+    """load_stress_multiplier subtracts assistance_kg from effective load."""
+
+    def test_band_reduces_load_stress(self):
+        from bar_scheduler.core.physiology import load_stress_multiplier
+        # Without band: S_load at BW=80, reference=80, bw_fraction=1.0
+        no_band = load_stress_multiplier(80.0, 0.0, 80.0, bw_fraction=1.0, assistance_kg=0.0)
+        # With BAND_MEDIUM: Leff = 80 - 35 = 45 → smaller stress
+        with_band = load_stress_multiplier(80.0, 0.0, 80.0, bw_fraction=1.0, assistance_kg=35.0)
+        assert with_band < no_band
+
+    def test_bss_new_bw_fraction(self):
+        """BSS bw_fraction=0.71 gives non-zero stress even without added weight."""
+        from bar_scheduler.core.physiology import load_stress_multiplier
+        stress = load_stress_multiplier(80.0, 0.0, 80.0, bw_fraction=0.71, assistance_kg=0.0)
+        # Leff = 0.71 × 80 = 56.8; L_rel = 56.8/80 = 0.71; S = 0.71^GAMMA_LOAD
+        from bar_scheduler.core.config import GAMMA_LOAD
+        expected = (0.71 ** GAMMA_LOAD)
+        assert stress == pytest.approx(expected, rel=1e-4)
+
+
+class TestEquipmentSerialization:
+    """EquipmentSnapshot round-trips through serializers."""
+
+    def test_snapshot_round_trip(self):
+        from bar_scheduler.io.serializers import equipment_snapshot_to_dict, dict_to_equipment_snapshot
+        from bar_scheduler.core.models import EquipmentSnapshot
+        snap = EquipmentSnapshot(active_item="BAND_MEDIUM", assistance_kg=35.0, elevation_height_cm=None)
+        d = equipment_snapshot_to_dict(snap)
+        loaded = dict_to_equipment_snapshot(d)
+        assert loaded.active_item == "BAND_MEDIUM"
+        assert loaded.assistance_kg == pytest.approx(35.0)
+        assert loaded.elevation_height_cm is None
+
+    def test_snapshot_with_elevation(self):
+        from bar_scheduler.io.serializers import equipment_snapshot_to_dict, dict_to_equipment_snapshot
+        from bar_scheduler.core.models import EquipmentSnapshot
+        snap = EquipmentSnapshot(active_item="ELEVATION_SURFACE", assistance_kg=0.0, elevation_height_cm=45)
+        d = equipment_snapshot_to_dict(snap)
+        loaded = dict_to_equipment_snapshot(d)
+        assert loaded.elevation_height_cm == 45
+
+    def test_session_result_with_snapshot_serializes(self):
+        from bar_scheduler.io.serializers import session_result_to_dict, dict_to_session_result
+        from bar_scheduler.core.models import SessionResult, SetResult, EquipmentSnapshot
+        snap = EquipmentSnapshot(active_item="BAND_LIGHT", assistance_kg=17.0)
+        s = SetResult(target_reps=8, actual_reps=8, rest_seconds_before=180, added_weight_kg=0.0, rir_target=2)
+        session = SessionResult(
+            date="2026-03-01", bodyweight_kg=80.0, grip="pronated",
+            session_type="H", exercise_id="pull_up",
+            equipment_snapshot=snap, planned_sets=[], completed_sets=[s],
+        )
+        d = session_result_to_dict(session)
+        assert "equipment_snapshot" in d
+        assert d["equipment_snapshot"]["active_item"] == "BAND_LIGHT"
+        loaded = dict_to_session_result(d)
+        assert loaded.equipment_snapshot is not None
+        assert loaded.equipment_snapshot.active_item == "BAND_LIGHT"
+        assert loaded.equipment_snapshot.assistance_kg == pytest.approx(17.0)
+
+    def test_session_without_snapshot_backward_compat(self):
+        """Legacy sessions (no equipment_snapshot key) load with snapshot=None."""
+        from bar_scheduler.io.serializers import dict_to_session_result
+        legacy = {
+            "date": "2026-01-01", "bodyweight_kg": 80.0, "grip": "pronated",
+            "session_type": "S", "exercise_id": "pull_up",
+            "completed_sets": [{"target_reps": 8, "actual_reps": 8,
+                                 "rest_seconds_before": 180, "added_weight_kg": 0.0,
+                                 "rir_target": 2}],
+        }
+        session = dict_to_session_result(legacy)
+        assert session.equipment_snapshot is None

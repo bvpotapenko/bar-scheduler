@@ -4,6 +4,7 @@ Evidence-informed training planner for bodyweight strength exercises.
 Supports **Pull-Up**, **Parallel Bar Dip**, and **Bulgarian Split Squat (DB)**
 — all sharing one planning engine.
 
+
 ![Training Log](./img/training_log.png)
 ![Weekly Volume](./img/weekly_volume.png)
 ![Training Session Explained](./img/session_explained.png)
@@ -64,6 +65,7 @@ bar-scheduler plot-max
 | `volume` | Show weekly volume chart; `--weeks N`; `--json` |
 | `explain DATE\|next` | Step-by-step breakdown of how a planned session was calculated |
 | `skip` | Shift plan forward N days; `--days N` (default 1); `--force` |
+| `update-equipment` | Update training equipment (band class, machine kg, BSS surface); `--exercise` |
 | `1rm` | Estimate 1-rep max using the Epley formula; `--exercise` |
 
 ## Multi-Exercise Support
@@ -237,6 +239,7 @@ Running `bar-scheduler` without arguments opens the interactive menu:
 [e] Explain how a session was planned
 [r] Estimate 1-rep max
 [s] Rest day — shift plan forward
+[u] Update training equipment
 [i] Setup / edit profile
 [d] Delete a session by ID
 [0] Quit
@@ -264,6 +267,65 @@ bar-scheduler skip --days 2 --force
 ```
 
 `skip` updates `plan_start_date` in `profile.json`. The plan shifts forward; no history is lost.
+
+## Equipment Tracking
+
+Bar-scheduler tracks what equipment you train with so that effective load (Leff)
+is correctly computed across band progressions, machine-to-bar transitions, and
+added-weight sessions.
+
+### Effective Load formula
+
+```
+Pull-up / Dip:  Leff = BW × bw_fraction + added_weight_kg − assistance_kg
+BSS:            Leff = 0.71 × BW + added_weight_kg   (biomechanics: lead leg bears ~71% of BW)
+Weight belt:    Leff = BW + added_weight_kg           (assistance_kg = 0)
+```
+
+### Equipment options per exercise
+
+| Exercise | Items |
+|----------|-------|
+| Pull-up  | Bar only · Band Light (~17 kg) · Band Medium (~35 kg) · Band Heavy (~57 kg) · Machine assisted · Weight belt |
+| Dip      | Parallel bars · Band Light · Band Medium · Band Heavy · Machine assisted · Weight belt |
+| BSS      | Bodyweight · Dumbbells · Barbell · Resistance band · Elevation surface (30/45/60 cm) |
+
+### Setup
+
+Equipment is configured during `init` or via `update-equipment`:
+
+```bash
+bar-scheduler update-equipment --exercise pull_up
+```
+
+The interactive flow asks which items you have, which you're currently using,
+and for machine assistance kg or BSS elevation height where applicable.
+
+### Band progression
+
+When the plan detects you've consistently hit the rep ceiling for your session
+type over the last 2 sessions, a suggestion appears below the plan table:
+
+```
+Ready to progress: consider stepping from Band Medium → Band Light.
+```
+
+### Leff change adjustment
+
+When you call `update-equipment` and effective load changes by ≥ 10%, the
+command prints an adjustment recommendation:
+
+```
+Equipment change detected: Leff increased ~30% → reducing reps by 20% as safety buffer.
+```
+
+### BSS without elevation surface
+
+If ELEVATION_SURFACE is not in your available items, the plan header shows:
+
+```
+⚠ Split Squat mode — add an elevation surface to unlock BSS.
+```
 
 ## Example Output
 

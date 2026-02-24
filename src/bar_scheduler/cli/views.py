@@ -13,9 +13,10 @@ from rich.table import Table
 
 from ..core.adaptation import get_training_status
 from ..core.ascii_plot import create_max_reps_plot, create_weekly_volume_chart
+from ..core.equipment import bss_is_degraded, check_band_progression, compute_leff, get_assistance_kg, get_catalog, get_next_band_step
 from ..core.max_estimator import estimate_max_reps_from_session
 from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
-from ..core.models import SessionPlan, SessionResult, TrainingStatus, UserState
+from ..core.models import EquipmentState, SessionPlan, SessionResult, TrainingStatus, UserState
 
 TimelineStatus = Literal["done", "missed", "next", "planned", "extra"]
 
@@ -255,6 +256,10 @@ def print_unified_plan(
     status: TrainingStatus,
     title: str = "Training Log",
     target_max: int | None = None,
+    equipment_state: EquipmentState | None = None,
+    history: list[SessionResult] | None = None,
+    exercise_id: str = "pull_up",
+    bodyweight_kg: float | None = None,
 ) -> None:
     """
     Print the full unified timeline: status + single table.
@@ -264,11 +269,37 @@ def print_unified_plan(
         status: Current training status for header
         title: Table title
         target_max: User's goal reps (shown in status block)
+        equipment_state: Current equipment state (for header line)
+        history: Full session history (for band progression check)
+        exercise_id: Exercise being displayed
+        bodyweight_kg: Current bodyweight (for Leff calculation in header)
     """
+    from ..core.exercises.registry import get_exercise
+
     # Header
     console.print()
     console.print(format_status_display(status, target_max=target_max))
     console.print()
+
+    # Equipment header line
+    if equipment_state is not None:
+        ex = get_exercise(exercise_id)
+        catalog = get_catalog(exercise_id)
+        item_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
+        a_kg = get_assistance_kg(
+            equipment_state.active_item, exercise_id, equipment_state.machine_assistance_kg
+        )
+        if bodyweight_kg and bodyweight_kg > 0:
+            leff = compute_leff(ex.bw_fraction, bodyweight_kg, 0.0, a_kg)
+            console.print(
+                f"[dim]Equipment: {item_label}  (Leff ≈ {leff:.0f} kg @ {bodyweight_kg:.0f} kg BW)[/dim]"
+            )
+        else:
+            console.print(f"[dim]Equipment: {item_label}[/dim]")
+        if exercise_id == "bss" and bss_is_degraded(equipment_state):
+            console.print(
+                "[yellow]⚠ Split Squat mode — add an elevation surface to unlock BSS.[/yellow]"
+            )
 
     if not entries:
         console.print("[yellow]No sessions yet. Run 'init' to get started.[/yellow]")
@@ -414,6 +445,28 @@ def print_unified_plan(
         "/ Ns = N seconds rest before the set  |  "
         "eMax: past TEST = actual max  |  past session = FI-est/Nuzzo-est  |  future = plan projection[/dim]"
     )
+
+    # Band progression suggestion
+    if (
+        equipment_state is not None
+        and history is not None
+        and equipment_state.active_item in ("BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT")
+    ):
+        try:
+            ex = get_exercise(exercise_id)
+            if check_band_progression(history, exercise_id, ex.session_params):
+                next_band = get_next_band_step(equipment_state.active_item)
+                if next_band is not None:
+                    catalog = get_catalog(exercise_id)
+                    current_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
+                    next_label = catalog.get(next_band, {}).get("label", next_band)
+                    console.print()
+                    console.print(
+                        f"[yellow]Ready to progress: you've consistently hit the rep ceiling. "
+                        f"Consider stepping from {current_label} → {next_label}.[/yellow]"
+                    )
+        except Exception:
+            pass
 
 
 def format_session_table(sessions: list[SessionResult]) -> Table:

@@ -368,7 +368,22 @@ def plan(
             "Update target via [i] Setup or --target-max."
         )
 
-    views.print_unified_plan(timeline, training_status, target_max=goal)
+    # Load equipment state for display
+    equipment_state = None
+    try:
+        equipment_state = store.load_current_equipment(exercise_id)
+    except Exception:
+        pass
+
+    views.print_unified_plan(
+        timeline,
+        training_status,
+        target_max=goal,
+        equipment_state=equipment_state,
+        history=user_state.history,
+        exercise_id=exercise_id,
+        bodyweight_kg=user_state.current_bodyweight_kg,
+    )
 
 
 @app.command()

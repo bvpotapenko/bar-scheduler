@@ -3,14 +3,21 @@ Bulgarian Split Squat (DB) exercise definition.
 
 Biomechanics note
 -----------------
-BSS is a unilateral, hip-dominant exercise performed with dumbbells.
-bw_fraction=0.0 because bodyweight is NOT included in the 1RM calculation:
-the load is the dumbbell weight only, matching standard DB-exercise conventions.
+BSS is a unilateral, hip-dominant exercise.  The effective load on the working
+leg includes bodyweight: research shows ~71 % of total BW is borne by the lead
+leg during a split squat (Mackey & Riemann 2021, Song et al. 2023).
 
-Source: Mackey & Riemann (2021). Biomechanical Differences Between the Bulgarian
-Split-Squat and Back Squat. Int J Exerc Sci, 14(1):533-543.
-Song et al. (2023). Effects of step lengths on biomechanical characteristics in
-split squat. Front Bioeng Biotechnol, 11:1277493.
+bw_fraction=0.71 so that Leff = 0.71×BW + added_weight_kg, matching the
+evidence-based formula.  This makes BSS comparable to pull-up / dip on the
+same effective-load scale.
+
+load_type="external_only" is intentionally kept so:
+  • 1RM estimation skips bodyweight-only sets (no added load → meaningless 1RM)
+  • _calculate_added_weight() uses last_test_weight (dumbbell carry-forward)
+The bw_fraction is still used by all Leff and load-stress calculations.
+
+Sources: Mackey & Riemann (2021). Int J Exerc Sci 14(1):533-543.
+         Song et al. (2023). Front Bioeng Biotechnol 11:1277493.
 
 Unilateral note
 ---------------
@@ -32,8 +39,8 @@ BSS = ExerciseDefinition(
     display_name="Bulgarian Split Squat (DB)",
     muscle_group="lower",
 
-    bw_fraction=0.0,
-    load_type="external_only",
+    bw_fraction=0.71,     # 71 % of BW borne by lead leg (Mackey & Riemann 2021)
+    load_type="external_only",  # kept so planner uses last_test_weight for weight prescription
 
     variants=["standard", "deficit", "front_foot_elevated"],
     primary_variant="standard",
@@ -124,12 +131,12 @@ BSS = ExerciseDefinition(
     ),
     test_frequency_weeks=4,
 
-    onerm_includes_bodyweight=False,
+    onerm_includes_bodyweight=True,
     onerm_explanation=(
-        "Your BSS 1RM is the dumbbell weight only (both hands combined). "
-        "If you hold 2×30 kg dumbbells and do 1 rep, your 1RM is 60 kg. "
-        "Bodyweight is NOT included. "
-        "Formula: 1RM = total_dumbbell_weight × (1 + reps/30)  [Epley]."
+        "BSS 1RM uses effective load: Leff = 0.71×BW + total_dumbbell_weight. "
+        "This accounts for the ~71 % of bodyweight borne by the lead leg. "
+        "Formula: 1RM = Leff × (1 + reps/30)  [Epley]. "
+        "Example: 80 kg BW + 2×10 kg dumbbells → Leff = 56.8 + 20 = 76.8 kg."
     ),
 
     weight_increment_fraction=0.0,   # Not applicable; progression is in reps, not auto-added weight

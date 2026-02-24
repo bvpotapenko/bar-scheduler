@@ -728,8 +728,13 @@ class TestMultiExercise:
                                 session_type="S", exercise_id="bss",
                                 planned_sets=[], completed_sets=[s])
         result = estimate_1rm(bss, 82.0, [session])
+        # BSS now uses bw_fraction=0.71: Leff = 0.71×82 + 48 = 106.22 kg
+        # Epley: 1RM = Leff × (1 + 8/30)
+        import math
+        leff = 0.71 * 82.0 + 48.0
+        expected = leff * (1 + 8 / 30)
         assert result is not None
-        assert result["1rm_kg"] == pytest.approx(48.0 * (1 + 8 / 30), rel=1e-3)
+        assert result["1rm_kg"] == pytest.approx(expected, rel=1e-3)
 
     def test_bss_unilateral_display(self):
         """_fmt_prescribed appends '(per leg)' for BSS sessions."""
@@ -771,3 +776,128 @@ class TestMultiExercise:
         d_legacy["grip"] = "pronated"  # use a pull-up grip for legacy record
         loaded_legacy = dict_to_session_result(d_legacy)
         assert loaded_legacy.exercise_id == "pull_up"
+
+
+class TestEquipmentIntegration:
+    """Integration tests for the equipment-aware system."""
+
+    def _store(self, tmp_path):
+        from bar_scheduler.io.history_store import HistoryStore
+        history_path = tmp_path / "history.jsonl"
+        store = HistoryStore(history_path)
+        store.init()
+        from bar_scheduler.core.models import UserProfile
+        store.save_profile(
+            UserProfile(height_cm=180, sex="male", preferred_days_per_week=3,
+                        target_max_reps=20),
+            bodyweight_kg=80.0,
+        )
+        return store
+
+    def test_equipment_history_round_trip(self, tmp_path):
+        """save/load equipment history preserves all fields."""
+        from bar_scheduler.core.models import EquipmentState
+        store = self._store(tmp_path)
+        state = EquipmentState(
+            exercise_id="pull_up",
+            available_items=["BAR_ONLY", "BAND_MEDIUM"],
+            active_item="BAND_MEDIUM",
+            valid_from="2026-01-01",
+        )
+        store.save_equipment_history("pull_up", [state])
+        loaded = store.load_equipment_history("pull_up")
+        assert len(loaded) == 1
+        assert loaded[0].active_item == "BAND_MEDIUM"
+        assert loaded[0].available_items == ["BAR_ONLY", "BAND_MEDIUM"]
+
+    def test_load_current_equipment_none_when_absent(self, tmp_path):
+        store = self._store(tmp_path)
+        result = store.load_current_equipment("pull_up")
+        assert result is None
+
+    def test_update_equipment_closes_old_and_appends_new(self, tmp_path):
+        """update_equipment sets valid_until on old entry and appends a new one."""
+        from datetime import datetime, timedelta
+        from bar_scheduler.core.models import EquipmentState
+        store = self._store(tmp_path)
+
+        old_state = EquipmentState(
+            exercise_id="pull_up",
+            available_items=["BAND_MEDIUM"],
+            active_item="BAND_MEDIUM",
+            valid_from="2026-01-01",
+        )
+        store.update_equipment(old_state)
+
+        new_state = EquipmentState(
+            exercise_id="pull_up",
+            available_items=["BAR_ONLY"],
+            active_item="BAR_ONLY",
+            valid_from="2026-02-24",
+        )
+        store.update_equipment(new_state)
+
+        history = store.load_equipment_history("pull_up")
+        assert len(history) == 2
+        # Old entry should now have valid_until set
+        assert history[0].valid_until is not None
+        # New entry should be active
+        current = store.load_current_equipment("pull_up")
+        assert current is not None
+        assert current.active_item == "BAR_ONLY"
+
+    def test_log_session_attaches_equipment_snapshot(self, tmp_path):
+        """log-session stores equipment_snapshot if equipment state is configured."""
+        from bar_scheduler.core.models import EquipmentState, SessionResult, SetResult
+        from bar_scheduler.core.equipment import snapshot_from_state
+        from bar_scheduler.io.serializers import session_result_to_dict
+
+        store = self._store(tmp_path)
+        # Set up equipment state
+        eq_state = EquipmentState(
+            exercise_id="pull_up",
+            available_items=["BAND_MEDIUM"],
+            active_item="BAND_MEDIUM",
+            valid_from="2026-01-01",
+        )
+        store.update_equipment(eq_state)
+
+        # Simulate log-session: build session with snapshot
+        snapshot = snapshot_from_state(eq_state)
+        s = SetResult(target_reps=8, actual_reps=8, rest_seconds_before=180,
+                      added_weight_kg=0.0, rir_target=2)
+        session = SessionResult(
+            date="2026-02-24", bodyweight_kg=80.0, grip="pronated",
+            session_type="H", exercise_id="pull_up",
+            equipment_snapshot=snapshot,
+            planned_sets=[], completed_sets=[s],
+        )
+        store.append_session(session)
+
+        loaded = store.load_history()
+        assert len(loaded) == 1
+        assert loaded[0].equipment_snapshot is not None
+        assert loaded[0].equipment_snapshot.active_item == "BAND_MEDIUM"
+        assert loaded[0].equipment_snapshot.assistance_kg == pytest.approx(35.0)
+
+    def test_bss_degraded_flag(self, tmp_path):
+        """bss_is_degraded returns True when ELEVATION_SURFACE absent."""
+        from bar_scheduler.core.models import EquipmentState
+        from bar_scheduler.core.equipment import bss_is_degraded
+
+        without_elevation = EquipmentState(
+            exercise_id="bss",
+            available_items=["DUMBBELLS"],
+            active_item="DUMBBELLS",
+            valid_from="2026-01-01",
+        )
+        assert bss_is_degraded(without_elevation) is True
+
+        with_elevation = EquipmentState(
+            exercise_id="bss",
+            available_items=["DUMBBELLS", "ELEVATION_SURFACE"],
+            active_item="DUMBBELLS",
+            elevation_height_cm=45,
+            valid_from="2026-01-01",
+        )
+        assert bss_is_degraded(with_elevation) is False

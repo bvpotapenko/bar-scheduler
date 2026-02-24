@@ -17,12 +17,13 @@ Running `bar-scheduler` without arguments opens the interactive menu — the eas
 [e] Explain how a session was planned
 [r] Estimate 1-rep max
 [s] Rest day — shift plan forward
+[u] Update training equipment
 [i] Setup / edit profile
 [d] Delete a session by ID
 [0] Quit
 ```
 
-All options work interactively — no flags needed. The `[i]` option prompts for each profile field with the current value shown as default (press Enter to keep it). The `[e]` option asks for a date or accepts `next`. The `[r]` option estimates your 1-rep max from recent training sessions. The `[s]` option shifts the plan forward by one day.
+All options work interactively — no flags needed. The `[i]` option prompts for each profile field with the current value shown as default (press Enter to keep it). The `[e]` option asks for a date or accepts `next`. The `[r]` option estimates your 1-rep max from recent training sessions. The `[s]` option shifts the plan forward by one day. The `[u]` option updates your equipment and shows a rep-adjustment recommendation when effective load changes by ≥10%.
 
 ## Initialize a New User
 
@@ -555,6 +556,96 @@ $ bar-scheduler plan --history-path ./my_training/history.jsonl
    ```bash
    bar-scheduler plan -w 8
    ```
+
+8. **update-equipment** — record a band change or switch from machine to bar:
+   ```bash
+   bar-scheduler update-equipment --exercise pull_up
+   ```
+
+## Equipment Tracking
+
+Bar-scheduler tracks the equipment used for each exercise so that effective load
+(Leff) is accurately computed across band progressions, machine-to-bar transitions,
+and added-weight changes.
+
+### Effective Load formula
+
+```
+Pull-up / Dip:  Leff = BW × bw_fraction + added_weight_kg − assistance_kg
+BSS:            Leff = 0.71 × BW + added_weight_kg
+Weight belt:    Leff = BW + added_weight_kg  (assistance_kg = 0)
+```
+
+### Equipment options
+
+| Exercise | Items |
+|----------|-------|
+| Pull-up  | Bar only (BW) · Band Light (~17 kg) · Band Medium (~35 kg) · Band Heavy (~57 kg) · Machine assisted · Weight belt |
+| Dip      | Parallel bars (BW) · Band Light · Band Medium · Band Heavy · Machine assisted · Weight belt |
+| BSS      | Bodyweight · Dumbbells · Barbell · Resistance band · Elevation surface (30/45/60 cm) |
+
+### Setting up equipment at init
+
+```
+Equipment for Pull-Up
+  Which items do you have available? (comma-separated numbers)
+  [1] Pull-up bar (bodyweight)
+  [2] Resistance band – Light (~10–25 kg assistance)
+  [3] Resistance band – Medium (~25–45 kg assistance)
+  [4] Resistance band – Heavy (~45–70 kg assistance)
+  [5] Assisted pull-up machine
+  [6] Weight belt / vest
+  Available [1]: 1,3
+
+  Which are you currently training with?
+  [1] Pull-up bar (bodyweight)
+  [3] Resistance band – Medium (~25–45 kg assistance)
+  Active [1]: 2
+```
+
+### Updating equipment
+
+```bash
+# Step down from BAND_MEDIUM to BAND_LIGHT (or BAR_ONLY)
+bar-scheduler update-equipment --exercise pull_up
+```
+
+The command shows current equipment, prompts for changes, and if effective load
+changes ≥ 10%, prints an adjustment recommendation:
+
+```
+Equipment change detected: Leff increased ~30% → reducing reps by 20% as safety buffer
+Consider adjusting your target reps by this factor for the next session.
+```
+
+### Band progression suggestions
+
+When the plan output detects that your last 2 non-TEST sessions consistently
+hit the upper rep ceiling for that session type, a band-progression suggestion
+appears below the plan table:
+
+```
+Ready to progress: you've consistently hit the rep ceiling.
+Consider stepping from Resistance band – Medium → Resistance band – Light.
+```
+
+### BSS without elevation surface
+
+If you do not have a bench or box to elevate the rear foot, the planner shows:
+
+```
+⚠ Split Squat mode — add an elevation surface to unlock BSS.
+```
+
+Progress as a flat split squat until ELEVATION_SURFACE is added via `update-equipment`.
+
+### Plan header
+
+When equipment is configured, the plan shows an equipment summary line:
+
+```
+Equipment: Resistance band – Medium  (Leff ≈ 45 kg @ 80 kg BW)
+```
 
 ## Model Documentation
 

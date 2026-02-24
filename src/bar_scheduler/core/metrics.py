@@ -66,25 +66,28 @@ def bodyweight_normalized_reps(
     reference_bodyweight_kg: float,
     added_load_kg: float = 0.0,
     bw_fraction: float = 1.0,
+    assistance_kg: float = 0.0,
 ) -> float:
     """
-    Normalize reps for bodyweight differences.
+    Normalize reps for bodyweight differences, accounting for band/machine assistance.
 
-    L_rel = (bw * bw_fraction + load) / bw_ref
+    Leff = BW × bw_fraction + added_load − assistance_kg
+    L_rel = Leff / bw_ref
     reps** = reps* * L_rel^gamma_bw
 
     Args:
         reps: Input reps (may be rest-normalized)
         session_bodyweight_kg: Bodyweight at time of session
         reference_bodyweight_kg: Reference bodyweight for comparison
-        added_load_kg: Added external load
-        bw_fraction: Fraction of BW that is the working load (1.0=pull-up, 0.92=dip, 0.0=BSS)
+        added_load_kg: Added external load (belt, dumbbells)
+        bw_fraction: Fraction of BW that is the working load
+        assistance_kg: Band/machine assistance subtracted from load (≥ 0)
 
     Returns:
         Bodyweight-normalized rep count
     """
     effective_bw = session_bodyweight_kg * bw_fraction
-    total_load = effective_bw + added_load_kg
+    total_load = max(0.0, effective_bw + added_load_kg - assistance_kg)
     if reference_bodyweight_kg <= 0:
         return reps
     l_rel = total_load / reference_bodyweight_kg
@@ -116,9 +119,11 @@ def standardized_reps(
     grip: str = "pronated",
     variant_factors: dict[str, float] | None = None,
     bw_fraction: float = 1.0,
+    assistance_kg: float = 0.0,
 ) -> float:
     """
-    Calculate fully standardized reps accounting for rest, bodyweight, and grip/variant.
+    Calculate fully standardized reps accounting for rest, bodyweight, grip/variant,
+    and band/machine assistance.
 
     reps_std = reps** * F_variant
 
@@ -127,10 +132,11 @@ def standardized_reps(
         rest_seconds: Rest before set
         session_bodyweight_kg: Bodyweight at session
         reference_bodyweight_kg: Reference bodyweight
-        added_load_kg: Added load
+        added_load_kg: Added external load
         grip: Grip/variant name
         variant_factors: Per-variant normalization factors (from ExerciseDefinition)
         bw_fraction: Fraction of BW that is the working load
+        assistance_kg: Band/machine assistance subtracted from load
 
     Returns:
         Fully standardized rep count
@@ -138,9 +144,10 @@ def standardized_reps(
     # Step 1: Rest normalization
     rest_norm = effective_reps(actual_reps, rest_seconds)
 
-    # Step 2: Bodyweight normalization
+    # Step 2: Bodyweight normalization (includes assistance)
     bw_norm = bodyweight_normalized_reps(
-        rest_norm, session_bodyweight_kg, reference_bodyweight_kg, added_load_kg, bw_fraction
+        rest_norm, session_bodyweight_kg, reference_bodyweight_kg,
+        added_load_kg, bw_fraction, assistance_kg,
     )
 
     # Step 3: Variant/grip normalization
@@ -365,17 +372,32 @@ def estimate_1rm(
     best_info: dict | None = None
 
     for session in history[-window_sessions:]:
+        # Extract assistance_kg from session's equipment snapshot if available
+        assistance_kg = 0.0
+        if session.equipment_snapshot is not None:
+            assistance_kg = session.equipment_snapshot.assistance_kg
+
         for s in session.completed_sets:
             if s.actual_reps is None or s.actual_reps <= 0:
                 continue
-            # For BW exercises any set counts (incl. BW-only: added=0, total=BW*bw_frac)
-            # For external_only we need actual load info
+            # For external_only exercises (BSS), require actual added load
+            # but include bw_fraction × BW in Leff per the spec formula
             if exercise.load_type == "external_only":
                 if s.added_weight_kg <= 0:
                     continue
-                eff_load = s.added_weight_kg
+                eff_load = max(
+                    0.0,
+                    bodyweight_kg * exercise.bw_fraction
+                    + s.added_weight_kg
+                    - assistance_kg,
+                )
             else:
-                eff_load = bodyweight_kg * exercise.bw_fraction + s.added_weight_kg
+                eff_load = max(
+                    0.0,
+                    bodyweight_kg * exercise.bw_fraction
+                    + s.added_weight_kg
+                    - assistance_kg,
+                )
 
             if eff_load <= 0:
                 continue

@@ -8,6 +8,7 @@ from typing import Annotated, Optional
 import typer
 
 from ...core.adaptation import get_training_status
+from ...core.equipment import snapshot_from_state
 from ...core.exercises.registry import get_exercise
 from ...core.metrics import session_max_reps, training_max_from_baseline
 from ...core.models import SessionResult, SetResult
@@ -311,12 +312,22 @@ def log_session(
             for _ in range(n)
         ]
 
+    # Attach equipment snapshot if available
+    equipment_snapshot = None
+    try:
+        eq_state = store.load_current_equipment(exercise_id)
+        if eq_state is not None:
+            equipment_snapshot = snapshot_from_state(eq_state)
+    except Exception:
+        pass
+
     session = SessionResult(
         date=date,
         bodyweight_kg=bodyweight_kg,
         grip=grip,  # type: ignore
         session_type=session_type,  # type: ignore
         exercise_id=exercise_id,
+        equipment_snapshot=equipment_snapshot,
         planned_sets=planned_sets,
         completed_sets=set_results,
         notes=notes,

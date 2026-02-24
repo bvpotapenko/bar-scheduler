@@ -84,6 +84,43 @@ class PlannedSet:
 
 
 @dataclass
+class EquipmentSnapshot:
+    """
+    Minimal equipment context stored on each logged session.
+
+    Captured at log time from the current EquipmentState so that past
+    sessions can be re-analysed with the correct effective load even after
+    the user changes equipment later.
+
+    assistance_kg > 0 means the equipment is assistive (band/machine reduces
+    the effective load).  For additive items (weight belt, dumbbells) this is
+    0; the load contribution comes from SetResult.added_weight_kg instead.
+    """
+
+    active_item: str                    # e.g. "BAND_MEDIUM", "BAR_ONLY"
+    assistance_kg: float                # kg of assistance subtracted from Leff
+    elevation_height_cm: int | None = None  # BSS ELEVATION_SURFACE height
+
+
+@dataclass
+class EquipmentState:
+    """
+    Per-exercise equipment state for one time period.
+
+    Stored as an append-only list in profile.json.  When equipment changes,
+    the current entry's valid_until is set and a new entry is appended.
+    """
+
+    exercise_id: str
+    available_items: list[str]          # all items the user owns / has access to
+    active_item: str                    # item currently used for training
+    machine_assistance_kg: float | None = None  # only for MACHINE_ASSISTED items
+    elevation_height_cm: int | None = None      # only for BSS ELEVATION_SURFACE
+    valid_from: str = ""                # ISO date of this entry
+    valid_until: str | None = None      # None = still current
+
+
+@dataclass
 class SessionResult:
     """
     A completed or partially completed training session.
@@ -96,6 +133,7 @@ class SessionResult:
     grip: Grip  # exercise-specific variant string (e.g. "pronated", "standard")
     session_type: SessionType
     exercise_id: str = "pull_up"
+    equipment_snapshot: EquipmentSnapshot | None = None  # equipment context at log time
     planned_sets: list[SetResult] = field(default_factory=list)
     completed_sets: list[SetResult] = field(default_factory=list)
     notes: str | None = None
