@@ -12,12 +12,13 @@ Returns current training status.
 
 ```bash
 bar-scheduler status --json
+bar-scheduler status --exercise dip --json
 ```
 
 ```json
 {
   "training_max": 10,
-  "latest_test_max": 11,
+  "latest_test_max": 12,
   "trend_slope_per_week": 0.45,
   "is_plateau": false,
   "deload_recommended": false,
@@ -29,7 +30,7 @@ bar-scheduler status --json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `training_max` | int | Current TM = floor(0.9 × test_max) |
+| `training_max` | int | Current TM = floor(0.9 × test_max) — conventional definition |
 | `latest_test_max` | int \| null | Most recent TEST session max reps |
 | `trend_slope_per_week` | float | Linear regression slope of test-max data (reps/week) |
 | `is_plateau` | bool | True if slope below threshold for plateau window |
@@ -42,11 +43,12 @@ bar-scheduler status --json
 
 ## `show-history --json`
 
-Returns an array of logged sessions, newest last.
+Returns an array of logged sessions, oldest first.
 
 ```bash
 bar-scheduler show-history --json
 bar-scheduler show-history --limit 5 --json
+bar-scheduler show-history --exercise dip --json
 ```
 
 ```json
@@ -56,6 +58,7 @@ bar-scheduler show-history --limit 5 --json
     "session_type": "TEST",
     "grip": "pronated",
     "bodyweight_kg": 82.0,
+    "exercise_id": "pull_up",
     "total_reps": 10,
     "max_reps": 10,
     "avg_rest_s": 180,
@@ -68,6 +71,7 @@ bar-scheduler show-history --limit 5 --json
     "session_type": "S",
     "grip": "neutral",
     "bodyweight_kg": 82.0,
+    "exercise_id": "pull_up",
     "total_reps": 19,
     "max_reps": 5,
     "avg_rest_s": 240,
@@ -85,8 +89,9 @@ bar-scheduler show-history --limit 5 --json
 |-------|------|-------------|
 | `date` | string | ISO date YYYY-MM-DD |
 | `session_type` | string | `S`, `H`, `E`, `T`, or `TEST` |
-| `grip` | string | `pronated`, `neutral`, or `supinated` |
+| `grip` | string | e.g. `pronated`, `neutral`, `supinated`, `standard` |
 | `bodyweight_kg` | float | Bodyweight at time of session |
+| `exercise_id` | string | Exercise identifier: `pull_up`, `dip`, or `bss` |
 | `total_reps` | int | Sum of actual reps across all sets |
 | `max_reps` | int | Best single set (bodyweight-equivalent) |
 | `avg_rest_s` | int | Average rest between sets (seconds) |
@@ -100,9 +105,12 @@ bar-scheduler show-history --limit 5 --json
 
 Returns the current training status plus the full unified timeline (past sessions + upcoming plan).
 
+**Note:** The `eMax` column shown in the plan table is display-only and is not present in the JSON output. The `expected_tm` field is the machine-readable equivalent for future sessions.
+
 ```bash
 bar-scheduler plan --json
 bar-scheduler plan -w 8 --json
+bar-scheduler plan --exercise dip --json
 ```
 
 ```json
@@ -124,6 +132,7 @@ bar-scheduler plan -w 8 --json
       "grip": "pronated",
       "status": "done",
       "id": 1,
+      "exercise_id": "pull_up",
       "expected_tm": 9,
       "prescribed_sets": [
         { "reps": 10, "weight_kg": 0.0, "rest_s": 180 }
@@ -139,6 +148,7 @@ bar-scheduler plan -w 8 --json
       "grip": "pronated",
       "status": "next",
       "id": null,
+      "exercise_id": "pull_up",
       "expected_tm": 9,
       "prescribed_sets": [
         { "reps": 4, "weight_kg": 0.0, "rest_s": 60 },
@@ -170,11 +180,12 @@ Array of human-readable strings describing what changed vs the previous `plan` r
 |-------|------|-------------|
 | `date` | string | ISO date YYYY-MM-DD |
 | `week` | int | Week number in the plan (1-indexed; 0 = unplanned extra) |
-| `type` | string | Session type |
+| `type` | string | Session type: `S`, `H`, `E`, `T`, or `TEST` |
 | `grip` | string | Grip for this session |
-| `status` | string | `done`, `next`, `planned`, `missed`, `extra` |
+| `status` | string | `done`, `next`, `planned`, `missed`, or `extra` |
 | `id` | int \| null | History ID (for `delete-record N`); null for future sessions |
-| `expected_tm` | int \| null | Projected TM after this session |
+| `exercise_id` | string | Exercise identifier: `pull_up`, `dip`, or `bss` |
+| `expected_tm` | int \| null | Projected TM for this session (used to compute eMax for display) |
 | `prescribed_sets` | array \| null | Planned sets; null for unplanned extra sessions |
 | `actual_sets` | array \| null | What was actually done; null for future sessions |
 
@@ -230,7 +241,7 @@ bar-scheduler plot-max --trajectory --json
 
 `data_points` is ordered chronologically. Only TEST sessions with at least 1 rep are included.
 
-`trajectory` is `null` when `--trajectory` flag is not given. When present, it contains weekly projected max reps from the first test date to the target (30 reps), computed using the model's progression formula.
+`trajectory` is `null` when `--trajectory` flag is not given. When present, it contains weekly projected max reps from the first test date to the target, computed using the model's progression formula.
 
 ---
 
@@ -252,6 +263,7 @@ bar-scheduler log-session \
   "session_type": "S",
   "grip": "pronated",
   "bodyweight_kg": 82.0,
+  "exercise_id": "pull_up",
   "total_reps": 20,
   "max_reps_bodyweight": 0,
   "max_reps_equivalent": 5,
@@ -272,6 +284,7 @@ bar-scheduler log-session \
 | `session_type` | string | Session type logged |
 | `grip` | string | Grip used |
 | `bodyweight_kg` | float | Bodyweight logged |
+| `exercise_id` | string | Exercise identifier |
 | `total_reps` | int | Total reps across all sets |
 | `max_reps_bodyweight` | int | Best bodyweight-only set (0 if weighted throughout) |
 | `max_reps_equivalent` | int | Best BW-equivalent rep count (same as above when no added weight) |
@@ -279,7 +292,68 @@ bar-scheduler log-session \
 | `new_tm` | int \| null | New training max if personal best, otherwise null |
 | `sets[].reps` | int | Reps in this set |
 | `sets[].weight_kg` | float | Added weight (0 = bodyweight only) |
-| `sets[].rest_s` | int | Rest before this set |
+| `sets[].rest_s` | int | Rest before this set (seconds) |
+
+---
+
+## `1rm --json`
+
+Estimate 1-rep max from recent training sessions using the Epley formula.
+
+```bash
+bar-scheduler 1rm --json
+bar-scheduler 1rm --exercise bss --json
+```
+
+```json
+{
+  "exercise_id": "pull_up",
+  "epley_1rm_kg": 102.7,
+  "best_set_reps": 5,
+  "best_set_load_kg": 82.5,
+  "sessions_scanned": 5
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `exercise_id` | string | Exercise the estimate applies to |
+| `epley_1rm_kg` | float | Estimated 1-rep max in kg (Epley formula: `load × (1 + reps/30)`) |
+| `best_set_reps` | int | Reps from the set that produced the highest 1RM estimate |
+| `best_set_load_kg` | float | Total load used for that set (BW + added weight; BSS = added weight only) |
+| `sessions_scanned` | int | Number of recent sessions examined (up to 5) |
+
+Returns `null` (with a non-zero exit code) if no eligible sets are found in the scan window.
+
+---
+
+## `profile.json` Structure
+
+The profile is stored at `~/.bar-scheduler/profile.json`. Key fields:
+
+```json
+{
+  "height_cm": 180,
+  "sex": "male",
+  "preferred_days_per_week": 3,
+  "target_max_reps": 30,
+  "current_bodyweight_kg": 82.0,
+  "plan_start_date": "2026-02-20",
+  "exercise_days": { "pull_up": 3, "dip": 4 }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `height_cm` | int | Used for biomechanical scaling |
+| `sex` | string | `male` or `female` |
+| `preferred_days_per_week` | int | Default training frequency (fallback for exercises not in `exercise_days`) |
+| `target_max_reps` | int | Long-term goal; used by progression formula |
+| `current_bodyweight_kg` | float | Auto-updated after each logged session |
+| `plan_start_date` | string | ISO date when the plan starts; updated by `init` and `skip` |
+| `exercise_days` | dict | Per-exercise days-per-week overrides; e.g. `{"pull_up": 3, "dip": 4}` |
+
+`exercise_days` is optional. If an exercise is not listed, `preferred_days_per_week` is used as the fallback via `profile.days_for_exercise(exercise_id)`.
 
 ---
 
@@ -300,4 +374,7 @@ bar-scheduler plan --json \
 
 # Weekly reps last 8 weeks
 bar-scheduler volume -w 8 --json | jq '.weeks[] | "\(.label): \(.total_reps)"'
+
+# Estimated 1RM as a plain number
+bar-scheduler 1rm --json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['epley_1rm_kg'])"
 ```

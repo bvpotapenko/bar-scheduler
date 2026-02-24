@@ -328,12 +328,15 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     Returns:
         Dict representation
     """
-    return {
+    d: dict[str, Any] = {
         "height_cm": profile.height_cm,
         "sex": profile.sex,
         "preferred_days_per_week": profile.preferred_days_per_week,
         "target_max_reps": profile.target_max_reps,
     }
+    if profile.exercise_days:
+        d["exercise_days"] = dict(profile.exercise_days)
+    return d
 
 
 def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
@@ -361,11 +364,15 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
 
     validate_positive(data.get("target_max_reps", 30), "target_max_reps")
 
+    raw_exercise_days = data.get("exercise_days") or {}
+    exercise_days = {k: int(v) for k, v in raw_exercise_days.items()}
+
     return UserProfile(
         height_cm=int(data["height_cm"]),
         sex=data["sex"],
         preferred_days_per_week=int(data.get("preferred_days_per_week", 3)),
         target_max_reps=int(data.get("target_max_reps", 30)),
+        exercise_days=exercise_days,
     )
 
 

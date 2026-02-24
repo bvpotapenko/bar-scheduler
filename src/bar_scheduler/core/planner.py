@@ -532,12 +532,14 @@ def generate_plan(
         weeks_ahead = max(MIN_PLAN_WEEKS, min(MAX_PLAN_WEEKS, weeks_ahead))
 
     # Calculate session dates, resuming the S/H/T/E rotation from history.
+    # Use per-exercise days if configured; fall back to the global default.
+    days_per_week = user_state.profile.days_for_exercise(exercise.exercise_id)
     start = datetime.strptime(start_date, "%Y-%m-%d")
-    schedule = get_schedule_template(user_state.profile.preferred_days_per_week)
+    schedule = get_schedule_template(days_per_week)
     start_rotation_idx = get_next_session_type_index(history, schedule)
     session_dates = calculate_session_days(
         start,
-        user_state.profile.preferred_days_per_week,
+        days_per_week,
         weeks_ahead,
         start_rotation_idx=start_rotation_idx,
     )
@@ -678,7 +680,7 @@ def explain_plan_entry(
 
     tm_float = float(initial_tm)
     user_target = int(exercise.target_value)
-    days_per_week = user_state.profile.preferred_days_per_week
+    days_per_week = user_state.profile.days_for_exercise(exercise.exercise_id)
 
     if weeks_ahead is None:
         estimated = estimate_weeks_to_target(initial_tm, user_target)

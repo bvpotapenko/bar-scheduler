@@ -46,11 +46,18 @@ reps** = reps* * ((bw + load) / bw_ref)^GAMMA_BW
 ```
 reps_std = reps** * F_grip
 ```
+
+`F_grip` is looked up from `variant_factors: dict[str, float] | None`, which is passed in from the `ExerciseDefinition` for the current exercise. If `variant_factors` is `None` or the grip key is not found, `F_grip` defaults to `1.0`.
+
+Default pull-up factors:
+
 | Parameter | Default | Effect |
 |---|---|---|
-| `GRIP_FACTORS["pronated"]` | 1.00 | Standard reference grip |
-| `GRIP_FACTORS["neutral"]` | 1.00 | Currently equal; raise to credit neutral as harder |
-| `GRIP_FACTORS["supinated"]` | 1.00 | Currently equal; adjust if supinated differs meaningfully |
+| `variant_factors["pronated"]` | 1.00 | Standard reference grip |
+| `variant_factors["neutral"]` | 1.00 | Currently equal; raise to credit neutral as harder |
+| `variant_factors["supinated"]` | 1.00 | Currently equal; adjust if supinated differs meaningfully |
+
+Each `ExerciseDefinition` carries its own `variant_factors` dict, so grip normalization is exercise-specific.
 
 ---
 
@@ -91,7 +98,7 @@ TM = max(1, floor(TM_FACTOR * baseline_max))
 |---|---|---|
 | `TM_FACTOR` | 0.90 | Conservative anchor; lower → more buffer below test max |
 
-Note: the plan's starting TM uses `latest_test_max` directly (not `TM_FACTOR × test_max`) so the plan starts from proven performance and grows beyond it.
+Note: `status --json` reports `training_max = floor(0.9 × test_max)` (conventional definition). The plan's starting TM uses `latest_test_max` directly (not `TM_FACTOR × test_max`) so the plan starts from proven performance and grows beyond it rather than spending weeks catching up.
 
 ---
 
@@ -174,11 +181,16 @@ S_rest(r) = clip( (REST_REF_SECONDS / max(r, REST_MIN_CLAMP))^GAMMA_S, 1, S_REST
 
 **load_stress_multiplier**
 ```
-S_load = ((bw + load) / bw_ref)^GAMMA_LOAD
+S_load = ((bw * bw_fraction + load) / bw_ref)^GAMMA_LOAD
 ```
 | Parameter | Default | Effect |
 |---|---|---|
 | `GAMMA_LOAD` | 1.5 | Superlinear; added weight stresses the system more than proportionally |
+
+`bw_fraction` is an exercise-level parameter passed in from `ExerciseDefinition`:
+- `1.0` — Pull-up (full bodyweight is loaded)
+- `0.92` — Parallel Bar Dip (bodyweight partially unloaded by shoulders)
+- `0.0` — BSS (bodyweight not counted; only external load matters for 1RM purposes)
 
 ---
 
@@ -186,13 +198,18 @@ S_load = ((bw + load) / bw_ref)^GAMMA_LOAD
 
 **grip_stress_multiplier**
 ```
-S_grip = GRIP_STRESS_FACTORS[grip]
+S_grip = variant_factors[grip]
 ```
-| Parameter | Default | Effect |
-|---|---|---|
-| `GRIP_STRESS_FACTORS["pronated"]` | 1.00 | Baseline stress |
-| `GRIP_STRESS_FACTORS["neutral"]` | 0.95 | Slightly lower stress (easier mechanically) |
-| `GRIP_STRESS_FACTORS["supinated"]` | 1.05 | Slightly higher stress |
+
+`variant_factors: dict[str, float]` is sourced from the `ExerciseDefinition` for the current exercise (same dict as Section 3). This replaces the old hardcoded `GRIP_STRESS_FACTORS` map.
+
+Default pull-up values:
+
+| Grip | Default | Effect |
+|------|---------|--------|
+| `pronated` | 1.00 | Baseline stress |
+| `neutral` | 0.95 | Slightly lower stress (easier mechanically) |
+| `supinated` | 1.05 | Slightly higher stress |
 
 ---
 
@@ -201,7 +218,7 @@ S_grip = GRIP_STRESS_FACTORS[grip]
 **calculate_session_training_load**
 ```
 HR_j = actual_reps_j * E_rir(rir_j)
-w(t) = sum_j( HR_j * S_rest(rest_j) * S_load(bw, load_j, bw_ref) * S_grip(grip) )
+w(t) = sum_j( HR_j * S_rest(rest_j) * S_load(bw, load_j, bw_ref, bw_fraction) * S_grip(grip, variant_factors) )
 ```
 If `rir_j` is not reported, `RIR_hat = clip(M_hat - reps_j, 0, 5)` is used.
 
@@ -345,8 +362,8 @@ else:              sets = sets  (no change)
 ```
 z = readiness_z_score()
 
-if z < READINESS_Z_LOW:   sets = max(3, floor(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
-                          reps = base_reps  (unchanged)
+if z < READINESS_Z_LOW:    sets = max(3, floor(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
+                           reps = base_reps  (unchanged)
 elif z > READINESS_Z_HIGH: sets = base_sets
                            reps = base_reps + 1
 else:                      (sets, reps) = (base_sets, base_reps)
@@ -356,6 +373,7 @@ else:                      (sets, reps) = (base_sets, base_reps)
 | `READINESS_Z_LOW` | -1.0 | Below this z → reduce sets |
 | `READINESS_Z_HIGH` | 1.0 | Above this z → add 1 rep |
 | `READINESS_VOLUME_REDUCTION` | 0.30 | How much to cut when readiness is low |
+| `MIN_SESSIONS_FOR_AUTOREG` | 10 | Autoregulation is only applied when history has ≥ 10 sessions; fewer sessions → base prescription used unchanged |
 
 Minimum 3 sets even at extreme low readiness.
 
@@ -376,3 +394,76 @@ delta    = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESSION_MI
 | `ETA_PROGRESSION` | 1.5 | Exponent; higher → deceleration kicks in earlier |
 
 Example values: TM = 5 → ~0.97 reps/week · TM = 15 → ~0.68 · TM = 25 → ~0.36 · TM = 29 → ~0.30
+
+**S session added weight**
+
+When TM exceeds a threshold, Strength sessions add external load:
+```
+added_kg = bw * bw_fraction * weight_increment_fraction * (TM - threshold)
+added_kg = min(added_kg, max_added_weight_kg)
+```
+`bw_fraction` comes from the exercise definition (Section 12). `weight_increment_fraction` = 0.5 kg per TM point above threshold (tunable). The result is capped at `max_added_weight_kg` (default 10 kg).
+
+---
+
+## 25. 1RM Estimation (`metrics.py` / `max_estimator.py`)
+
+**Epley formula**
+```
+1RM = total_load_kg * (1 + reps / 30)
+```
+
+where `total_load_kg`:
+- Pull-up / Dip: `bodyweight_kg + added_weight_kg`
+- BSS: `added_weight_kg` only (bodyweight not included)
+
+**estimate_1rm(exercise, bodyweight_kg, history, window_sessions)**
+
+Scans the last `window_sessions` sessions (default 5) from history. For every set, applies the Epley formula. Returns the highest estimate found, plus metadata:
+
+```python
+{
+    "exercise_id": "pull_up",
+    "epley_1rm_kg": 102.7,
+    "best_set_reps": 5,
+    "best_set_load_kg": 82.5,
+    "sessions_scanned": 5
+}
+```
+
+Returns `None` if no eligible sets are found in the window.
+
+---
+
+## 26. Per-Session Volume Caps (`config.py`)
+
+Volume limits are applied per session to prevent accumulation of junk volume:
+
+```
+if total_reps > MAX_DAILY_REPS:   emit ⚠ warning
+if total_sets > MAX_DAILY_SETS:   emit ⚠ warning
+```
+
+| Parameter | Default | Rationale |
+|---|---|---|
+| `MAX_DAILY_REPS` | 45 | Science-backed ceiling for productive volume per session |
+| `MAX_DAILY_SETS` | 10 | Hard set ceiling; diminishing returns beyond this |
+
+These are warnings, not hard errors. The planner also uses them as guidance when generating prescriptions to avoid over-prescribing.
+
+---
+
+## 27. Auto-TEST Scheduling (`planner.py`)
+
+TEST sessions are automatically inserted into the plan when the interval since the last TEST exceeds the exercise's test frequency:
+
+```
+if days_since_last_test >= test_frequency_weeks * 7:
+    insert TEST session at next available training day
+```
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `test_frequency_weeks` | set per exercise | Longer → less frequent mandatory retesting |
+
+The auto-TEST is inserted before the next regular session slot. After a TEST is logged, the next auto-TEST window resets from that date.

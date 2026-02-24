@@ -175,12 +175,21 @@ class SessionPlan:
 class UserProfile:
     """
     User profile with physical characteristics and preferences.
+
+    ``exercise_days`` stores per-exercise overrides for training days per week
+    (e.g. {"pull_up": 3, "dip": 4, "bss": 3}).  Exercises absent from the dict
+    fall back to ``preferred_days_per_week``.
     """
 
     height_cm: int
     sex: Sex
-    preferred_days_per_week: int = 3  # 3 or 4
+    preferred_days_per_week: int = 3  # global fallback (3 or 4)
     target_max_reps: int = 30
+    exercise_days: dict = field(default_factory=dict)  # {exercise_id: days_per_week}
+
+    def days_for_exercise(self, exercise_id: str) -> int:
+        """Return training days per week for the given exercise."""
+        return self.exercise_days.get(exercise_id, self.preferred_days_per_week)
 
     def __post_init__(self) -> None:
         """Validate profile data."""
@@ -195,6 +204,12 @@ class UserProfile:
 
         if self.target_max_reps <= 0:
             raise ValueError("target_max_reps must be positive")
+
+        for ex_id, days in self.exercise_days.items():
+            if days not in (3, 4):
+                raise ValueError(
+                    f"exercise_days[{ex_id!r}] must be 3 or 4, got {days}"
+                )
 
 
 @dataclass

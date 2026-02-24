@@ -108,12 +108,25 @@ def init(
                 old_profile = store.load_profile()
                 old_bw = store.load_bodyweight()
 
+    # Merge per-exercise days: inherit existing overrides, set this exercise's value.
+    # For non-pull_up exercises, preserve the existing global preferred_days_per_week
+    # so other exercises that rely on the global default are unaffected.
+    merged_exercise_days: dict[str, int] = {}
+    global_days = days_per_week  # used for preferred_days_per_week field
+    if old_profile is not None:
+        merged_exercise_days = dict(old_profile.exercise_days)
+        if exercise_id not in (None, "pull_up"):
+            # Keep existing global default; only this exercise's days change
+            global_days = old_profile.preferred_days_per_week
+    merged_exercise_days[exercise_id] = days_per_week
+
     # Create profile
     profile = UserProfile(
         height_cm=height_cm,
         sex=sex,  # type: ignore
-        preferred_days_per_week=days_per_week,
+        preferred_days_per_week=global_days,
         target_max_reps=target_max,
+        exercise_days=merged_exercise_days,
     )
 
     # Initialize store (creates file if not exists)
@@ -133,13 +146,14 @@ def init(
 
             _chg("Height", f"{old_profile.height_cm} cm", f"{height_cm} cm")
             _chg("Sex", old_profile.sex, sex)
-            _chg("Days/week", old_profile.preferred_days_per_week, days_per_week)
+            _chg(f"Days/week ({exercise_id})", old_profile.exercise_days.get(exercise_id, old_profile.preferred_days_per_week), days_per_week)
             _chg("Target max reps", old_profile.target_max_reps, target_max)
             old_bw_str = f"{old_bw:.1f} kg" if old_bw is not None else "?"
             _chg("Bodyweight", old_bw_str, f"{bodyweight_kg:.1f} kg")
     else:
         views.print_success(f"Initialized profile at {store.profile_path}")
         views.print_success(f"History file: {store.history_path}")
+        views.print_info(f"Training days/week ({exercise_id}): {days_per_week}")
 
     # Set plan start date (2 days from today, the first training day)
     today = datetime.now()

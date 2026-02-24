@@ -16,16 +16,26 @@ from .. import views
 from ..app import ExerciseOption, app, get_store
 
 
-def _prompt_baseline(store, bodyweight_kg: float) -> int | None:
+def _prompt_baseline(store, bodyweight_kg: float, exercise=None) -> int | None:
     """
     Prompt user to enter their baseline max reps when no history exists.
 
+    Uses exercise-specific language if ``exercise`` (an ExerciseDefinition)
+    is provided; defaults to pull-up language otherwise.
+
     Logs a TEST session and returns the rep count, or None if cancelled.
     """
+    from ...core.exercises.pull_up import PULL_UP
+
+    if exercise is None:
+        exercise = PULL_UP
+
+    ex_name = exercise.display_name  # e.g. "Pull-Up", "Parallel Bar Dip"
+
     views.console.print()
-    views.print_warning("No training history yet.")
+    views.print_warning(f"No {ex_name} training history yet.")
     views.console.print(
-        "\nTo generate a plan we need your current pull-up max.\n"
+        f"\nTo generate a plan we need your current {ex_name} max.\n"
         "  [1] I know my max reps — enter it now\n"
         "  [2] I'm a beginner — use 1 rep as a starting point\n"
         "  [3] Cancel"
@@ -39,7 +49,9 @@ def _prompt_baseline(store, bodyweight_kg: float) -> int | None:
         max_reps = 1
     else:
         while True:
-            raw = views.console.input("Your current max pull-ups (strict, full ROM): ").strip()
+            raw = views.console.input(
+                f"Your current max {ex_name} reps (strict, full ROM): "
+            ).strip()
             try:
                 max_reps = int(raw)
                 if max_reps < 1:
@@ -60,11 +72,12 @@ def _prompt_baseline(store, bodyweight_kg: float) -> int | None:
     session = SessionResult(
         date=today,
         bodyweight_kg=bodyweight_kg,
-        grip="pronated",
+        grip=exercise.primary_variant,
         session_type="TEST",
+        exercise_id=exercise.exercise_id,
         planned_sets=[test_set],
         completed_sets=[test_set],
-        notes="Baseline max test (entered during plan setup)",
+        notes=f"Baseline max test ({ex_name}, entered during plan setup)",
     )
     store.append_session(session)
     tm = training_max_from_baseline(max_reps)
@@ -213,7 +226,7 @@ def plan(
         raise typer.Exit(1)
 
     if not user_state.history and baseline_max is None:
-        baseline_max = _prompt_baseline(store, user_state.current_bodyweight_kg)
+        baseline_max = _prompt_baseline(store, user_state.current_bodyweight_kg, exercise)
         if baseline_max is None:
             raise typer.Exit(0)
         # Reload state now that the baseline TEST session has been logged

@@ -53,17 +53,18 @@ bar-scheduler plot-max
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize profile and history file (preserves existing history) |
-| `plan` | Unified history + upcoming plan with progressive TM |
+| `init` | Initialize profile and history; `--exercise` selects exercise; `--days-per-week` sets schedule |
+| `plan` | Unified history + upcoming plan with progressive TM; `--weeks N`; `--json` |
 | `log-session` | Log a completed session |
-| `show-history` | Display training history |
-| `plot-max` | ASCII chart of max reps progress (`--trajectory` overlays planned growth line) |
+| `show-history` | Display training history; `--limit N` |
+| `plot-max` | ASCII chart of max reps progress; `--trajectory` overlays planned growth line |
 | `update-weight` | Update current bodyweight |
 | `delete-record N` | Delete history entry #N (shown in plan `#` column) |
-| `status` | Show current training status |
-| `volume` | Show weekly volume chart |
-| `explain DATE` | Step-by-step breakdown of how a session's parameters were calculated |
-| `1rm` | Estimate 1-rep max using the Epley formula |
+| `status` | Show current training status; `--json` |
+| `volume` | Show weekly volume chart; `--weeks N`; `--json` |
+| `explain DATE\|next` | Step-by-step breakdown of how a planned session was calculated |
+| `skip` | Shift plan forward N days; `--days N` (default 1); `--force` |
+| `1rm` | Estimate 1-rep max using the Epley formula; `--exercise` |
 
 ## Multi-Exercise Support
 
@@ -73,7 +74,7 @@ All data commands accept `--exercise` / `-e` to select an exercise (default: `pu
 # Dip plan
 bar-scheduler plan --exercise dip
 
-# Log a dip session (shows standard/chest_lean/tricep_upright variants)
+# Log a dip session
 bar-scheduler log-session --exercise dip
 
 # BSS status
@@ -82,18 +83,39 @@ bar-scheduler status --exercise bss
 # Estimate pull-up 1RM
 bar-scheduler 1rm
 
-# BSS 1RM (external load only — no bodyweight included)
+# BSS 1RM (external load only — bodyweight not included)
 bar-scheduler 1rm --exercise bss
 ```
 
 Separate history files are used per exercise:
-- Pull-up: `~/.bar-scheduler/history.jsonl` (legacy) or `pull_up_history.jsonl`
+- Pull-up: `~/.bar-scheduler/pull_up_history.jsonl`
 - Dip: `~/.bar-scheduler/dip_history.jsonl`
 - BSS: `~/.bar-scheduler/bss_history.jsonl`
 
 See [docs/exercises/](docs/exercises/) for per-exercise biomechanics, variant
 details, and test protocols. All three protocols are also summarised in
 [docs/assessment_protocols.md](docs/assessment_protocols.md).
+
+## Per-Exercise Training Frequency
+
+Each exercise can have its own days-per-week setting, stored in `exercise_days` in `profile.json`:
+
+```bash
+# Set dip-specific frequency (pull-up keeps its own setting)
+bar-scheduler init --exercise dip --days-per-week 4
+
+# BSS at 3 days/week
+bar-scheduler init --exercise bss --days-per-week 3
+```
+
+The `exercise_days` dict in `profile.json` stores per-exercise overrides. The `preferred_days_per_week` field acts as a fallback for any exercise not listed in `exercise_days`.
+
+```json
+{
+  "preferred_days_per_week": 3,
+  "exercise_days": { "pull_up": 3, "dip": 4 }
+}
+```
 
 ## JSON Output
 
@@ -105,6 +127,7 @@ bar-scheduler plan --json
 bar-scheduler show-history --json
 bar-scheduler volume --json
 bar-scheduler plot-max --json
+bar-scheduler 1rm --json
 bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \
     --grip pronated --session-type S --sets "5x4 / 240s" --json
 ```
@@ -129,7 +152,7 @@ Examples:
 
 ### Per-set format
 
-Comma-separated individual sets (all sets specified independently):
+Comma-separated individual sets (each set specified independently):
 
 ```
 reps@+weight/rest        canonical
@@ -144,34 +167,103 @@ Examples:
 - `5@+10/240` or `5 10 240` — 5 reps with +10 kg, 240 s rest
 - `8@0/180, 6@0/120, 5@0` — three sets with individual rests
 
+**Note:** rest values are the time rested **before** the set, not after it. The first set's rest is the warm-up gap before you start.
+
 ## Plan Output
 
-The `plan` command shows a unified table of past sessions and future sessions:
+The `plan` command shows a unified table of past sessions and future planned sessions:
 
 ```
-Current status
-- Training max (TM): 9
-- Latest test max: 10
-...
+ #  Wk  Date           Type  Grip  Prescribed          Actual           eMax
+  1   1  ✓ 02.01(Sun)  TST   Pro   1x max reps         12 reps (max)    12
+  2   1  ✓ 02.04(Wed)  Str   Neu   5x4 / 240s          5+5+4+4 = 18    11/13
+  3   1  ✓ 02.06(Fri)  Hpy   Sup   6x5 / 120s          6+5+5+4+3 = 23  11/12
+  >      2  02.08(Sun) End   Pro   4, 3×8 / 60s                          12
+```
 
- ✓  #  Wk  Date        Type  Grip        Prescribed          Actual          TM
- ✓   1   1  2026-02-01  TEST  pronated    1x max reps         10 reps (max)    9
- ✓   2   1  2026-02-04  S     neutral     5x4 / 240s          5+5+5+4 = 19     9
- >      2  2026-02-06  H     supinated   6x5 / 120s                           9
-            2  2026-02-09  E     pronated    4, 3×8 / 60s                          9
+Legend (printed below the table):
 
-Prescribed: 5x4 = 5 reps × 4 sets  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set
+```
+Type: Str=Strength  Hpy=Hypertrophy  End=Endurance  Tec=Technique  TST=Max-test
+Grip: Pro=Pronated  Neu=Neutral  Sup=Supinated
+Prescribed: 5x4 = 5 reps × 4 sets  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3  |  / Ns = N seconds rest before the set
+eMax: past TEST = actual max  |  past session = FI-est/Nuzzo-est  |  future = plan projection
 ```
 
 Columns:
-- **✓ / >** — done / next session
 - **#** — history ID (use with `delete-record N`)
 - **Wk** — week number
-- **Prescribed** — planned sets (`5x4` = 5 reps × 4 sets; `4, 3×8 / 60s` = 1×4 + 8×3, 60 s rest)
-- **Actual** — what was actually done
-- **TM** — expected Training Max after this session
+- **Date** — checkmark for completed sessions; `>` marks the next upcoming session
+- **Type** — Str / Hpy / End / Tec / TST
+- **Grip** — Pro / Neu / Sup (pull-up); Std / CL / TUp (dip); Def / FFE (BSS)
+- **Prescribed** — planned sets using compact notation
+- **Actual** — what was actually logged
+- **eMax** — estimated max reps (see section below)
 
-Grip rotates automatically: S/H cycle pronated → neutral → supinated, T alternates pronated/neutral.
+Grip rotates automatically: S/H sessions cycle pronated → neutral → supinated; T sessions alternate pronated/neutral; E and TEST are always pronated.
+
+## Session Types
+
+| Type | Description | Reps | Rest | Grip rotation |
+|------|-------------|------|------|---------------|
+| Str (S) | Strength | 4-6 | 180-300 s | pronated → neutral → supinated |
+| Hpy (H) | Hypertrophy | 6-12 | 90-150 s | pronated → neutral → supinated |
+| End (E) | Endurance/Density | 3-8 | 45-75 s | pronated (fixed) |
+| Tec (T) | Technique | 2-4 | 60-120 s | pronated → neutral |
+| TST | Max test | max | 180 s | pronated (fixed) |
+
+## eMax Column
+
+The **eMax** column shows estimated max reps for each row and changes meaning depending on whether the session is past or future:
+
+- **Past TEST session** — actual max reps recorded (ground truth)
+- **Past training session** — two estimates shown as `FI-est/Nuzzo-est`:
+  - *FI-est*: Track B estimation using the FI method (Pekünlü & Atalağ 2013)
+  - *Nuzzo-est*: estimation using Nuzzo REPS~%1RM tables (2024)
+- **Future session** — plan projection: `max(round(TM / 0.9), current_test_max)` — never shown below your current max
+
+## Interactive Menu
+
+Running `bar-scheduler` without arguments opens the interactive menu:
+
+```
+[1] Show training log & plan
+[2] Log today's session
+[3] Show full history
+[4] Progress chart
+[5] Current status
+[6] Update bodyweight
+[7] Weekly volume chart
+[e] Explain how a session was planned
+[r] Estimate 1-rep max
+[s] Rest day — shift plan forward
+[i] Setup / edit profile
+[d] Delete a session by ID
+[0] Quit
+```
+
+All menu options prompt interactively — no flags required. The `[i]` option prompts for each profile field with the current value shown as default (press Enter to keep it). The `[e]` option asks for a date or accepts `next`.
+
+## Overperformance Detection
+
+If the best set in a session exceeds the current test max (bodyweight or weighted equivalent), a TEST session is auto-logged silently and a "New personal best!" message is shown. The plan's eMax updates on the next `plan` run.
+
+## Skip Command
+
+If you need to take a rest day or delay training, shift the plan forward without losing the session:
+
+```bash
+# Skip 1 day (default)
+bar-scheduler skip
+
+# Skip 3 days
+bar-scheduler skip --days 3
+
+# Skip without confirmation prompt
+bar-scheduler skip --days 2 --force
+```
+
+`skip` updates `plan_start_date` in `profile.json`. The plan shifts forward; no history is lost.
 
 ## Example Output
 
@@ -191,48 +283,22 @@ Max Reps Progress (Strict Pull-ups)
     Feb 01   Feb 15   Mar 01   Mar 15   Apr 01   Apr 15
 ```
 
-## Session Types
-
-| Type | Description | Reps | Rest | Grip rotation |
-|------|-------------|------|------|---------------|
-| S | Strength | 4-6 | 180-300 s | pronated → neutral → supinated |
-| H | Hypertrophy | 6-12 | 90-150 s | pronated → neutral → supinated |
-| E | Endurance/Density | 3-8 | 45-75 s | pronated (fixed) |
-| T | Technique | 2-4 | 60-120 s | pronated → neutral |
-| TEST | Max test | max | 180 s | pronated (fixed) |
-
-## Explain Command
-
-`explain` shows a step-by-step breakdown of every parameter in a planned session:
-
-```bash
-bar-scheduler explain next          # next upcoming session
-bar-scheduler explain 2026-02-22    # specific date
-```
-
-Output includes: session type selection, grip rotation math, TM weekly progression, sets/reps calculation, added weight formula, rest midpoint, and expected TM after the session.
-
-## Interactive Menu
-
-Running `bar-scheduler` without arguments opens the interactive menu:
+Add `--trajectory` to overlay the projected growth curve:
 
 ```
-[1] Show plan        [2] Log session
-[3] Show history     [4] Status / plots
-[5] Current status   [6] Update bodyweight
-[e] Explain how a session was planned
-[i] Setup / edit profile
-[d] Delete a session by ID
-[0] Quit
+Max Reps Progress (Strict Pull-ups)
+──────────────────────────────────────────────────────────────
+ 30 ┤                                         ········· (30)
+ 22 ┤                                      ╭──●
+ 20 ┤                                 ·····╯
+ 16 ┤                     ····╭──● (16)
+ 12 ┤         ····╭──● (12)
+ 10 ┤     ╭───╯
+  8 ● (8)─╯
+──────────────────────────────────────────────────────────────
+    Feb 01   Feb 15   Mar 01
+● actual max reps   · projected trajectory
 ```
-
-All menu options prompt interactively — no flags required.
-
-Logging a session via the menu walks you through each step interactively.
-
-## Overperformance Detection
-
-If the best set in a session exceeds the current test max (BW or weighted equivalent), a TEST session is auto-logged silently and a "New personal best!" message is shown. The plan TM updates on the next `plan` run.
 
 ## Running Tests
 
@@ -242,10 +308,12 @@ uv run pytest
 
 ## Documentation
 
-- [Training Model](docs/training_model.md) - formulas and adaptation logic (summary)
-- [CLI Examples](docs/cli_examples.md) - CLI usage examples
-- [Core Training Formulas](core_training_formulas_fatigue.md) - detailed mathematical model specification
-- [References](REFERENCES.md) - scientific sources and citations
+- [CLI Examples](docs/cli_examples.md) — commands, menu, output examples
+- [Formula Reference](docs/formulas_reference.md) — all mathematical formulas with config knobs
+- [JSON API](docs/api_info.md) — full JSON schemas for `--json` output
+- [Training Model](docs/training_model.md) — adaptation logic summary
+- [Core Training Formulas](core_training_formulas_fatigue.md) — detailed mathematical model specification
+- [References](REFERENCES.md) — scientific sources and citations
 
 ## Project Structure
 
@@ -253,28 +321,37 @@ uv run pytest
 bar-scheduler/
 ├── pyproject.toml
 ├── README.md
-├── REFERENCES.md                    # Scientific citations
-├── core_training_formulas_fatigue.md # Detailed model spec
+├── REFERENCES.md                         # Scientific citations
+├── core_training_formulas_fatigue.md     # Detailed model spec
 ├── docs/
 │   ├── training_model.md
-│   └── cli_examples.md
+│   ├── cli_examples.md
+│   ├── formulas_reference.md
+│   ├── api_info.md
+│   └── exercises/                        # Per-exercise biomechanics docs
 ├── src/bar_scheduler/
 │   ├── core/
-│   │   ├── config.py      # All constants (tunable)
-│   │   ├── models.py      # Dataclasses
-│   │   ├── metrics.py     # Pure functions
-│   │   ├── physiology.py  # Fitness-fatigue model
-│   │   ├── adaptation.py  # Plateau/deload logic
-│   │   ├── planner.py     # Plan generation
-│   │   └── ascii_plot.py  # ASCII plotting
+│   │   ├── config.py         # All constants (tunable)
+│   │   ├── models.py         # Dataclasses
+│   │   ├── metrics.py        # Pure functions
+│   │   ├── physiology.py     # Fitness-fatigue model
+│   │   ├── adaptation.py     # Plateau/deload logic
+│   │   ├── planner.py        # Plan generation
+│   │   ├── max_estimator.py  # Track B max estimation
+│   │   └── ascii_plot.py     # ASCII plotting
 │   ├── io/
-│   │   ├── serializers.py # JSON serialization
-│   │   └── history_store.py # JSONL storage
+│   │   ├── serializers.py    # JSON serialization
+│   │   └── history_store.py  # JSONL storage
 │   └── cli/
-│       ├── main.py        # Typer CLI + interactive menu
-│       └── views.py       # Rich formatting
+│       ├── main.py           # Typer CLI entry point + interactive menu
+│       ├── views.py          # Rich formatting
+│       └── commands/
+│           ├── profile.py    # init, update-weight
+│           ├── planning.py   # plan, explain, skip
+│           ├── sessions.py   # log-session, delete-record, show-history
+│           └── analysis.py   # status, volume, plot-max, 1rm
 └── tests/
-    └── test_cli_smoke.py  # Smoke tests
+    └── test_cli_smoke.py     # Smoke tests
 ```
 
 ## License
