@@ -13,6 +13,7 @@ from rich.table import Table
 
 from ..core.adaptation import get_training_status
 from ..core.ascii_plot import create_max_reps_plot, create_weekly_volume_chart
+from ..core.max_estimator import estimate_max_reps_from_session
 from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
 from ..core.models import SessionPlan, SessionResult, TrainingStatus, UserState
 
@@ -29,6 +30,7 @@ class TimelineEntry:
     actual: SessionResult | None  # None for future sessions
     status: TimelineStatus
     actual_id: int | None = None  # 1-based ID in sorted history (for delete-record)
+    track_b: dict | None = None  # Track B max estimate (fi_est, nuzzo_est, …)
 
 
 console = Console()
@@ -89,15 +91,24 @@ def build_timeline(
         if match_idx is not None:
             matched_history.add(match_idx)
 
-        # Determine status
+        # Determine status — "next" is assigned by the second pass below
         if matched is not None:
             status: TimelineStatus = "done"
         elif plan.date < today:
             status = "missed"
-        elif plan.date == today:
-            status = "next"
         else:
             status = "planned"
+
+        # Compute Track B estimate for past non-TEST sessions with ≥2 sets
+        track_b: dict | None = None
+        if matched is not None and matched.session_type != "TEST":
+            valid_sets = [s for s in matched.completed_sets if s.actual_reps is not None and s.actual_reps > 0]
+            if len(valid_sets) >= 2:
+                track_b = estimate_max_reps_from_session(
+                    [s.actual_reps for s in valid_sets],       # type: ignore[misc]
+                    [s.rest_seconds_before for s in valid_sets],
+                    [s.rir_reported for s in valid_sets],
+                )
 
         entries.append(
             TimelineEntry(
@@ -109,6 +120,7 @@ def build_timeline(
                 actual_id=(
                     history_id_map.get(id(matched)) if matched is not None else None
                 ),
+                track_b=track_b,
             )
         )
 
@@ -215,8 +227,17 @@ def _fmt_actual(session: SessionResult) -> str:
     return f"{reps_str} = {total}{weight_str} / {rest_str}{rir_str}"
 
 
-_GRIP_ABBR: dict[str, str] = {"pronated": "P", "neutral": "N", "supinated": "S"}
-_TYPE_DISPLAY: dict[str, str] = {"TEST": "M", "S": "S", "H": "H", "E": "E", "T": "T"}
+_GRIP_ABBR: dict[str, str] = {
+    # pull-up variants
+    "pronated": "Pro", "neutral": "Neu", "supinated": "Sup",
+    # dip variants
+    "standard": "Std", "chest_lean": "CL ", "tricep_upright": "TUp",
+    # bss variants
+    "deficit": "Def", "front_foot_elevated": "FFE",
+}
+_TYPE_DISPLAY: dict[str, str] = {
+    "TEST": "TST", "S": "Str", "H": "Hpy", "E": "End", "T": "Tec",
+}
 
 
 def _fmt_date_cell(date_str: str, status: TimelineStatus) -> str:
@@ -255,21 +276,16 @@ def print_unified_plan(
 
     table = Table(title=title, show_lines=False)
 
-    # Status icon merged into date column; grip abbreviated to 1 letter
-    table.add_column("#", justify="right", style="dim", width=3)  # history ID
+    table.add_column("#", justify="right", style="dim", width=3)   # history ID
     table.add_column("Wk", justify="right", style="dim", width=3)
-    table.add_column(
-        "Date", style="cyan", width=14, no_wrap=True
-    )  # ✓ MM.DD(Ddd) — 12 chars + 2 padding
-    table.add_column(
-        "Tp", style="magenta", width=4
-    )  # session type (M/S/H/E/T) — 1 char + 2 padding + 1 spare
-    table.add_column("G", width=3)  # grip abbrev (P/N/S) — 1 char + 2 padding
+    table.add_column("Date", style="cyan", width=14, no_wrap=True)  # ✓ MM.DD(Ddd)
+    table.add_column("Type", style="magenta", width=5)              # Str/Hpy/End/Tec/TST
+    table.add_column("Grip", width=5)                               # Pro/Neu/Sup/…
     table.add_column("Prescribed", width=22)
     table.add_column("Actual", width=24)
     table.add_column(
-        "Exp", justify="right", style="bold green", width=4
-    )  # expected/projected test max
+        "eMax", justify="right", style="bold green", width=6
+    )  # past TEST=actual  past train=fi/nz  future=plan projection
 
     last_wk: int | None = None
     last_tm: int | None = None
@@ -283,12 +299,35 @@ def print_unified_plan(
         if wk_val is not None:
             last_wk = wk_val
 
-        # TM: only show when value changes (uncapped projection in planner ensures
-        # the value keeps growing past the goal, so this always updates every week).
-        tm_val = entry.planned.expected_tm if entry.planned else None
-        tm_str = str(tm_val) if tm_val is not None and tm_val != last_tm else ""
-        if tm_val is not None:
-            last_tm = tm_val
+        # eMax column — three cases:
+        #  (a) past TEST session  → actual max reps
+        #  (b) past non-TEST      → "fi/nz" Track-B estimates (if available)
+        #  (c) future session     → projected TM ÷ 0.90, floored at latest_test_max
+        floor_max = status.latest_test_max or 0
+        if entry.actual is not None:
+            if entry.actual.session_type == "TEST":
+                test_max = max(
+                    (s.actual_reps for s in entry.actual.completed_sets
+                     if s.actual_reps is not None),
+                    default=None,
+                )
+                tm_str = str(test_max) if test_max is not None else ""
+            elif entry.track_b is not None:
+                fi_v = entry.track_b["fi_est"]
+                nz_v = entry.track_b["nuzzo_est"]
+                tm_str = f"{fi_v}/{nz_v}"
+            else:
+                tm_str = ""
+        else:
+            # Future planned session
+            tm_val = entry.planned.expected_tm if entry.planned else None
+            if tm_val is not None:
+                emax_val = max(round(tm_val / 0.90), floor_max)
+                tm_str = str(emax_val) if emax_val != last_tm else ""
+                if emax_val is not None:
+                    last_tm = emax_val
+            else:
+                tm_str = ""
 
         id_str = str(entry.actual_id) if entry.actual_id is not None else ""
 
@@ -303,8 +342,8 @@ def print_unified_plan(
             raw_type = ""
             raw_grip = ""
 
-        type_str = _TYPE_DISPLAY.get(raw_type, raw_type)
-        grip_str = _GRIP_ABBR.get(raw_grip, raw_grip[:1].upper() if raw_grip else "")
+        type_str = _TYPE_DISPLAY.get(raw_type, raw_type[:3] if raw_type else "")
+        grip_str = _GRIP_ABBR.get(raw_grip, raw_grip[:3].capitalize() if raw_grip else "")
 
         # For completed sessions: show the historically stored planned_sets
         # (frozen at log time) so past prescriptions are immutable across
@@ -344,13 +383,36 @@ def print_unified_plan(
         )
 
     console.print(table)
+
+    # Build a grip legend containing only the variants that appear in this plan
+    grips_seen: set[str] = set()
+    for e in entries:
+        if e.actual:
+            grips_seen.add(e.actual.grip)
+        elif e.planned:
+            grips_seen.add(e.planned.grip)
+
+    _GRIP_FULL: dict[str, str] = {
+        "pronated": "Pronated", "neutral": "Neutral", "supinated": "Supinated",
+        "standard": "Standard", "chest_lean": "Chest-lean", "tricep_upright": "Tricep-upright",
+        "deficit": "Deficit", "front_foot_elevated": "Front-foot-elevated",
+    }
+    grip_parts = [
+        f"{_GRIP_ABBR[g].strip()}={_GRIP_FULL[g]}"
+        for g in ("pronated", "neutral", "supinated", "standard",
+                  "chest_lean", "tricep_upright", "deficit", "front_foot_elevated")
+        if g in grips_seen and g in _GRIP_ABBR
+    ]
+    grip_legend = ("  |  Grip: " + "  ".join(grip_parts)) if grip_parts else ""
+
     console.print(
-        "[dim]Tp: S=Strength H=Hypertrophy E=Endurance T=Technique M=Max-test  |"
-        "  G: P=Pronated N=Neutral S=Supinated[/dim]"
+        "[dim]Type: Str=Strength  Hpy=Hypertrophy  End=Endurance  Tec=Technique  TST=Max-test"
+        + grip_legend + "[/dim]"
     )
     console.print(
-        "[dim]Prescribed: 5x4 = 5 reps × 4 sets  |"
-        "  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3, 60s rest before each set[/dim]"
+        "[dim]Prescribed: 5x4 = 5 reps × 4 sets  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3  |  "
+        "/ Ns = N seconds rest before the set  |  "
+        "eMax: past TEST = actual max  |  past session = FI-est/Nuzzo-est  |  future = plan projection[/dim]"
     )
 
 

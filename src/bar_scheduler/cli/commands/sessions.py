@@ -36,8 +36,11 @@ def _interactive_sets() -> str:
         "  e.g. [green]5x4 +0.5kg / 240s[/green]  [green]6x5 / 120s[/green]"
     )
     views.console.print(
-        "  Per-set: [cyan]reps@+weight/rest[/cyan] or [cyan]reps weight rest[/cyan]"
+        "  Per-set: [cyan]reps[@weight[/rest]][/cyan]  or  [cyan]reps [weight [rest]][/cyan]"
         "  e.g. [green]8@0/180[/green]  [green]8 0 180[/green]  [green]8[/green]"
+    )
+    views.console.print(
+        "  [dim]rest = seconds you rested BEFORE this set (0 or omit for the first set)[/dim]"
     )
     views.console.print("  Press [bold]Enter[/bold] on an empty line when done.\n")
 

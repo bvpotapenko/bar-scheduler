@@ -34,6 +34,7 @@ def main_callback(ctx: typer.Context) -> None:
         "6": ("update-weight", "Update bodyweight"),
         "7": ("volume",        "Weekly volume chart"),
         "e": ("explain",       "Explain how a session was planned"),
+        "r": ("1rm",           "Estimate 1-rep max"),
         "s": ("skip",          "Rest day — shift plan forward"),
         "i": ("init",          "Setup / edit profile"),
         "d": ("delete-record", "Delete a session by ID"),
@@ -72,6 +73,8 @@ def main_callback(ctx: typer.Context) -> None:
         ctx.invoke(analysis.volume)
     elif chosen == "explain":
         planning._menu_explain()
+    elif chosen == "1rm":
+        ctx.invoke(analysis.onerepmax)
     elif chosen == "skip":
         ctx.invoke(planning.skip)
     elif chosen == "init":

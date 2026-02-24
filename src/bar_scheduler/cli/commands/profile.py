@@ -46,13 +46,16 @@ def init(
         bool,
         typer.Option("--force", "-f", help="Force overwrite without prompting"),
     ] = False,
+    exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Initialize user profile and history file.
 
-    If history exists, offers to keep it (merge) or rename it as backup.
+    Use --exercise to initialise a separate history for dip or bss without
+    touching your pull-up data.  If history exists, offers to keep it
+    (merge) or rename it as backup.
     """
-    store = get_store(history_path)
+    store = get_store(history_path, exercise_id)
 
     # Validate inputs
     if sex not in ("male", "female"):

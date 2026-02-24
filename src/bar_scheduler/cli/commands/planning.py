@@ -320,6 +320,33 @@ def plan(
             views.console.print(f"  {c}")
         views.console.print()
 
+    # Volume cap warnings — informational only, plan is still executed as-is
+    from ...core.config import MAX_DAILY_REPS, MAX_DAILY_SETS
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    overloaded = [
+        p for p in plans
+        if p.date >= today_str and p.sets and (
+            p.total_reps > MAX_DAILY_REPS or len(p.sets) > MAX_DAILY_SETS
+        )
+    ]
+    if overloaded:
+        days_per_week = user_state.profile.preferred_days_per_week
+        views.console.print(
+            f"[yellow]⚠  {len(overloaded)} upcoming session(s) exceed the science-backed"
+            f" per-session ceiling (>{MAX_DAILY_REPS} reps or >{MAX_DAILY_SETS} sets)."
+            " These sessions are still scheduled — the limit is informational.[/yellow]"
+        )
+        if days_per_week < 6:
+            views.console.print(
+                f"[dim]Tip: increasing training days from {days_per_week} → {days_per_week + 1}"
+                " per week would spread the load. Update via [i] Setup or 'init'.[/dim]"
+            )
+        else:
+            views.console.print(
+                "[dim]Tip: the weekly volume goal is high — consider reducing total weekly reps.[/dim]"
+            )
+        views.console.print()
+
     goal = user_state.profile.target_max_reps
     if training_status.latest_test_max and training_status.latest_test_max >= goal:
         views.console.print(

@@ -74,6 +74,11 @@ WEEKLY_HARD_SETS_MAX: Final[int] = 20  # Maximum hard sets per week
 WEEKLY_VOLUME_INCREASE_RATE: Final[float] = 0.10  # Max weekly increase (10%)
 DELOAD_VOLUME_REDUCTION: Final[float] = 0.40  # Volume reduction during deload
 
+# Science-backed per-session ceilings (Bayesian meta-regression, diminishing returns)
+# Actual working sets will be lower due to fatigue / autoregulation — these are hard ceilings.
+MAX_DAILY_REPS: Final[int] = 45   # Reps above this yield no additional adaptation signal
+MAX_DAILY_SETS: Final[int] = 10   # Sets above this hit diminishing returns
+
 # =============================================================================
 # TRAINING MAX CALCULATION (Section 7.3)
 # =============================================================================
