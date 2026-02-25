@@ -37,7 +37,7 @@ def _interactive_sets() -> str:
         "  e.g. [green]5x4 +0.5kg / 240s[/green]  [green]6x5 / 120s[/green]"
     )
     views.console.print(
-        "  Per-set: [cyan]reps[@weight[/rest]][/cyan]  or  [cyan]reps [weight [rest]][/cyan]"
+        "  Per-set: [cyan]reps\\[@weight\\[/rest]][/cyan]  or  [cyan]reps \\[weight \\[rest]][/cyan]"
         "  e.g. [green]8@0/180[/green]  [green]8 0 180[/green]  [green]8[/green]"
     )
     views.console.print(
@@ -179,6 +179,34 @@ def log_session(
       bar-scheduler log-session --date 2026-02-18 --bodyweight-kg 82 \\
         --grip pronated --session-type S --sets "8@0/180,6@0/120,6@0"
     """
+    # Determine interactive mode from CLI args before creating store
+    was_interactive = sets is None
+
+    # If fully interactive and no explicit exercise given, ask which exercise to log.
+    # Only offer exercises that have already been initialised (history file exists).
+    if was_interactive and history_path is None and exercise_id == "pull_up":
+        from ...core.exercises.registry import EXERCISE_REGISTRY
+        from ...io.history_store import get_default_history_path as _get_path
+        active_ex = [
+            (eid, ex) for eid, ex in EXERCISE_REGISTRY.items()
+            if _get_path(eid).exists()
+        ]
+        if len(active_ex) > 1:
+            ex_options = "  ".join(f"[{i+1}] {ex.display_name}" for i, (_, ex) in enumerate(active_ex))
+            views.console.print(f"Exercise: {ex_options}")
+            ex_map: dict[str, str] = {}
+            for i, (eid, _) in enumerate(active_ex, 1):
+                ex_map[str(i)] = eid
+                ex_map[eid] = eid
+            while True:
+                raw_ex = views.console.input("Exercise [1]: ").strip() or "1"
+                if raw_ex in ex_map:
+                    exercise_id = ex_map[raw_ex]
+                    break
+                views.print_error(f"Choose 1–{len(active_ex)} or type the exercise ID")
+        elif len(active_ex) == 1:
+            exercise_id = active_ex[0][0]  # only one exercise initialised — use it silently
+
     exercise = get_exercise(exercise_id)
     store = get_store(history_path, exercise_id)
 
@@ -212,21 +240,24 @@ def log_session(
             except ValueError:
                 views.print_error("Enter a positive number, e.g. 82.5")
 
-    # Grip / variant — show exercise-specific options
+    # Grip / variant — show exercise-specific options (skipped for dip: always standard)
     if grip is None:
-        variants = exercise.variants
-        hint = "  ".join(f"[{i+1}] {v}" for i, v in enumerate(variants))
-        views.console.print(f"Variant: {hint}")
-        grip_map: dict[str, str] = {}
-        for i, v in enumerate(variants, 1):
-            grip_map[str(i)] = v
-            grip_map[v] = v
-        while True:
-            raw = views.console.input("Variant [1]: ").strip() or "1"
-            grip = grip_map.get(raw.lower())
-            if grip:
-                break
-            views.print_error(f"Choose 1–{len(variants)} or type the variant name")
+        if exercise.exercise_id == "dip":
+            grip = exercise.primary_variant  # always "standard" — no anatomical choice
+        else:
+            variants = exercise.variants
+            hint = "  ".join(f"[{i+1}] {v}" for i, v in enumerate(variants))
+            views.console.print(f"Variant: {hint}")
+            grip_map: dict[str, str] = {}
+            for i, v in enumerate(variants, 1):
+                grip_map[str(i)] = v
+                grip_map[v] = v
+            while True:
+                raw = views.console.input("Variant [1]: ").strip() or "1"
+                grip = grip_map.get(raw.lower())
+                if grip:
+                    break
+                views.print_error(f"Choose 1–{len(variants)} or type the variant name")
 
     # Session type
     if session_type is None:
@@ -241,7 +272,6 @@ def log_session(
             views.print_error("Choose S, H, E, T, or TEST")
 
     # Sets
-    was_interactive = sets is None
     if sets is None:
         sets = _interactive_sets()
 

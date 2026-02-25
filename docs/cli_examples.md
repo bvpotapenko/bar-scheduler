@@ -18,12 +18,34 @@ Running `bar-scheduler` without arguments opens the interactive menu — the eas
 [r] Estimate 1-rep max
 [s] Rest day — shift plan forward
 [u] Update training equipment
-[i] Setup / edit profile
+[i] Setup / edit profile & training days
 [d] Delete a session by ID
+[a] How the planner adapts over time
 [0] Quit
 ```
 
-All options work interactively — no flags needed. The `[i]` option prompts for each profile field with the current value shown as default (press Enter to keep it). The `[e]` option asks for a date or accepts `next`. The `[r]` option estimates your 1-rep max from recent training sessions. The `[s]` option shifts the plan forward by one day. The `[u]` option updates your equipment and shows a rep-adjustment recommendation when effective load changes by ≥10%.
+All options work interactively — no flags needed.
+
+- `[i]` — prompts for height, sex, bodyweight, target reps, and **training days per exercise** (when you have multiple exercises set up). Press Enter to keep any current value.
+- `[2]` — when more than one exercise is initialised, asks which exercise to log first. Only shows exercises you have already set up with `init`.
+- `[e]` — asks for a date or accepts `next`.
+- `[r]` — estimates your 1-rep max from recent sessions.
+- `[s]` — shifts the plan forward by one day.
+- `[u]` — updates equipment and shows a rep-adjustment recommendation when effective load changes by ≥10%.
+- `[a]` — displays the adaptation timeline (what to expect at each stage of training).
+
+### Setting a default exercise for the whole session
+
+Use `-e`/`--exercise` before any subcommand to pre-select the exercise for the interactive menu and all commands that follow:
+
+```bash
+# Open the menu with dip pre-selected — all options will act on dip history
+bar-scheduler -e dip
+
+# Run a single command for BSS without entering the menu
+bar-scheduler -e bss plan
+bar-scheduler -e bss status
+```
 
 ## Initialize a New User
 
@@ -163,12 +185,25 @@ Use `--exercise` to log a dip or BSS session:
 $ bar-scheduler log-session --exercise dip \
     --date 2026-02-18 \
     --bodyweight-kg 82 \
-    --grip standard \
     --session-type H \
     --sets "8x5 / 120s"
 ```
 
+**Note:** Dip does not ask for a grip variant — it always uses the standard position. You can omit `--grip` entirely when logging dips; the planner sets it to `standard` automatically.
+
 BSS prescribed sets display a `(per leg)` suffix in the plan.
+
+### Interactive exercise selection
+
+When you run `log-session` without `--sets` and without `--exercise`, the first prompt asks which exercise to log. Only exercises you have already initialised with `init` are shown:
+
+```
+Exercise: [1] Pull-Up  [2] Parallel Bar Dip
+Exercise [1]: 2
+Date [2026-02-18]: …
+```
+
+To skip this prompt, pass `-e dip` (or use `bar-scheduler -e dip` for the whole session).
 
 ### Sets Format
 
@@ -597,10 +632,10 @@ Equipment for Pull-Up
   [6] Weight belt / vest
   Available [1]: 1,3
 
-  Which are you currently training with?
+  Which one are you currently training WITH? (enter a single number)
   [1] Pull-up bar (bodyweight)
-  [3] Resistance band – Medium (~25–45 kg assistance)
-  Active [1]: 2
+  [2] Resistance band – Medium (~25–45 kg assistance)
+  Active item [1]: 2
 ```
 
 ### Updating equipment

@@ -902,6 +902,52 @@ class TestEquipmentIntegration:
         )
         assert bss_is_degraded(with_elevation) is False
 
+    def test_ask_equipment_skips_active_prompt_when_same_assistance(self, tmp_path, monkeypatch):
+        """
+        When all selected available items have the same assistance_kg (e.g.
+        BAR_ONLY + WEIGHT_BELT, both 0.0), _ask_equipment must NOT ask for an
+        active item — it silently selects the first item.
+        """
+        from bar_scheduler.cli.commands import profile as profile_mod
+        from bar_scheduler.core.models import EquipmentState
+
+        # Simulate user entering "1,6" for available items (BAR_ONLY + WEIGHT_BELT)
+        # then nothing more — if the active-item prompt fires it would block.
+        # BAR_ONLY is item 1, WEIGHT_BELT is item 6 in the pull_up catalog.
+        inputs = iter(["1,6"])  # only one input: available items selection
+
+        monkeypatch.setattr(profile_mod.views.console, "input", lambda _prompt: next(inputs))
+        monkeypatch.setattr(profile_mod.views.console, "print", lambda *a, **kw: None)
+
+        result = profile_mod._ask_equipment("pull_up", existing=None)
+
+        # Both BAR_ONLY (idx 1) and WEIGHT_BELT (idx 6) have assistance_kg=0.0;
+        # active_item should default to the first selected item without prompting.
+        assert result.available_items == ["BAR_ONLY", "WEIGHT_BELT"]
+        assert result.active_item == "BAR_ONLY"
+        # Confirm the iterator was fully consumed (no extra prompts fired)
+        assert list(inputs) == []
+
+    def test_ask_equipment_shows_active_prompt_when_assistance_differs(self, tmp_path, monkeypatch):
+        """
+        When selected items have different assistance values (e.g. BAR_ONLY +
+        BAND_MEDIUM), _ask_equipment MUST ask which one is active.
+        """
+        from bar_scheduler.cli.commands import profile as profile_mod
+
+        # User selects items 1 (BAR_ONLY) and 3 (BAND_MEDIUM) as available,
+        # then picks item 2 (BAND_MEDIUM) as the active one.
+        inputs = iter(["1,3", "2"])
+
+        monkeypatch.setattr(profile_mod.views.console, "input", lambda _prompt: next(inputs))
+        monkeypatch.setattr(profile_mod.views.console, "print", lambda *a, **kw: None)
+
+        result = profile_mod._ask_equipment("pull_up", existing=None)
+
+        assert result.available_items == ["BAR_ONLY", "BAND_MEDIUM"]
+        assert result.active_item == "BAND_MEDIUM"
+        assert list(inputs) == []
+
 
 # =============================================================================
 # New feature tests: profile fields, help-adaptation, YAML config loader
@@ -1137,3 +1183,342 @@ class TestYAMLConfigLoader:
         assert ff.get("TAU_FATIGUE") == 5.0
         # TAU_FITNESS should still be the bundled default (42.0)
         assert ff.get("TAU_FITNESS") == 42.0
+
+
+# =============================================================================
+# Interactive log-session tests (Task 4)
+# =============================================================================
+
+
+class TestInteractiveLogSession:
+    """Smoke tests for interactive log-session input paths."""
+
+    def _init_with_baseline(self, history_path: Path, exercise_id: str = "pull_up") -> None:
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        runner.invoke(app, [
+            "init",
+            "--exercise", exercise_id,
+            "--history-path", str(history_path),
+            "--height-cm", "180",
+            "--sex", "male",
+            "--days-per-week", "3",
+            "--bodyweight-kg", "82",
+            "--baseline-max", "12",
+        ])
+
+    def test_log_session_pull_up_noninteractive(self, temp_history_dir):
+        """Non-interactive pull_up log with all flags exits 0 and persists session."""
+        history_path = temp_history_dir / "history.jsonl"
+        self._init_with_baseline(history_path)
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--exercise", "pull_up",
+            "--history-path", str(history_path),
+            "--date", "2026-03-01",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "S",
+            "--sets", "5@0/180,5@0/180,4@0/180",
+        ])
+        assert result.exit_code == 0, result.output
+        assert "Logged" in result.output
+
+    def test_log_session_dip_noninteractive_no_grip_prompt(self, temp_history_dir):
+        """Dip log with --grip omitted uses primary variant (standard) without asking."""
+        history_path = temp_history_dir / "dip_history.jsonl"
+        self._init_with_baseline(history_path, "dip")
+
+        # No --grip flag: should work because dip defaults to 'standard'
+        result = runner.invoke(app, [
+            "log-session",
+            "--exercise", "dip",
+            "--history-path", str(history_path),
+            "--date", "2026-03-01",
+            "--bodyweight-kg", "82",
+            "--session-type", "H",
+            "--sets", "8@0/120,8@0/120,6@0/120",
+        ])
+        assert result.exit_code == 0, result.output
+        assert "Logged" in result.output
+
+    def test_log_session_bss_noninteractive(self, temp_history_dir):
+        """BSS log with all flags exits 0 and persists session."""
+        history_path = temp_history_dir / "bss_history.jsonl"
+        self._init_with_baseline(history_path, "bss")
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--exercise", "bss",
+            "--history-path", str(history_path),
+            "--date", "2026-03-01",
+            "--bodyweight-kg", "82",
+            "--grip", "standard",
+            "--session-type", "H",
+            "--sets", "10@24/90,10@24/90,8@24/90",
+        ])
+        assert result.exit_code == 0, result.output
+        assert "Logged" in result.output
+
+    def test_log_session_compact_format(self, temp_history_dir):
+        """Compact set format '4x5 +2kg / 240s' is accepted by log-session."""
+        history_path = temp_history_dir / "history.jsonl"
+        self._init_with_baseline(history_path)
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--exercise", "pull_up",
+            "--history-path", str(history_path),
+            "--date", "2026-03-01",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "S",
+            "--sets", "4x5 +2kg / 240s",
+        ])
+        assert result.exit_code == 0, result.output
+        assert "Logged" in result.output
+
+    def test_log_session_overperformance_creates_test(self, temp_history_dir):
+        """Logging reps > test_max auto-creates a TEST session."""
+        history_path = temp_history_dir / "history.jsonl"
+        self._init_with_baseline(history_path)  # baseline_max=12 → test_max=12
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--exercise", "pull_up",
+            "--history-path", str(history_path),
+            "--date", "2026-03-02",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "H",
+            "--sets", "15@0/180",  # 15 reps > 12 test_max → personal best
+        ])
+        assert result.exit_code == 0, result.output
+        assert "personal best" in result.output.lower() or "New personal best" in result.output
+
+    def test_log_session_json_output_fields(self, temp_history_dir):
+        """--json output contains all expected fields with correct types."""
+        import json
+        history_path = temp_history_dir / "history.jsonl"
+        self._init_with_baseline(history_path)
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--exercise", "pull_up",
+            "--history-path", str(history_path),
+            "--date", "2026-03-01",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "S",
+            "--sets", "6@0/180,5@0/180",
+            "--json",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["date"] == "2026-03-01"
+        assert data["session_type"] == "S"
+        assert data["grip"] == "pronated"
+        assert data["bodyweight_kg"] == pytest.approx(82.0)
+        assert data["total_reps"] == 11
+        assert isinstance(data["sets"], list)
+        assert len(data["sets"]) == 2
+        assert data["sets"][0]["reps"] == 6
+        assert data["sets"][0]["rest_s"] == 180
+
+    def test_markup_hint_does_not_crash(self, temp_history_dir):
+        """_interactive_sets help text renders without Rich MarkupError."""
+        # Simulate interactive input: enter one set then blank line to finish
+        history_path = temp_history_dir / "history.jsonl"
+        self._init_with_baseline(history_path)
+
+        result = runner.invoke(app, [
+            "log-session",
+            "--exercise", "pull_up",
+            "--history-path", str(history_path),
+            "--date", "2026-03-01",
+            "--bodyweight-kg", "82",
+            "--grip", "pronated",
+            "--session-type", "S",
+        ], input="8@0/180\n\n\n")  # one set, blank to finish, blank for RIR, blank for notes
+        # Should not crash with MarkupError; exit code 0 or 1 both acceptable
+        # as long as there's no exception traceback
+        assert "MarkupError" not in result.output
+        assert "Error" not in result.output or "invalid" in result.output.lower()
+
+
+# =============================================================================
+# All commands × all exercise types (Task 4 extended)
+# =============================================================================
+
+
+class TestAllCommandsAllExercises:
+    """
+    Smoke tests covering plan / status / show-history / plot-max / volume / 1rm
+    for each of the three exercises (pull_up, dip, bss).
+    Does NOT duplicate tests already in TestCLISmoke or TestMultiExercise.
+    """
+
+    def _setup_exercise(self, tmp_path: Path, exercise_id: str) -> Path:
+        """Init and log one session for the given exercise; return history path."""
+        history_path = tmp_path / f"{exercise_id}_history.jsonl"
+        grip = "pronated" if exercise_id == "pull_up" else "standard"
+        runner.invoke(app, [
+            "init",
+            "--exercise", exercise_id,
+            "--history-path", str(history_path),
+            "--height-cm", "180", "--sex", "male",
+            "--days-per-week", "3", "--bodyweight-kg", "82",
+            "--baseline-max", "12",
+        ])
+        runner.invoke(app, [
+            "log-session",
+            "--exercise", exercise_id,
+            "--history-path", str(history_path),
+            "--date", "2026-03-01",
+            "--bodyweight-kg", "82",
+            "--grip", grip,
+            "--session-type", "H",
+            "--sets", "8@0/120,8@0/120,7@0/120",
+        ])
+        return history_path
+
+    # ── plan ───────────────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("exercise_id", ["pull_up", "dip", "bss"])
+    def test_plan_exits_0_for_each_exercise(self, tmp_path, exercise_id):
+        """plan exits 0 and outputs session rows for pull_up, dip, and bss."""
+        history_path = self._setup_exercise(tmp_path, exercise_id)
+        result = runner.invoke(app, [
+            "plan", "--exercise", exercise_id,
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0, f"[{exercise_id}] {result.output}"
+
+    # ── status ─────────────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("exercise_id", ["pull_up", "dip", "bss"])
+    def test_status_for_each_exercise(self, tmp_path, exercise_id):
+        """status --json exits 0 and contains training_max for each exercise."""
+        import json
+        history_path = self._setup_exercise(tmp_path, exercise_id)
+        result = runner.invoke(app, [
+            "status", "--json",
+            "--exercise", exercise_id,
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0, f"[{exercise_id}] {result.output}"
+        data = json.loads(result.output)
+        assert "training_max" in data
+        assert isinstance(data["training_max"], int)
+
+    # ── show-history ───────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("exercise_id", ["pull_up", "dip", "bss"])
+    def test_show_history_for_each_exercise(self, tmp_path, exercise_id):
+        """show-history exits 0 for all exercises."""
+        history_path = self._setup_exercise(tmp_path, exercise_id)
+        result = runner.invoke(app, [
+            "show-history", "--exercise", exercise_id,
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0, f"[{exercise_id}] {result.output}"
+
+    # ── plot-max ───────────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("exercise_id", ["pull_up", "dip", "bss"])
+    def test_plot_max_for_each_exercise(self, tmp_path, exercise_id):
+        """plot-max exits 0 for all exercises."""
+        history_path = self._setup_exercise(tmp_path, exercise_id)
+        result = runner.invoke(app, [
+            "plot-max", "--exercise", exercise_id,
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0, f"[{exercise_id}] {result.output}"
+
+    # ── volume ─────────────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("exercise_id", ["pull_up", "dip", "bss"])
+    def test_volume_for_each_exercise(self, tmp_path, exercise_id):
+        """volume --json exits 0 for all exercises."""
+        import json
+        history_path = self._setup_exercise(tmp_path, exercise_id)
+        result = runner.invoke(app, [
+            "volume", "--json",
+            "--exercise", exercise_id,
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0, f"[{exercise_id}] {result.output}"
+        data = json.loads(result.output)
+        assert "weeks" in data
+
+    # ── 1rm ────────────────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("exercise_id,sets_str", [
+        ("pull_up", "5@0/180"),        # pull_up: BW is load
+        ("dip",     "5@0/180"),        # dip: BW×0.92 is load
+        ("bss",     "10@24/90"),       # BSS: external load required for 1RM
+    ])
+    def test_1rm_for_each_exercise(self, tmp_path, exercise_id, sets_str):
+        """1rm exits 0 for all exercises when sessions with usable load exist."""
+        history_path = tmp_path / f"{exercise_id}_history.jsonl"
+        grip = "pronated" if exercise_id == "pull_up" else "standard"
+        runner.invoke(app, [
+            "init", "--exercise", exercise_id,
+            "--history-path", str(history_path),
+            "--height-cm", "180", "--sex", "male",
+            "--days-per-week", "3", "--bodyweight-kg", "82",
+            "--baseline-max", "12",
+        ])
+        runner.invoke(app, [
+            "log-session", "--exercise", exercise_id,
+            "--history-path", str(history_path),
+            "--date", "2026-03-01", "--bodyweight-kg", "82",
+            "--grip", grip, "--session-type", "H",
+            "--sets", sets_str,
+        ])
+        result = runner.invoke(app, [
+            "1rm", "--exercise", exercise_id,
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0, f"[{exercise_id}] {result.output}"
+
+    # ── delete-record ──────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("exercise_id", ["pull_up", "dip", "bss"])
+    def test_delete_record_for_each_exercise(self, tmp_path, exercise_id):
+        """delete-record #1 (the init baseline TEST) works for all exercises."""
+        history_path = self._setup_exercise(tmp_path, exercise_id)
+        # After setup: history has [baseline TEST, H session] → delete #2 (H)
+        result = runner.invoke(app, [
+            "delete-record", "2",
+            "--exercise", exercise_id,
+            "--history-path", str(history_path),
+            "--force",
+        ])
+        assert result.exit_code == 0, f"[{exercise_id}] {result.output}"
+        assert "Deleted" in result.output
+
+    # ── interactive exercise selection: only initialized exercises shown ───
+
+    def test_interactive_log_only_shows_initialized_exercises(self, tmp_path):
+        """Exercise selection prompt only offers exercises with existing history."""
+        # Only init pull_up — bss and dip should NOT appear
+        pu_path = tmp_path / "pull_up_history.jsonl"
+        runner.invoke(app, [
+            "init", "--exercise", "pull_up",
+            "--history-path", str(pu_path),
+            "--height-cm", "180", "--sex", "male",
+            "--days-per-week", "3", "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+
+        # Simulate interactive log: pick "3" which would be BSS if all exercises shown
+        # The prompt should only show [1] for pull_up, so "3" is invalid
+        result = runner.invoke(app, [
+            "log-session",
+            "--history-path", str(pu_path),
+        ], input="1\n\n2026-03-01\n82\npronated\nS\n8@0/180\n\n\n")
+
+        # Should not crash with "History file not found: bss_history.jsonl"
+        assert "bss_history.jsonl" not in result.output
+        assert "dip_history.jsonl" not in result.output

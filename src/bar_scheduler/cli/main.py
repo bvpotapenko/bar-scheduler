@@ -8,21 +8,29 @@ then attaches the interactive main-menu callback.
 import typer
 
 from . import views
-from .app import app
+from .app import ExerciseOption, app
 from .commands import analysis, planning, profile, sessions  # noqa: F401 — side-effect: registers commands
 
 
 @app.callback(invoke_without_command=True)
-def main_callback(ctx: typer.Context) -> None:
+def main_callback(
+    ctx: typer.Context,
+    exercise_id: ExerciseOption = "pull_up",
+) -> None:
     """
     Pull-up training planner. Run without a command for interactive mode.
+
+    Use -e/--exercise to set the default exercise for the whole session:
+      bar-scheduler -e dip        opens menu with dip pre-selected
+      bar-scheduler -e bss plan   runs the plan command for BSS
     """
     if ctx.invoked_subcommand is not None:
         return  # A sub-command was given — let it handle things
 
     # ── Interactive main menu ────────────────────────────────────────────────
     views.console.print()
-    views.console.print("[bold cyan]bar-scheduler[/bold cyan] — pull-up training planner")
+    ex_hint = f" [dim]({exercise_id})[/dim]" if exercise_id != "pull_up" else ""
+    views.console.print(f"[bold cyan]bar-scheduler[/bold cyan] — pull-up training planner{ex_hint}")
     views.console.print()
 
     menu = {
@@ -37,7 +45,7 @@ def main_callback(ctx: typer.Context) -> None:
         "r": ("1rm",              "Estimate 1-rep max"),
         "s": ("skip",             "Rest day — shift plan forward"),
         "u": ("update-equipment", "Update training equipment"),
-        "i": ("init",             "Setup / edit profile"),
+        "i": ("init",             "Setup / edit profile & training days"),
         "d": ("delete-record",    "Delete a session by ID"),
         "a": ("help-adaptation",  "How the planner adapts over time"),
         "0": ("quit",             "Quit"),
@@ -60,27 +68,27 @@ def main_callback(ctx: typer.Context) -> None:
         raise typer.Exit(1)
 
     if chosen == "plan":
-        ctx.invoke(planning.plan)
+        ctx.invoke(planning.plan, exercise_id=exercise_id)
     elif chosen == "log-session":
-        ctx.invoke(sessions.log_session)
+        ctx.invoke(sessions.log_session, exercise_id=exercise_id)
     elif chosen == "show-history":
-        ctx.invoke(sessions.show_history)
+        ctx.invoke(sessions.show_history, exercise_id=exercise_id)
     elif chosen == "plot-max":
-        ctx.invoke(analysis.plot_max)
+        ctx.invoke(analysis.plot_max, exercise_id=exercise_id)
     elif chosen == "status":
-        ctx.invoke(analysis.status)
+        ctx.invoke(analysis.status, exercise_id=exercise_id)
     elif chosen == "update-weight":
         profile._menu_update_weight()
     elif chosen == "volume":
-        ctx.invoke(analysis.volume)
+        ctx.invoke(analysis.volume, exercise_id=exercise_id)
     elif chosen == "explain":
         planning._menu_explain()
     elif chosen == "1rm":
-        ctx.invoke(analysis.onerepmax)
+        ctx.invoke(analysis.onerepmax, exercise_id=exercise_id)
     elif chosen == "skip":
         ctx.invoke(planning.skip)
     elif chosen == "update-equipment":
-        ctx.invoke(profile.update_equipment_cmd)
+        ctx.invoke(profile.update_equipment_cmd, exercise_id=exercise_id)
     elif chosen == "init":
         profile._menu_init()
     elif chosen == "delete-record":

@@ -821,6 +821,11 @@ def explain_plan_entry(
             f"  Base = ({params.sets_min}+{params.sets_max})//2 = {base_sets}."
         )
         L.append(
+            f"  How the range is used: the midpoint ({base_sets}) is the operational target."
+            f"  Autoregulation can only reduce sets (never push above midpoint)."
+            f"  High readiness adds +1 rep/set rather than adding more sets."
+        )
+        L.append(
             f"  Readiness z-score: {z_score:+.2f}"
             f"  (thresholds: low={READINESS_Z_LOW}, high=+{READINESS_Z_HIGH})."
         )
@@ -900,12 +905,53 @@ def explain_plan_entry(
                 f"  Stops when accumulated ≥ {total_target} reps or {params.sets_max} sets reached."
             )
 
-        # REST
-        L.append(f"\n[bold]REST: {rest} s[/bold]")
+        # REST — compute adaptive rest inline (mirrors calculate_adaptive_rest logic)
+        import math as _math
+        adj_rest = rest  # start from midpoint
+        rest_adj_notes: list[str] = []
+        same_type_sessions = [s for s in history if s.session_type == session_type]
+        if same_type_sessions:
+            last_same = same_type_sessions[-1]
+            sets_done = [s for s in last_same.completed_sets if s.actual_reps is not None]
+            if sets_done:
+                rirs = [s.rir_reported for s in sets_done if s.rir_reported is not None]
+                if rirs:
+                    if any(r <= 1 for r in rirs):
+                        adj_rest += 30
+                        rest_adj_notes.append("RIR ≤ 1 in a set → +30 s")
+                    elif all(r >= 3 for r in rirs):
+                        adj_rest -= 15
+                        rest_adj_notes.append("all sets RIR ≥ 3 → −15 s")
+                reps_done = [s.actual_reps for s in sets_done if s.actual_reps is not None]
+                if len(reps_done) >= 2 and reps_done[0] > 0:
+                    drop = (reps_done[0] - reps_done[-1]) / reps_done[0]
+                    if drop > DROP_OFF_THRESHOLD:
+                        adj_rest += 15
+                        rest_adj_notes.append(f"drop-off {drop:.0%} > {int(DROP_OFF_THRESHOLD*100)}% → +15 s")
+        if ff_state is not None:
+            readiness_val = ff_state.fitness - ff_state.fatigue
+            readiness_var_val = max(ff_state.readiness_var, 0.01)
+            z_rest = (readiness_val - ff_state.readiness_mean) / _math.sqrt(readiness_var_val)
+            if z_rest < READINESS_Z_LOW:
+                adj_rest += 30
+                rest_adj_notes.append(f"readiness z={z_rest:+.2f} < {READINESS_Z_LOW} → +30 s")
+        adj_rest = max(params.rest_min, min(params.rest_max, adj_rest))
+
+        L.append(f"\n[bold]REST: {adj_rest} s[/bold]")
         L.append(
             f"  {session_type} config: rest [{params.rest_min}–{params.rest_max}] s."
-            f"  rest = ({params.rest_min}+{params.rest_max})//2 = {rest} s."
+            f"  Base = ({params.rest_min}+{params.rest_max})//2 = {rest} s."
         )
+        if same_type_sessions and rest_adj_notes:
+            L.append(f"  Adjustments from last {session_type} session ({same_type_sessions[-1].date}):")
+            for note in rest_adj_notes:
+                L.append(f"    {note}")
+            L.append(f"  Clamped to [{params.rest_min}–{params.rest_max}] s → {adj_rest} s.")
+        elif not same_type_sessions:
+            L.append(f"  No previous {session_type} session found → using midpoint.")
+        else:
+            L.append(f"  No adjustments needed from last {session_type} session → midpoint unchanged.")
+        L.append(f"  → [bold green]{adj_rest} s[/bold green].")
 
         # EXPECTED TM AFTER
         next_week_prog = expected_reps_per_week(current_tm, user_target)

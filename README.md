@@ -77,8 +77,8 @@ All data commands accept `--exercise` / `-e` to select an exercise (default: `pu
 # Dip plan
 bar-scheduler plan --exercise dip
 
-# Log a dip session
-bar-scheduler log-session --exercise dip
+# Log a dip session (--grip is optional: dip always uses "standard")
+bar-scheduler log-session --exercise dip --session-type H --sets "8x5 / 120s"
 
 # BSS status
 bar-scheduler status --exercise bss
@@ -89,6 +89,8 @@ bar-scheduler 1rm
 # BSS 1RM (external load only — bodyweight not included)
 bar-scheduler 1rm --exercise bss
 ```
+
+**Dip grip**: Dip sessions never ask for a grip variant. The planner always uses `standard` because anatomical arm position is fixed at parallel bars. You can omit `--grip` in both interactive and one-liner mode.
 
 Separate history files are used per exercise:
 - Pull-up: `~/.bar-scheduler/pull_up_history.jsonl`
@@ -101,7 +103,9 @@ details, and test protocols. All three protocols are also summarised in
 
 ## Per-Exercise Training Frequency
 
-Each exercise can have its own days-per-week setting, stored in `exercise_days` in `profile.json`:
+Each exercise can have its own days-per-week setting, stored in `exercise_days` in `profile.json`.
+
+**Via CLI:**
 
 ```bash
 # Set dip-specific frequency (pull-up keeps its own setting)
@@ -110,6 +114,8 @@ bar-scheduler init --exercise dip --days-per-week 4
 # BSS at 3 days/week
 bar-scheduler init --exercise bss --days-per-week 3
 ```
+
+**Via interactive menu:** Choose `[i] Setup / edit profile & training days`. When you have data for more than one exercise, the wizard asks for days/week separately for each exercise — just press Enter to keep the current value for any you don't want to change.
 
 The `exercise_days` dict in `profile.json` stores per-exercise overrides. The `preferred_days_per_week` field acts as a fallback for any exercise not listed in `exercise_days`.
 
@@ -241,12 +247,31 @@ Running `bar-scheduler` without arguments opens the interactive menu:
 [r] Estimate 1-rep max
 [s] Rest day — shift plan forward
 [u] Update training equipment
-[i] Setup / edit profile
+[i] Setup / edit profile & training days
 [d] Delete a session by ID
+[a] How the planner adapts over time
 [0] Quit
 ```
 
-All menu options prompt interactively — no flags required. The `[i]` option prompts for each profile field with the current value shown as default (press Enter to keep it). The `[e]` option asks for a date or accepts `next`.
+All menu options prompt interactively — no flags required.
+
+- `[i]` — edits all profile fields including **training days per exercise** (one prompt per exercise when multiple are active). Press Enter to keep the current value.
+- `[2]` — when multiple exercises are initialised, asks which exercise to log first. Uninitialised exercises are not offered.
+- `[e]` — asks for a date or accepts `next`.
+- `[a]` — shows the adaptation timeline (what to expect at each stage).
+
+### Global exercise flag
+
+Prefix any command (or the bare `bar-scheduler`) with `-e`/`--exercise` to set the default exercise for the entire session:
+
+```bash
+# Open the menu with dip pre-selected
+bar-scheduler -e dip
+
+# Run a single command for BSS
+bar-scheduler -e bss plan
+bar-scheduler -e bss status --json
+```
 
 ## Overperformance Detection
 

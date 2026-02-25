@@ -65,6 +65,13 @@ def init(
     Use --exercise to initialise a separate history for dip or bss without
     touching your pull-up data.  If history exists, offers to keep it
     (merge) or rename it as backup.
+
+    To set different training days for each exercise, run init per exercise:
+
+      bar-scheduler init --exercise pull_up --days-per-week 3
+      bar-scheduler init --exercise dip --days-per-week 4
+
+    Each exercise keeps its own schedule independently.
     """
     store = get_store(history_path, exercise_id)
 
@@ -383,29 +390,47 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
             pass
         views.print_error(f"Enter comma-separated numbers between 1 and {len(items)}")
 
-    # Select active item from available subset
-    views.console.print()
-    views.console.print("[dim]Which are you currently training with?[/dim]")
-    for i, item_id in enumerate(available_items, 1):
-        info = catalog[item_id]
-        views.console.print(f"  [{i}] {info['label']}")
+    # Select active item from available subset.
+    # Only ask when items have different effective assistance — otherwise the
+    # choice has no impact on Leff and prompting is confusing.
+    def _effective_assistance(item_id: str) -> object:
+        a = catalog[item_id].get("assistance_kg")
+        return "machine" if a is None else a
 
-    # Default active: preserve existing or first available
-    if existing is not None and existing.active_item in available_items:
-        default_active_idx = available_items.index(existing.active_item) + 1
+    unique_assistance = {_effective_assistance(iid) for iid in available_items}
+    need_active_prompt = len(available_items) > 1 and len(unique_assistance) > 1
+
+    if need_active_prompt:
+        views.console.print()
+        views.console.print(
+            "[dim]Which one are you currently training WITH? "
+            "This determines how much assistance is applied to your lift.[/dim]"
+        )
+        for i, item_id in enumerate(available_items, 1):
+            info = catalog[item_id]
+            views.console.print(f"  [{i}] {info['label']}")
+
+        if existing is not None and existing.active_item in available_items:
+            default_active_idx = available_items.index(existing.active_item) + 1
+        else:
+            default_active_idx = 1
+
+        while True:
+            raw = views.console.input(f"  Active item [{default_active_idx}]: ").strip()
+            try:
+                idx = int(raw) if raw else default_active_idx
+                if 1 <= idx <= len(available_items):
+                    active_item = available_items[idx - 1]
+                    break
+            except ValueError:
+                pass
+            views.print_error(f"Enter a number between 1 and {len(available_items)}")
     else:
-        default_active_idx = 1
-
-    while True:
-        raw = views.console.input(f"  Active [{default_active_idx}]: ").strip()
-        try:
-            idx = int(raw) if raw else default_active_idx
-            if 1 <= idx <= len(available_items):
-                active_item = available_items[idx - 1]
-                break
-        except ValueError:
-            pass
-        views.print_error(f"Enter a number between 1 and {len(available_items)}")
+        # All selected items have the same effective load — no prompt needed.
+        if existing is not None and existing.active_item in available_items:
+            active_item = existing.active_item
+        else:
+            active_item = available_items[0]
 
     # Machine-assisted: ask for kg
     machine_assistance_kg: float | None = None
@@ -473,6 +498,10 @@ def _menu_init() -> None:
 
     views.console.print()
     views.console.print("[bold]Setup / Edit Profile[/bold]")
+    views.console.print(
+        "[dim]Covers: height, sex, bodyweight, target reps, "
+        "training days/week per exercise, and equipment.[/dim]"
+    )
     views.console.print("[dim]Press Enter to keep the current value.[/dim]")
     views.console.print()
 
