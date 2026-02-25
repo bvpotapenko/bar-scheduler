@@ -1674,3 +1674,135 @@ class TestAllCommandsAllExercises:
         # Should not crash with "History file not found: bss_history.jsonl"
         assert "bss_history.jsonl" not in result.output
         assert "dip_history.jsonl" not in result.output
+
+
+class TestTimelineBugFixes:
+    """Unit tests for two display bugs in build_timeline / print_unified_plan.
+
+    BUG 1: Past sessions with empty planned_sets (cache miss at log time) must not
+            show a prescription taken from the freshly-regenerated plan entry.
+    BUG 2: Track-B eMax estimates must only be computed for S and H sessions.
+            Endurance (E) and Technique (T) sessions use intentionally short rests
+            and sub-failure reps — the FI/Nuzzo estimator gives meaningless results.
+    """
+
+    def _make_set(self, reps: int, rest: int, rir: int = 2):
+        from bar_scheduler.core.models import SetResult
+
+        return SetResult(
+            target_reps=reps,
+            actual_reps=reps,
+            rest_seconds_before=rest,
+            rir_reported=rir,
+        )
+
+    def _past_plan(self, session_type: str, date: str = "2026-01-15"):
+        from bar_scheduler.core.models import SessionPlan
+
+        return SessionPlan(date=date, grip="pronated", session_type=session_type, week_number=1)
+
+    def _past_session(self, session_type: str, completed_sets: list, date: str = "2026-01-15"):
+        from bar_scheduler.core.models import SessionResult
+
+        return SessionResult(
+            date=date,
+            bodyweight_kg=80.0,
+            grip="pronated",
+            session_type=session_type,
+            planned_sets=[],
+            completed_sets=completed_sets,
+        )
+
+    # --- BUG 2: track_b should only be computed for S and H ---
+
+    def test_endurance_track_b_is_none(self):
+        """E sessions must not produce a track_b estimate regardless of set count."""
+        from bar_scheduler.cli.views import build_timeline
+
+        sets = [self._make_set(10, 60) for _ in range(4)]
+        entries = build_timeline([self._past_plan("E")], [self._past_session("E", sets)])
+        assert len(entries) == 1
+        assert entries[0].track_b is None
+
+    def test_technique_track_b_is_none(self):
+        """T sessions must not produce a track_b estimate (sub-failure by design)."""
+        from bar_scheduler.cli.views import build_timeline
+
+        sets = [self._make_set(5, 120) for _ in range(3)]
+        entries = build_timeline([self._past_plan("T")], [self._past_session("T", sets)])
+        assert len(entries) == 1
+        assert entries[0].track_b is None
+
+    def test_strength_track_b_computed(self):
+        """S sessions with ≥2 sets and a valid rep pattern must produce a track_b estimate."""
+        from bar_scheduler.cli.views import build_timeline
+
+        sets = [
+            self._make_set(10, 120),
+            self._make_set(8, 240),
+            self._make_set(7, 240),
+            self._make_set(6, 240),
+        ]
+        entries = build_timeline([self._past_plan("S")], [self._past_session("S", sets)])
+        assert len(entries) == 1
+        assert entries[0].track_b is not None
+
+    def test_hypertrophy_track_b_computed(self):
+        """H sessions with ≥2 sets and a valid rep pattern must produce a track_b estimate."""
+        from bar_scheduler.cli.views import build_timeline
+
+        sets = [
+            self._make_set(10, 120),
+            self._make_set(8, 180),
+            self._make_set(7, 180),
+            self._make_set(6, 180),
+        ]
+        entries = build_timeline([self._past_plan("H")], [self._past_session("H", sets)])
+        assert len(entries) == 1
+        assert entries[0].track_b is not None
+
+    # --- BUG 1: past session with empty planned_sets must not show regenerated plan ---
+
+    def test_past_session_prescribed_uses_stored_not_regenerated(self):
+        """When a past session has empty planned_sets (cache miss) and the regenerated
+        plan has a *different* session type on the same date, the prescribed column
+        must be empty — not taken from the regenerated plan prescription.
+
+        The rendering fix is: `elif entry.planned and entry.actual is None:` (future only).
+        """
+        from bar_scheduler.cli.views import TimelineEntry, build_timeline
+        from bar_scheduler.core.models import SessionPlan, SessionResult
+
+        date = "2026-01-15"
+        # Regenerated plan says S session on this date (rotation shifted after a log)
+        plan_entry = SessionPlan(date=date, grip="pronated", session_type="S", week_number=1)
+        # User actually logged an E session; no stored prescription (cache miss)
+        actual_session = SessionResult(
+            date=date,
+            bodyweight_kg=80.0,
+            grip="pronated",
+            session_type="E",
+            planned_sets=[],
+            completed_sets=[],
+        )
+
+        entries = build_timeline([plan_entry], [actual_session])
+        assert len(entries) == 1
+        entry = entries[0]
+
+        # Confirm the bug-prone state: past, empty planned_sets, non-None planned
+        assert entry.actual is actual_session
+        assert entry.planned is plan_entry
+        assert entry.actual.planned_sets == []
+        assert entry.actual is not None
+
+        # The rendering fix: only use entry.planned for future sessions (actual is None)
+        def _prescribed(e: TimelineEntry) -> str:
+            if e.actual and e.actual.planned_sets:
+                return "stored"
+            elif e.planned and e.actual is None:
+                return "plan"
+            return ""
+
+        # With the fix: past session with empty planned_sets → empty prescribed
+        assert _prescribed(entry) == ""

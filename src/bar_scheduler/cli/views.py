@@ -102,7 +102,7 @@ def build_timeline(
 
         # Compute Track B estimate for past non-TEST sessions with ≥2 sets
         track_b: dict | None = None
-        if matched is not None and matched.session_type != "TEST":
+        if matched is not None and matched.session_type in ("S", "H"):
             valid_sets = [s for s in matched.completed_sets if s.actual_reps is not None and s.actual_reps > 0]
             if len(valid_sets) >= 2:
                 track_b = estimate_max_reps_from_session(
@@ -385,7 +385,7 @@ def print_unified_plan(
             prescribed_str = _fmt_prescribed_sets(
                 entry.actual.planned_sets, entry.actual.session_type
             )
-        elif entry.planned:
+        elif entry.planned and entry.actual is None:
             prescribed_str = _fmt_prescribed(entry.planned)
         else:
             prescribed_str = ""
