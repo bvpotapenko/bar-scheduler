@@ -12,6 +12,7 @@ from typing import Any
 from ..core.models import (
     EquipmentSnapshot,
     EquipmentState,
+    ExerciseTarget,
     Grip,
     PlannedSet,
     SessionResult,
@@ -377,6 +378,22 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
     )
 
 
+def exercise_target_to_dict(target: ExerciseTarget) -> dict[str, Any]:
+    """Serialize an ExerciseTarget; omits weight_kg when zero."""
+    d: dict[str, Any] = {"reps": target.reps}
+    if target.weight_kg > 0:
+        d["weight_kg"] = target.weight_kg
+    return d
+
+
+def dict_to_exercise_target(data: dict[str, Any]) -> ExerciseTarget:
+    """Deserialize an ExerciseTarget from a dict."""
+    return ExerciseTarget(
+        reps=int(data["reps"]),
+        weight_kg=float(data.get("weight_kg", 0.0)),
+    )
+
+
 def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     """
     Convert UserProfile to JSON-compatible dict.
@@ -391,7 +408,6 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
         "height_cm": profile.height_cm,
         "sex": profile.sex,
         "preferred_days_per_week": profile.preferred_days_per_week,
-        "target_max_reps": profile.target_max_reps,
         "exercises_enabled": list(profile.exercises_enabled),
         "max_session_duration_minutes": profile.max_session_duration_minutes,
         "rest_preference": profile.rest_preference,
@@ -399,6 +415,11 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     }
     if profile.exercise_days:
         d["exercise_days"] = dict(profile.exercise_days)
+    if profile.exercise_targets:
+        d["exercise_targets"] = {
+            ex_id: exercise_target_to_dict(tgt)
+            for ex_id, tgt in profile.exercise_targets.items()
+        }
     return d
 
 
@@ -425,10 +446,19 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
             f"Invalid preferred_days_per_week: {data.get('preferred_days_per_week')}. Must be 3 or 4"
         )
 
-    validate_positive(data.get("target_max_reps", 30), "target_max_reps")
-
     raw_exercise_days = data.get("exercise_days") or {}
     exercise_days = {k: int(v) for k, v in raw_exercise_days.items()}
+
+    # Backward compat: if new exercise_targets key is absent but old target_max_reps
+    # is present, migrate it to a pull_up ExerciseTarget so old profiles keep their goal.
+    raw_exercise_targets: dict[str, ExerciseTarget] = {}
+    if data.get("exercise_targets"):
+        for ex_id, v in data["exercise_targets"].items():
+            raw_exercise_targets[ex_id] = dict_to_exercise_target(v)
+    elif "target_max_reps" in data:
+        old_reps = int(data["target_max_reps"])
+        if old_reps > 0:
+            raw_exercise_targets["pull_up"] = ExerciseTarget(reps=old_reps)
 
     rest_pref = data.get("rest_preference", "normal")
     if rest_pref not in ("short", "normal", "long"):
@@ -438,8 +468,8 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
         height_cm=int(data["height_cm"]),
         sex=data["sex"],
         preferred_days_per_week=int(data.get("preferred_days_per_week", 3)),
-        target_max_reps=int(data.get("target_max_reps", 30)),
         exercise_days=exercise_days,
+        exercise_targets=raw_exercise_targets,
         exercises_enabled=list(data.get("exercises_enabled", ["pull_up", "dip", "bss"])),
         max_session_duration_minutes=int(data.get("max_session_duration_minutes", 60)),
         rest_preference=rest_pref,

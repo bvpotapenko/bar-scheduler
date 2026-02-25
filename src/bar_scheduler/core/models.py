@@ -7,7 +7,7 @@ to ExerciseDefinition rather than enforced at the model level.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import ClassVar, Literal
 
 # Grip is now a plain str to support non-pull-up variant names
 # (e.g. "standard", "chest_lean" for dips; "deficit" for BSS).
@@ -210,6 +210,30 @@ class SessionPlan:
 
 
 @dataclass
+class ExerciseTarget:
+    """
+    User's personal goal for one exercise.
+
+    Either reps-only (``weight_kg=0``) or reps-at-weight, e.g.
+    "12 BSS reps @ 40 kg" or "20 pull-ups + 10 kg vest".
+    """
+
+    reps: int
+    weight_kg: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.reps <= 0:
+            raise ValueError("ExerciseTarget.reps must be positive")
+        if self.weight_kg < 0:
+            raise ValueError("ExerciseTarget.weight_kg must be non-negative")
+
+    def __str__(self) -> str:
+        if self.weight_kg > 0:
+            return f"{self.reps} reps @ {self.weight_kg:.1f} kg"
+        return f"{self.reps} reps"
+
+
+@dataclass
 class UserProfile:
     """
     User profile with physical characteristics and preferences.
@@ -227,16 +251,34 @@ class UserProfile:
     height_cm: int
     sex: Sex
     preferred_days_per_week: int = 3  # global fallback (3 or 4)
-    target_max_reps: int = 30
-    exercise_days: dict = field(default_factory=dict)  # {exercise_id: days_per_week}
+    exercise_days: dict = field(default_factory=dict)   # {exercise_id: days_per_week}
+    exercise_targets: dict = field(default_factory=dict)  # {exercise_id: ExerciseTarget}
     exercises_enabled: list = field(default_factory=lambda: ["pull_up", "dip", "bss"])
     max_session_duration_minutes: int = 60
     rest_preference: str = "normal"  # "short" | "normal" | "long"
     injury_notes: str = ""
 
+    # Per-exercise default goals used when the user hasn't set an explicit target.
+    _TARGET_DEFAULTS: ClassVar[dict[str, tuple[int, float]]] = {
+        "pull_up": (30, 0.0),
+        "dip":     (40, 0.0),
+        "bss":     (20, 0.0),
+    }
+
     def days_for_exercise(self, exercise_id: str) -> int:
         """Return training days per week for the given exercise."""
         return self.exercise_days.get(exercise_id, self.preferred_days_per_week)
+
+    def target_for_exercise(self, exercise_id: str) -> ExerciseTarget:
+        """Return the user's personal goal for the given exercise.
+
+        Falls back to sensible per-exercise defaults when the user hasn't
+        configured an explicit target (pull_up→30, dip→40, bss→20, all weight=0).
+        """
+        if exercise_id in self.exercise_targets:
+            return self.exercise_targets[exercise_id]
+        reps, weight = self._TARGET_DEFAULTS.get(exercise_id, (30, 0.0))
+        return ExerciseTarget(reps=reps, weight_kg=weight)
 
     def is_exercise_enabled(self, exercise_id: str) -> bool:
         """Return True if the exercise is in the enabled list."""
@@ -259,13 +301,16 @@ class UserProfile:
         if self.preferred_days_per_week not in (3, 4):
             raise ValueError("preferred_days_per_week must be 3 or 4")
 
-        if self.target_max_reps <= 0:
-            raise ValueError("target_max_reps must be positive")
-
         for ex_id, days in self.exercise_days.items():
             if days not in (3, 4):
                 raise ValueError(
                     f"exercise_days[{ex_id!r}] must be 3 or 4, got {days}"
+                )
+
+        for ex_id, tgt in self.exercise_targets.items():
+            if not isinstance(tgt, ExerciseTarget):
+                raise ValueError(
+                    f"exercise_targets[{ex_id!r}] must be an ExerciseTarget, got {type(tgt)}"
                 )
 
 

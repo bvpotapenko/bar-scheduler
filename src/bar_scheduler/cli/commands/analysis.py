@@ -160,6 +160,14 @@ def plot_max(
     traj_points: list[tuple[datetime, float]] | None = None
     traj_json: list[dict] | None = None
     if show_trajectory:
+        # Use the user's per-exercise target reps if available; fall back to config constant.
+        traj_target = TARGET_MAX_REPS
+        try:
+            profile = store.load_profile()
+            traj_target = profile.target_for_exercise(exercise_id).reps
+        except Exception:
+            pass
+
         test_sessions = get_test_sessions(sessions)
         if test_sessions:
             first_test = test_sessions[0]
@@ -167,11 +175,11 @@ def plot_max(
             initial_tm = training_max_from_baseline(_max_reps(first_test))
             traj_points = []
             d, tm_f = start_dt, float(initial_tm)
-            while tm_f < TARGET_MAX_REPS and d <= start_dt + timedelta(weeks=104):
+            while tm_f < traj_target and d <= start_dt + timedelta(weeks=104):
                 traj_points.append((d, tm_f / TM_FACTOR))
-                tm_f = min(tm_f + expected_reps_per_week(int(tm_f)), float(TARGET_MAX_REPS))
+                tm_f = min(tm_f + expected_reps_per_week(int(tm_f), traj_target), float(traj_target))
                 d += timedelta(weeks=1)
-            traj_points.append((d, float(TARGET_MAX_REPS)))
+            traj_points.append((d, float(traj_target)))
             traj_json = [
                 {"date": pt.strftime("%Y-%m-%d"), "projected_max": round(val, 2)}
                 for pt, val in traj_points

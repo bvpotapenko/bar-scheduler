@@ -979,13 +979,15 @@ def explain_plan_entry(
 def estimate_plan_completion_date(
     user_state: UserState,
     baseline_max: int | None = None,
+    exercise_id: str = "pull_up",
 ) -> str | None:
     """
-    Estimate when the user might reach their target.
+    Estimate when the user might reach their target reps goal.
 
     Args:
         user_state: Current user state
         baseline_max: Baseline max if no history
+        exercise_id: Which exercise's target to use
 
     Returns:
         Estimated completion date (ISO format) or None if target reached
@@ -997,7 +999,7 @@ def estimate_plan_completion_date(
     )
 
     tm = status.training_max
-    target = user_state.profile.target_max_reps
+    target = user_state.profile.target_for_exercise(exercise_id).reps
 
     if tm >= target:
         return None

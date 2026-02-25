@@ -786,10 +786,10 @@ class TestEquipmentIntegration:
         history_path = tmp_path / "history.jsonl"
         store = HistoryStore(history_path)
         store.init()
-        from bar_scheduler.core.models import UserProfile
+        from bar_scheduler.core.models import ExerciseTarget, UserProfile
         store.save_profile(
             UserProfile(height_cm=180, sex="male", preferred_days_per_week=3,
-                        target_max_reps=20),
+                        exercise_targets={"pull_up": ExerciseTarget(reps=20)}),
             bodyweight_kg=80.0,
         )
         return store
@@ -950,6 +950,153 @@ class TestEquipmentIntegration:
 
 
 # =============================================================================
+# ExerciseTarget and per-exercise goals
+# =============================================================================
+
+
+class TestExerciseTarget:
+    """Unit tests for ExerciseTarget and UserProfile.target_for_exercise."""
+
+    def test_str_reps_only(self):
+        from bar_scheduler.core.models import ExerciseTarget
+        assert str(ExerciseTarget(reps=30)) == "30 reps"
+
+    def test_str_reps_and_weight(self):
+        from bar_scheduler.core.models import ExerciseTarget
+        assert str(ExerciseTarget(reps=12, weight_kg=40.0)) == "12 reps @ 40.0 kg"
+
+    def test_invalid_reps_raises(self):
+        from bar_scheduler.core.models import ExerciseTarget
+        with pytest.raises(ValueError, match="reps"):
+            ExerciseTarget(reps=0)
+
+    def test_negative_weight_raises(self):
+        from bar_scheduler.core.models import ExerciseTarget
+        with pytest.raises(ValueError, match="weight_kg"):
+            ExerciseTarget(reps=10, weight_kg=-1.0)
+
+    def test_target_for_exercise_explicit(self):
+        from bar_scheduler.core.models import ExerciseTarget, UserProfile
+        p = UserProfile(
+            height_cm=175, sex="male",
+            exercise_targets={"pull_up": ExerciseTarget(reps=25)},
+        )
+        assert p.target_for_exercise("pull_up").reps == 25
+        assert p.target_for_exercise("pull_up").weight_kg == 0.0
+
+    def test_target_for_exercise_fallback_defaults(self):
+        """When no explicit target is set, returns hardcoded per-exercise defaults."""
+        from bar_scheduler.core.models import UserProfile
+        p = UserProfile(height_cm=175, sex="male")
+        assert p.target_for_exercise("pull_up").reps == 30
+        assert p.target_for_exercise("dip").reps == 40
+        assert p.target_for_exercise("bss").reps == 20
+        assert p.target_for_exercise("unknown").reps == 30  # generic fallback
+
+    def test_target_for_exercise_weight_zero_by_default(self):
+        from bar_scheduler.core.models import UserProfile
+        p = UserProfile(height_cm=175, sex="male")
+        assert p.target_for_exercise("bss").weight_kg == 0.0
+
+    def test_target_for_exercise_with_weight(self):
+        from bar_scheduler.core.models import ExerciseTarget, UserProfile
+        p = UserProfile(
+            height_cm=175, sex="male",
+            exercise_targets={"bss": ExerciseTarget(reps=20, weight_kg=40.0)},
+        )
+        t = p.target_for_exercise("bss")
+        assert t.reps == 20
+        assert t.weight_kg == 40.0
+
+    def test_serialization_round_trip_reps_only(self):
+        from bar_scheduler.core.models import ExerciseTarget
+        from bar_scheduler.io.serializers import dict_to_exercise_target, exercise_target_to_dict
+        t = ExerciseTarget(reps=30)
+        d = exercise_target_to_dict(t)
+        assert d == {"reps": 30}  # weight_kg omitted when 0
+        t2 = dict_to_exercise_target(d)
+        assert t2.reps == 30
+        assert t2.weight_kg == 0.0
+
+    def test_serialization_round_trip_with_weight(self):
+        from bar_scheduler.core.models import ExerciseTarget
+        from bar_scheduler.io.serializers import dict_to_exercise_target, exercise_target_to_dict
+        t = ExerciseTarget(reps=12, weight_kg=40.0)
+        d = exercise_target_to_dict(t)
+        assert d == {"reps": 12, "weight_kg": 40.0}
+        t2 = dict_to_exercise_target(d)
+        assert t2.reps == 12
+        assert t2.weight_kg == 40.0
+
+    def test_profile_round_trip_with_targets(self):
+        from bar_scheduler.core.models import ExerciseTarget, UserProfile
+        from bar_scheduler.io.serializers import dict_to_user_profile, user_profile_to_dict
+        p = UserProfile(
+            height_cm=180, sex="male",
+            exercise_targets={
+                "pull_up": ExerciseTarget(reps=25),
+                "bss": ExerciseTarget(reps=15, weight_kg=30.0),
+            },
+        )
+        d = user_profile_to_dict(p)
+        assert d["exercise_targets"]["pull_up"] == {"reps": 25}
+        assert d["exercise_targets"]["bss"] == {"reps": 15, "weight_kg": 30.0}
+        p2 = dict_to_user_profile(d)
+        assert p2.target_for_exercise("pull_up").reps == 25
+        assert p2.target_for_exercise("bss").weight_kg == 30.0
+
+    def test_backward_compat_target_max_reps_migrates(self):
+        """Old JSON with target_max_reps migrates to pull_up ExerciseTarget."""
+        from bar_scheduler.io.serializers import dict_to_user_profile
+        old = {
+            "height_cm": 175, "sex": "male", "preferred_days_per_week": 3,
+            "target_max_reps": 25,
+        }
+        p = dict_to_user_profile(old)
+        assert p.target_for_exercise("pull_up").reps == 25
+        assert p.target_for_exercise("dip").reps == 40  # default, not migrated
+
+    def test_init_command_writes_exercise_targets(self, tmp_path):
+        """init --target-max 20 --target-weight 10 writes ExerciseTarget to profile."""
+        import json as _json
+        history_path = tmp_path / "history.jsonl"
+        result = runner.invoke(app, [
+            "init", "--history-path", str(history_path),
+            "--target-max", "20", "--target-weight", "10.0",
+            "--exercise", "bss",
+        ])
+        assert result.exit_code == 0, result.output
+        profile_path = history_path.parent / "profile.json"
+        data = _json.loads(profile_path.read_text())
+        assert "exercise_targets" in data
+        assert data["exercise_targets"]["bss"]["reps"] == 20
+        assert data["exercise_targets"]["bss"]["weight_kg"] == 10.0
+
+    def test_different_targets_per_exercise(self, tmp_path):
+        """init for two exercises stores separate targets without clobbering each other."""
+        import json as _json
+        pull_up_path = tmp_path / "pull_up_history.jsonl"
+        bss_path = tmp_path / "bss_history.jsonl"
+        # init pull_up
+        runner.invoke(app, [
+            "init", "--history-path", str(pull_up_path),
+            "--target-max", "30", "--exercise", "pull_up",
+        ])
+        # init bss with a weight goal
+        runner.invoke(app, [
+            "init", "--history-path", str(bss_path),
+            "--target-max", "15", "--target-weight", "40.0", "--exercise", "bss",
+        ])
+        profile_path = pull_up_path.parent / "profile.json"
+        data = _json.loads(profile_path.read_text())
+        # both exercises must be present
+        assert data["exercise_targets"]["pull_up"]["reps"] == 30
+        assert "weight_kg" not in data["exercise_targets"]["pull_up"]
+        assert data["exercise_targets"]["bss"]["reps"] == 15
+        assert data["exercise_targets"]["bss"]["weight_kg"] == 40.0
+
+
+# =============================================================================
 # New feature tests: profile fields, help-adaptation, YAML config loader
 # =============================================================================
 
@@ -1029,6 +1176,11 @@ class TestProfileFields:
         assert p.max_session_duration_minutes == 60
         assert p.rest_preference == "normal"
         assert p.injury_notes == ""
+        # Old target_max_reps migrated to pull_up ExerciseTarget
+        assert p.target_for_exercise("pull_up").reps == 30
+        # Other exercises fall back to their built-in defaults
+        assert p.target_for_exercise("dip").reps == 40
+        assert p.target_for_exercise("bss").reps == 20
 
     def test_init_command_preserves_new_fields(self, tmp_path):
         """Re-running init does not reset exercises_enabled or injury_notes."""

@@ -18,7 +18,7 @@ from ...core.equipment import (
 )
 from ...core.exercises.registry import get_exercise
 from ...core.metrics import training_max_from_baseline
-from ...core.models import EquipmentState, SessionResult, SetResult, UserProfile
+from ...core.models import EquipmentState, ExerciseTarget, SessionResult, SetResult, UserProfile
 from .. import views
 from ..app import ExerciseOption, app, get_store
 
@@ -43,8 +43,12 @@ def init(
     ] = 3,
     target_max: Annotated[
         int,
-        typer.Option("--target-max", "-t", help="Target max reps"),
+        typer.Option("--target-max", "-t", help="Target max reps for this exercise"),
     ] = 30,
+    target_weight: Annotated[
+        float,
+        typer.Option("--target-weight", help="Target added weight kg (0 = reps only)"),
+    ] = 0.0,
     bodyweight_kg: Annotated[
         float,
         typer.Option("--bodyweight-kg", "-w", help="Current bodyweight in kg"),
@@ -88,24 +92,25 @@ def init(
         views.print_error("Bodyweight must be positive")
         raise typer.Exit(1)
 
-    # Check for existing history
-    existing_sessions = 0
+    # Always load the existing profile — it may exist from another exercise's init
+    # even when this exercise's history file is brand new.
     old_profile = None
     old_bw = None
+    try:
+        old_profile = store.load_profile()
+        old_bw = store.load_bodyweight()
+    except Exception:
+        old_profile = None
+        old_bw = None
+
+    # Check for existing history (independent of profile existence)
+    existing_sessions = 0
     if store.exists():
         try:
             existing = store.load_history()
             existing_sessions = len(existing)
         except Exception:
             existing_sessions = 0
-
-        # Always load existing profile so optional fields are preserved
-        try:
-            old_profile = store.load_profile()
-            old_bw = store.load_bodyweight()
-        except Exception:
-            old_profile = None
-            old_bw = None
 
         if existing_sessions > 0 and not force:
             views.print_warning(f"Found existing history with {existing_sessions} sessions.")
@@ -143,13 +148,19 @@ def init(
             global_days = old_profile.preferred_days_per_week
     merged_exercise_days[exercise_id] = days_per_week
 
+    # Merge per-exercise targets: inherit existing, update this exercise's goal.
+    merged_exercise_targets: dict[str, ExerciseTarget] = {}
+    if old_profile is not None:
+        merged_exercise_targets = dict(old_profile.exercise_targets)
+    merged_exercise_targets[exercise_id] = ExerciseTarget(reps=target_max, weight_kg=target_weight)
+
     # Create profile — preserve optional fields from existing profile when re-initialising
     profile = UserProfile(
         height_cm=height_cm,
         sex=sex,  # type: ignore
         preferred_days_per_week=global_days,
-        target_max_reps=target_max,
         exercise_days=merged_exercise_days,
+        exercise_targets=merged_exercise_targets,
         exercises_enabled=(
             old_profile.exercises_enabled if old_profile is not None
             else ["pull_up", "dip", "bss"]
@@ -183,7 +194,7 @@ def init(
             _chg("Height", f"{old_profile.height_cm} cm", f"{height_cm} cm")
             _chg("Sex", old_profile.sex, sex)
             _chg(f"Days/week ({exercise_id})", old_profile.exercise_days.get(exercise_id, old_profile.preferred_days_per_week), days_per_week)
-            _chg("Target max reps", old_profile.target_max_reps, target_max)
+            _chg(f"Target ({exercise_id})", str(old_profile.target_for_exercise(exercise_id)), str(ExerciseTarget(reps=target_max, weight_kg=target_weight)))
             old_bw_str = f"{old_bw:.1f} kg" if old_bw is not None else "?"
             _chg("Bodyweight", old_bw_str, f"{bodyweight_kg:.1f} kg")
     else:
@@ -562,20 +573,43 @@ def _menu_init() -> None:
         else:
             global_days = exercise_days_new[active_exercises[0]]
 
-    # Target max reps
-    default_target = old_profile.target_max_reps if old_profile else 30
-    while True:
-        raw = views.console.input(f"Target max reps [{default_target}]: ").strip()
-        if not raw:
-            target_max = default_target
-            break
-        try:
-            target_max = int(raw)
-            if target_max > 0:
+    # Per-exercise targets — ask for each active exercise (or pull_up if fresh)
+    exercise_targets_new: dict[str, ExerciseTarget] = dict(old_profile.exercise_targets) if old_profile else {}
+    exercises_to_target = active_exercises if active_exercises else ["pull_up"]
+    for ex_id in exercises_to_target:
+        ex_name = EXERCISE_REGISTRY[ex_id].display_name
+        old_tgt = old_profile.target_for_exercise(ex_id) if old_profile else ExerciseTarget(reps=30)
+
+        while True:
+            raw = views.console.input(f"Target reps — {ex_name} [{old_tgt.reps}]: ").strip()
+            if not raw:
+                target_reps = old_tgt.reps
                 break
-        except ValueError:
-            pass
-        views.print_error("Enter a positive integer, e.g. 30")
+            try:
+                target_reps = int(raw)
+                if target_reps > 0:
+                    break
+            except ValueError:
+                pass
+            views.print_error("Enter a positive integer, e.g. 30")
+
+        default_wt = old_tgt.weight_kg
+        while True:
+            raw = views.console.input(
+                f"Target added weight kg — {ex_name} [{default_wt:.1f}]: "
+            ).strip()
+            if not raw:
+                target_wt = default_wt
+                break
+            try:
+                target_wt = float(raw)
+                if target_wt >= 0:
+                    break
+            except ValueError:
+                pass
+            views.print_error("Enter 0 or a positive number, e.g. 40")
+
+        exercise_targets_new[ex_id] = ExerciseTarget(reps=target_reps, weight_kg=target_wt)
 
     # Bodyweight
     default_bw = old_bw if old_bw is not None else 80.0
@@ -596,8 +630,8 @@ def _menu_init() -> None:
         height_cm=height_cm,
         sex=sex,  # type: ignore
         preferred_days_per_week=global_days,
-        target_max_reps=target_max,
         exercise_days=exercise_days_new,
+        exercise_targets=exercise_targets_new,
     )
     store.init()
     store.save_profile(profile, bodyweight_kg)
@@ -634,7 +668,10 @@ def _menu_init() -> None:
                 old_days = old_profile.exercise_days.get(ex_id, old_profile.preferred_days_per_week)
                 ex_name = EXERCISE_REGISTRY[ex_id].display_name
                 _chg(f"Days/week ({ex_name})", old_days, new_days)
-        _chg("Target max reps", old_profile.target_max_reps, target_max)
+        for ex_id, new_tgt in exercise_targets_new.items():
+            old_tgt = old_profile.target_for_exercise(ex_id)
+            ex_name = EXERCISE_REGISTRY[ex_id].display_name
+            _chg(f"Target ({ex_name})", str(old_tgt), str(new_tgt))
         old_bw_str = f"{old_bw:.1f} kg" if old_bw is not None else "?"
         _chg("Bodyweight", old_bw_str, f"{bodyweight_kg:.1f} kg")
     else:

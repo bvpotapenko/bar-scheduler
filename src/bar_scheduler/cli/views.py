@@ -16,7 +16,7 @@ from ..core.ascii_plot import create_max_reps_plot, create_weekly_volume_chart
 from ..core.equipment import bss_is_degraded, check_band_progression, compute_leff, get_assistance_kg, get_catalog, get_next_band_step
 from ..core.max_estimator import estimate_max_reps_from_session
 from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
-from ..core.models import EquipmentState, SessionPlan, SessionResult, TrainingStatus, UserState
+from ..core.models import EquipmentState, ExerciseTarget, SessionPlan, SessionResult, TrainingStatus, UserState
 
 TimelineStatus = Literal["done", "missed", "next", "planned", "extra"]
 
@@ -255,7 +255,7 @@ def print_unified_plan(
     entries: list[TimelineEntry],
     status: TrainingStatus,
     title: str = "Training Log",
-    target_max: int | None = None,
+    exercise_target: ExerciseTarget | None = None,
     equipment_state: EquipmentState | None = None,
     history: list[SessionResult] | None = None,
     exercise_id: str = "pull_up",
@@ -268,7 +268,7 @@ def print_unified_plan(
         entries: Merged timeline entries
         status: Current training status for header
         title: Table title
-        target_max: User's goal reps (shown in status block)
+        exercise_target: User's goal for this exercise (shown in status block)
         equipment_state: Current equipment state (for header line)
         history: Full session history (for band progression check)
         exercise_id: Exercise being displayed
@@ -278,7 +278,7 @@ def print_unified_plan(
 
     # Header
     console.print()
-    console.print(format_status_display(status, target_max=target_max))
+    console.print(format_status_display(status, exercise_target=exercise_target))
     console.print()
 
     # Equipment header line
@@ -572,14 +572,14 @@ def format_plan_table(plans: list[SessionPlan], weeks: int | None = None) -> Tab
 
 def format_status_display(
     status: TrainingStatus,
-    target_max: int | None = None,
+    exercise_target: ExerciseTarget | None = None,
 ) -> str:
     """
     Format training status as text block.
 
     Args:
         status: TrainingStatus to display
-        target_max: User's goal (target_max_reps from profile)
+        exercise_target: User's personal goal for this exercise
 
     Returns:
         Formatted string
@@ -595,8 +595,8 @@ def format_status_display(
     else:
         lines.append(f"- Tr.Max:  {status.training_max} reps")
 
-    if target_max is not None:
-        lines.append(f"- My Goal: {target_max} reps")
+    if exercise_target is not None:
+        lines.append(f"- My Goal: {exercise_target}")
 
     lines.extend(
         [

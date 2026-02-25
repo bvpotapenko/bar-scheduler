@@ -360,11 +360,24 @@ def plan(
             )
         views.console.print()
 
-    goal = user_state.profile.target_max_reps
-    if training_status.latest_test_max and training_status.latest_test_max >= goal:
+    exercise_target = user_state.profile.target_for_exercise(exercise_id)
+    goal_reached = False
+    if training_status.latest_test_max is not None and training_status.latest_test_max >= exercise_target.reps:
+        if exercise_target.weight_kg == 0.0:
+            goal_reached = True
+        else:
+            # Weight-gated goal: check if the latest TEST session used at least target weight
+            test_sessions = [s for s in user_state.history if s.session_type == "TEST"]
+            if test_sessions:
+                last_test = max(test_sessions, key=lambda s: s.date)
+                best_weight = max(
+                    (st.added_weight_kg for st in last_test.completed_sets),
+                    default=0.0,
+                )
+                goal_reached = best_weight >= exercise_target.weight_kg
+    if goal_reached:
         views.console.print(
-            f"[green]Goal reached![/green] Your test max ({training_status.latest_test_max}) "
-            f"meets your goal ({goal} reps). "
+            f"[green]Goal reached![/green] Your test max meets your goal ({exercise_target}). "
             "Update target via [i] Setup or --target-max."
         )
 
@@ -378,7 +391,7 @@ def plan(
     views.print_unified_plan(
         timeline,
         training_status,
-        target_max=goal,
+        exercise_target=exercise_target,
         equipment_state=equipment_state,
         history=user_state.history,
         exercise_id=exercise_id,
