@@ -555,13 +555,15 @@ def generate_plan(
         session_dates, history, exercise.test_frequency_weeks, start
     )
 
-    # Compute cumulative week offset from the very first session in history.
-    original_history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
-    if original_history:
-        first_date = datetime.strptime(original_history[0].date, "%Y-%m-%d")
-        week_offset = (start - first_date).days // 7
-    else:
-        week_offset = 0
+    # Anchor for stable week numbering: the first real (non-REST) session in history.
+    # REST records are synthetic shift markers and must not affect the training epoch.
+    original_history = [
+        s for s in user_state.history
+        if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
+    ]
+    first_date: datetime | None = (
+        datetime.strptime(original_history[0].date, "%Y-%m-%d") if original_history else None
+    )
 
     # Generate sessions with progressive TM
     plans: list[SessionPlan] = []
@@ -630,7 +632,7 @@ def generate_plan(
             exercise_id=exercise.exercise_id,
             sets=sets,
             expected_tm=expected_tm_after,
-            week_number=week_offset + session_week_idx + 1,
+            week_number=(date - first_date).days // 7 + 1 if first_date else session_week_idx + 1,
         )
         plans.append(plan)
 

@@ -57,6 +57,13 @@ def build_timeline(
     """
     today = datetime.now().strftime("%Y-%m-%d")
 
+    # Stable week-number anchor: first real (non-REST) training session
+    real_history = [s for s in history if s.session_type != "REST"]
+    first_date: datetime | None = (
+        datetime.strptime(min(s.date for s in real_history), "%Y-%m-%d")
+        if real_history else None
+    )
+
     # Build lookup: date -> history session(s), and id-map for 1-based IDs
     history_by_date: dict[str, list[SessionResult]] = {}
     for s in history:
@@ -145,10 +152,12 @@ def build_timeline(
         if id(s) not in matched_history:
             # Only add if not already in plan dates
             status_extra: TimelineStatus = "done"
+            session_dt = datetime.strptime(s.date, "%Y-%m-%d")
+            wn = (session_dt - first_date).days // 7 + 1 if first_date else 0
             entries.append(
                 TimelineEntry(
                     date=s.date,
-                    week_number=0,
+                    week_number=wn,
                     planned=None,
                     actual=s,
                     status=status_extra,

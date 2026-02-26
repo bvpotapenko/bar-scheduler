@@ -1355,3 +1355,49 @@ class TestPlanStartDatePerExercise:
         assert data["plan_start_dates"]["pull_up"] == "2026-02-20"
         assert data["plan_start_date"] == "2026-02-15"   # legacy key untouched
         assert store.get_plan_start_date() == "2026-02-20"  # new key takes precedence
+
+
+class TestStableWeekNumbers:
+    """Week numbers must be based on the first session date, not on plan_start_date."""
+
+    def test_week_numbers_based_on_first_session_date(self):
+        """
+        Week numbers must equal (session_date - first_history_date).days // 7 + 1,
+        regardless of plan_start_date.
+
+        The bug triggers when plan_start_date is 6 days after first_date
+        (week_offset = 6//7 = 0) and a session falls 2 days later (start+2 =
+        first_date+8 → correct week 2). With the broken formula:
+          week_offset=0, session_week_idx=0, week=1 (WRONG).
+        Direct formula: 8//7+1 = 2 (CORRECT).
+        """
+        from datetime import datetime
+        from bar_scheduler.core.planner import generate_plan
+        from bar_scheduler.core.models import SessionResult, SetResult, UserProfile, UserState
+        from bar_scheduler.core.exercises.pull_up import PULL_UP
+
+        first_day = "2026-02-17"  # Tuesday — training epoch
+        test_set = SetResult(target_reps=12, actual_reps=12, rest_seconds_before=180,
+                             added_weight_kg=0.0, rir_target=0, rir_reported=0)
+        history = [
+            SessionResult(date=first_day, bodyweight_kg=80.0, grip="pronated",
+                          session_type="TEST", exercise_id="pull_up",
+                          planned_sets=[test_set], completed_sets=[test_set]),
+        ]
+        profile = UserProfile(height_cm=175, sex="male", preferred_days_per_week=3)
+        state = UserState(profile=profile, current_bodyweight_kg=80.0, history=history)
+
+        # plan_start_date is 6 days after first_date — triggers the integer-division bug:
+        #   week_offset = 6//7 = 0 (plan thinks we're still in week 0)
+        #   session at 02-25 (= start+2 = first_date+8):
+        #     session_week_idx = 2//7 = 0 → week = 0+0+1 = 1  (WRONG)
+        #     correct: 8//7 + 1 = 2
+        plans = generate_plan(state, "2026-02-23", 4, exercise=PULL_UP)
+
+        first_dt = datetime.strptime(first_day, "%Y-%m-%d")
+        for plan in plans:
+            expected_week = (datetime.strptime(plan.date, "%Y-%m-%d") - first_dt).days // 7 + 1
+            assert plan.week_number == expected_week, (
+                f"Date {plan.date}: expected week {expected_week}, got {plan.week_number}. "
+                f"Bug: week boundary drifts with plan_start_date."
+            )
