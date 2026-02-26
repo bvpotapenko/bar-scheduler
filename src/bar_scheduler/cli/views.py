@@ -14,6 +14,7 @@ from rich.table import Table
 from ..core.adaptation import get_training_status
 from ..core.ascii_plot import create_max_reps_plot, create_weekly_volume_chart
 from ..core.equipment import bss_is_degraded, check_band_progression, compute_leff, get_assistance_kg, get_catalog, get_next_band_step
+from ..core.exercises.registry import get_exercise
 from ..core.max_estimator import estimate_max_reps_from_session
 from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
 from ..core.models import EquipmentState, ExerciseTarget, SessionPlan, SessionResult, TrainingStatus, UserState
@@ -64,40 +65,38 @@ def build_timeline(
         if real_history else None
     )
 
-    # Build lookup: date -> history session(s), and id-map for 1-based IDs
-    history_by_date: dict[str, list[SessionResult]] = {}
-    for s in history:
-        history_by_date.setdefault(s.date, []).append(s)
+    # Build lookup: date -> list of (original_index, session) pairs
+    history_by_date: dict[str, list[tuple[int, SessionResult]]] = {}
+    for i, s in enumerate(history):
+        history_by_date.setdefault(s.date, []).append((i, s))
 
-    history_id_map: dict[int, int] = {id(s): i + 1 for i, s in enumerate(history)}
-
-    # Track which history sessions have been matched
-    matched_history: set[int] = set()
+    # Track which history sessions have been matched (by original index)
+    matched_indices: set[int] = set()
 
     entries: list[TimelineEntry] = []
 
     for plan in plans:
         # Try to find a matching history session (same date, prefer same type)
         matched: SessionResult | None = None
-        match_idx: int | None = None
+        matched_idx: int | None = None
 
         candidates = history_by_date.get(plan.date, [])
         # Prefer same session type
-        for i, s in enumerate(candidates):
-            if s.session_type == plan.session_type and id(s) not in matched_history:
+        for orig_i, s in candidates:
+            if s.session_type == plan.session_type and orig_i not in matched_indices:
                 matched = s
-                match_idx = id(s)
+                matched_idx = orig_i
                 break
         # Fall back to any session on that date
         if matched is None:
-            for s in candidates:
-                if id(s) not in matched_history:
+            for orig_i, s in candidates:
+                if orig_i not in matched_indices:
                     matched = s
-                    match_idx = id(s)
+                    matched_idx = orig_i
                     break
 
-        if match_idx is not None:
-            matched_history.add(match_idx)
+        if matched_idx is not None:
+            matched_indices.add(matched_idx)
 
         # Determine status — "next" is assigned by the second pass below
         if matched is not None:
@@ -125,9 +124,7 @@ def build_timeline(
                 planned=plan,
                 actual=matched,
                 status=status,
-                actual_id=(
-                    history_id_map.get(id(matched)) if matched is not None else None
-                ),
+                actual_id=matched_idx + 1 if matched_idx is not None else None,
                 track_b=track_b,
             )
         )
@@ -147,11 +144,8 @@ def build_timeline(
                 break
 
     # Add any extra (unplanned) history sessions not matched to a plan
-    plan_dates = {p.date for p in plans}
-    for s in history:
-        if id(s) not in matched_history:
-            # Only add if not already in plan dates
-            status_extra: TimelineStatus = "done"
+    for orig_i, s in enumerate(history):
+        if orig_i not in matched_indices:
             session_dt = datetime.strptime(s.date, "%Y-%m-%d")
             wn = (session_dt - first_date).days // 7 + 1 if first_date else 0
             entries.append(
@@ -160,8 +154,8 @@ def build_timeline(
                     week_number=wn,
                     planned=None,
                     actual=s,
-                    status=status_extra,
-                    actual_id=history_id_map.get(id(s)),
+                    status="done",
+                    actual_id=orig_i + 1,
                 )
             )
 
@@ -260,6 +254,106 @@ def _fmt_date_cell(date_str: str, status: TimelineStatus) -> str:
     return f"{icon} {date_part}"
 
 
+def _print_equipment_header(exercise, equipment_state: EquipmentState, bodyweight_kg: float | None, exercise_id: str) -> None:
+    """Print the equipment info line (and optional BSS-degraded warning)."""
+    catalog = get_catalog(exercise_id)
+    item_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
+    a_kg = get_assistance_kg(
+        equipment_state.active_item, exercise_id, equipment_state.machine_assistance_kg
+    )
+    if bodyweight_kg and bodyweight_kg > 0:
+        leff = compute_leff(exercise.bw_fraction, bodyweight_kg, 0.0, a_kg)
+        console.print(
+            f"[dim]Equipment: {item_label}  (Leff ≈ {leff:.0f} kg @ {bodyweight_kg:.0f} kg BW)[/dim]"
+        )
+    else:
+        console.print(f"[dim]Equipment: {item_label}[/dim]")
+    if exercise_id == "bss" and bss_is_degraded(equipment_state):
+        console.print(
+            "[yellow]⚠ Split Squat mode — add an elevation surface to unlock BSS.[/yellow]"
+        )
+
+
+def _emax_cell(
+    entry: "TimelineEntry",
+    floor_max: int,
+    last_tm: int | None,
+) -> tuple[str, int | None]:
+    """
+    Compute the eMax cell value for a timeline entry.
+
+    Returns (cell_str, updated_last_tm) — last_tm is used to suppress
+    identical consecutive TM projections in the future portion of the plan.
+    """
+    if entry.actual is not None:
+        if entry.actual.session_type == "TEST":
+            test_max = max(
+                (s.actual_reps for s in entry.actual.completed_sets if s.actual_reps is not None),
+                default=None,
+            )
+            return (str(test_max) if test_max is not None else "", last_tm)
+        elif entry.track_b is not None:
+            fi_v = entry.track_b["fi_est"]
+            nz_v = entry.track_b["nuzzo_est"]
+            return (f"{fi_v}/{nz_v}", last_tm)
+        else:
+            return ("", last_tm)
+    else:
+        # Future planned session — project from TM
+        tm_val = entry.planned.expected_tm if entry.planned else None
+        if tm_val is not None:
+            emax_val = max(round(tm_val / 0.90), floor_max)
+            cell = str(emax_val) if emax_val != last_tm else ""
+            return (cell, emax_val)
+        return ("", last_tm)
+
+
+def _grip_legend_str(entries: "list[TimelineEntry]", show_grip: bool) -> str:
+    """Return the grip abbreviation legend string (empty string when no grip column)."""
+    if not show_grip:
+        return ""
+    grips_seen: set[str] = set()
+    for e in entries:
+        if e.actual:
+            grips_seen.add(e.actual.grip)
+        elif e.planned:
+            grips_seen.add(e.planned.grip)
+
+    _GRIP_FULL: dict[str, str] = {
+        "pronated": "Pronated", "neutral": "Neutral", "supinated": "Supinated",
+        "standard": "Standard", "chest_lean": "Chest-lean", "tricep_upright": "Tricep-upright",
+        "deficit": "Deficit", "front_foot_elevated": "Front-foot-elevated",
+    }
+    grip_parts = [
+        f"{_GRIP_ABBR[g].strip()}={_GRIP_FULL[g]}"
+        for g in ("pronated", "neutral", "supinated", "standard",
+                  "chest_lean", "tricep_upright", "deficit", "front_foot_elevated")
+        if g in grips_seen and g in _GRIP_ABBR
+    ]
+    return ("  |  Grip: " + "  ".join(grip_parts)) if grip_parts else ""
+
+
+def _print_band_progression(exercise_id: str, history: list[SessionResult], equipment_state: EquipmentState) -> None:
+    """Print a band-progression suggestion if the user is ready to step up."""
+    if equipment_state.active_item not in ("BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT"):
+        return
+    try:
+        ex = get_exercise(exercise_id)
+        if check_band_progression(history, exercise_id, ex.session_params):
+            next_band = get_next_band_step(equipment_state.active_item)
+            if next_band is not None:
+                catalog = get_catalog(exercise_id)
+                current_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
+                next_label = catalog.get(next_band, {}).get("label", next_band)
+                console.print()
+                console.print(
+                    f"[yellow]Ready to progress: you've consistently hit the rep ceiling. "
+                    f"Consider stepping from {current_label} → {next_label}.[/yellow]"
+                )
+    except Exception:
+        pass
+
+
 def print_unified_plan(
     entries: list[TimelineEntry],
     status: TrainingStatus,
@@ -283,8 +377,6 @@ def print_unified_plan(
         exercise_id: Exercise being displayed
         bodyweight_kg: Current bodyweight (for Leff calculation in header)
     """
-    from ..core.exercises.registry import get_exercise
-
     exercise = get_exercise(exercise_id)
     show_grip = exercise.has_variant_rotation
 
@@ -295,22 +387,7 @@ def print_unified_plan(
 
     # Equipment header line
     if equipment_state is not None:
-        catalog = get_catalog(exercise_id)
-        item_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
-        a_kg = get_assistance_kg(
-            equipment_state.active_item, exercise_id, equipment_state.machine_assistance_kg
-        )
-        if bodyweight_kg and bodyweight_kg > 0:
-            leff = compute_leff(exercise.bw_fraction, bodyweight_kg, 0.0, a_kg)
-            console.print(
-                f"[dim]Equipment: {item_label}  (Leff ≈ {leff:.0f} kg @ {bodyweight_kg:.0f} kg BW)[/dim]"
-            )
-        else:
-            console.print(f"[dim]Equipment: {item_label}[/dim]")
-        if exercise_id == "bss" and bss_is_degraded(equipment_state):
-            console.print(
-                "[yellow]⚠ Split Squat mode — add an elevation surface to unlock BSS.[/yellow]"
-            )
+        _print_equipment_header(exercise, equipment_state, bodyweight_kg, exercise_id)
 
     if not entries:
         console.print("[yellow]No sessions yet. Run 'init' to get started.[/yellow]")
@@ -342,35 +419,9 @@ def print_unified_plan(
         if wk_val is not None:
             last_wk = wk_val
 
-        # eMax column — three cases:
-        #  (a) past TEST session  → actual max reps
-        #  (b) past non-TEST      → "fi/nz" Track-B estimates (if available)
-        #  (c) future session     → projected TM ÷ 0.90, floored at latest_test_max
+        # eMax column — (a) past TEST → actual max  (b) past train → fi/nz  (c) future → projection
         floor_max = status.latest_test_max or 0
-        if entry.actual is not None:
-            if entry.actual.session_type == "TEST":
-                test_max = max(
-                    (s.actual_reps for s in entry.actual.completed_sets
-                     if s.actual_reps is not None),
-                    default=None,
-                )
-                tm_str = str(test_max) if test_max is not None else ""
-            elif entry.track_b is not None:
-                fi_v = entry.track_b["fi_est"]
-                nz_v = entry.track_b["nuzzo_est"]
-                tm_str = f"{fi_v}/{nz_v}"
-            else:
-                tm_str = ""
-        else:
-            # Future planned session
-            tm_val = entry.planned.expected_tm if entry.planned else None
-            if tm_val is not None:
-                emax_val = max(round(tm_val / 0.90), floor_max)
-                tm_str = str(emax_val) if emax_val != last_tm else ""
-                if emax_val is not None:
-                    last_tm = emax_val
-            else:
-                tm_str = ""
+        tm_str, last_tm = _emax_cell(entry, floor_max, last_tm)
 
         id_str = str(entry.actual_id) if entry.actual_id is not None else ""
 
@@ -429,29 +480,7 @@ def print_unified_plan(
 
     console.print(table)
 
-    # Build a grip legend (only when the exercise uses variant rotation)
-    grip_legend = ""
-    if show_grip:
-        grips_seen: set[str] = set()
-        for e in entries:
-            if e.actual:
-                grips_seen.add(e.actual.grip)
-            elif e.planned:
-                grips_seen.add(e.planned.grip)
-
-        _GRIP_FULL: dict[str, str] = {
-            "pronated": "Pronated", "neutral": "Neutral", "supinated": "Supinated",
-            "standard": "Standard", "chest_lean": "Chest-lean", "tricep_upright": "Tricep-upright",
-            "deficit": "Deficit", "front_foot_elevated": "Front-foot-elevated",
-        }
-        grip_parts = [
-            f"{_GRIP_ABBR[g].strip()}={_GRIP_FULL[g]}"
-            for g in ("pronated", "neutral", "supinated", "standard",
-                      "chest_lean", "tricep_upright", "deficit", "front_foot_elevated")
-            if g in grips_seen and g in _GRIP_ABBR
-        ]
-        grip_legend = ("  |  Grip: " + "  ".join(grip_parts)) if grip_parts else ""
-
+    grip_legend = _grip_legend_str(entries, show_grip)
     console.print(
         "[dim]Type: Str=Strength  Hpy=Hypertrophy  End=Endurance  Tec=Technique  TST=Max-test"
         + grip_legend + "[/dim]"
@@ -463,26 +492,8 @@ def print_unified_plan(
     )
 
     # Band progression suggestion
-    if (
-        equipment_state is not None
-        and history is not None
-        and equipment_state.active_item in ("BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT")
-    ):
-        try:
-            ex = get_exercise(exercise_id)
-            if check_band_progression(history, exercise_id, ex.session_params):
-                next_band = get_next_band_step(equipment_state.active_item)
-                if next_band is not None:
-                    catalog = get_catalog(exercise_id)
-                    current_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
-                    next_label = catalog.get(next_band, {}).get("label", next_band)
-                    console.print()
-                    console.print(
-                        f"[yellow]Ready to progress: you've consistently hit the rep ceiling. "
-                        f"Consider stepping from {current_label} → {next_label}.[/yellow]"
-                    )
-        except Exception:
-            pass
+    if equipment_state is not None and history is not None:
+        _print_band_progression(exercise_id, history, equipment_state)
 
 
 def format_session_table(sessions: list[SessionResult]) -> Table:
@@ -520,67 +531,6 @@ def format_session_table(sessions: list[SessionResult]) -> Table:
             str(max_reps) if max_reps > 0 else "-",
             str(total),
             f"{avg_rest:.0f}" if avg_rest > 0 else "-",
-        )
-
-    return table
-
-
-def format_plan_table(plans: list[SessionPlan], weeks: int | None = None) -> Table:
-    """
-    Create a Rich table displaying upcoming session plans.
-
-    Args:
-        plans: List of session plans
-        weeks: Number of weeks to show (None = all)
-
-    Returns:
-        Rich Table object
-    """
-    title = "Upcoming Plan"
-    if weeks:
-        title += f" ({weeks} weeks)"
-
-    table = Table(title=title)
-
-    table.add_column("Wk", justify="right", style="dim")
-    table.add_column("Date", style="cyan")
-    table.add_column("Type", style="magenta")
-    table.add_column("Grip", style="green")
-    table.add_column("Sets (reps@kg x sets)", style="bold")
-    table.add_column("Rest", justify="right")
-    table.add_column("Total", justify="right", style="yellow")
-    table.add_column("TM", justify="right", style="bold green")
-
-    for plan in plans:
-        if not plan.sets:
-            sets_str = "(no sets)"
-            rest_str = "-"
-            total_str = "0"
-        else:
-            # Format sets
-            reps_list = [s.target_reps for s in plan.sets]
-            weight = plan.sets[0].added_weight_kg
-            rest = plan.sets[0].rest_seconds_before
-
-            # Check if all reps are the same
-            if all(r == reps_list[0] for r in reps_list):
-                sets_str = f"{len(reps_list)}x({reps_list[0]}@+{weight:.1f})"
-            else:
-                reps_str = ",".join(str(r) for r in reps_list)
-                sets_str = f"({reps_str})@+{weight:.1f}"
-
-            rest_str = str(rest)
-            total_str = str(plan.total_reps)
-
-        table.add_row(
-            str(plan.week_number),
-            plan.date,
-            plan.session_type,
-            plan.grip,
-            sets_str,
-            rest_str,
-            total_str,
-            str(plan.expected_tm),
         )
 
     return table
@@ -644,33 +594,6 @@ def print_history(sessions: list[SessionResult]) -> None:
     console.print(table)
 
 
-def print_plan(
-    plans: list[SessionPlan],
-    status: TrainingStatus,
-    weeks: int | None = None,
-) -> None:
-    """
-    Print training plan and status to console.
-
-    Args:
-        plans: Session plans to display
-        status: Current training status
-        weeks: Number of weeks being shown
-    """
-    # Print status
-    console.print()
-    console.print(format_status_display(status))
-    console.print()
-
-    # Print plan table
-    if not plans:
-        console.print("[yellow]No sessions planned.[/yellow]")
-        return
-
-    table = format_plan_table(plans, weeks)
-    console.print(table)
-
-
 def print_recent_history(sessions: list[SessionResult]) -> None:
     """
     Print recent training history in compact form.
@@ -708,143 +631,6 @@ def print_recent_history(sessions: list[SessionResult]) -> None:
 
     console.print(table)
     console.print()
-
-
-def print_plan_with_context(
-    plans: list[SessionPlan],
-    status: TrainingStatus,
-    weeks: int | None,
-    history: list[SessionResult],
-) -> None:
-    """
-    Print training plan with context about current position.
-
-    Args:
-        plans: Session plans to display
-        status: Current training status
-        weeks: Number of weeks being shown
-        history: Training history for context
-    """
-    from datetime import datetime
-
-    # Print status
-    console.print()
-    console.print(format_status_display(status))
-
-    # Show current position
-    if history:
-        last = history[-1]
-        console.print()
-        console.print(f"[bold]Last session:[/bold] {last.date} ({last.session_type})")
-
-        # Calculate days since last session
-        last_dt = datetime.strptime(last.date, "%Y-%m-%d")
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        days_since = (today - last_dt).days
-        if days_since == 0:
-            console.print("[green]Trained today[/green]")
-        elif days_since == 1:
-            console.print("[green]Trained yesterday[/green]")
-        elif days_since < 0:
-            # Future date (data entry for future sessions)
-            console.print(f"[dim]Session logged for {-days_since} days ahead[/dim]")
-        elif days_since <= 3:
-            console.print(f"[green]{days_since} days since last session[/green]")
-        else:
-            console.print(f"[yellow]{days_since} days since last session[/yellow]")
-
-    console.print()
-
-    # Print plan table
-    if not plans:
-        console.print("[yellow]No sessions planned.[/yellow]")
-        return
-
-    # Find next session (first plan date >= today)
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    next_session_idx = None
-    for i, plan in enumerate(plans):
-        if plan.date >= today_str:
-            next_session_idx = i
-            break
-
-    table = format_plan_table_with_marker(plans, weeks, next_session_idx)
-    console.print(table)
-
-
-def format_plan_table_with_marker(
-    plans: list[SessionPlan],
-    weeks: int | None = None,
-    next_idx: int | None = None,
-) -> Table:
-    """
-    Create a Rich table with a marker showing the next session.
-
-    Args:
-        plans: List of session plans
-        weeks: Number of weeks to show (None = all)
-        next_idx: Index of next session to highlight
-
-    Returns:
-        Rich Table object
-    """
-    title = "Upcoming Plan"
-    if weeks:
-        title += f" ({weeks} weeks)"
-
-    table = Table(title=title)
-
-    table.add_column("", width=2)  # Marker column
-    table.add_column("Wk", justify="right", style="dim")
-    table.add_column("Date", style="cyan")
-    table.add_column("Type", style="magenta")
-    table.add_column("Grip", style="green")
-    table.add_column("Sets (reps@kg x sets)", style="bold")
-    table.add_column("Rest", justify="right")
-    table.add_column("Total", justify="right", style="yellow")
-    table.add_column("TM", justify="right", style="bold green")
-
-    for i, plan in enumerate(plans):
-        if not plan.sets:
-            sets_str = "(no sets)"
-            rest_str = "-"
-            total_str = "0"
-        else:
-            # Format sets
-            reps_list = [s.target_reps for s in plan.sets]
-            weight = plan.sets[0].added_weight_kg
-            rest = plan.sets[0].rest_seconds_before
-
-            # Check if all reps are the same
-            if all(r == reps_list[0] for r in reps_list):
-                sets_str = f"{len(reps_list)}x({reps_list[0]}@+{weight:.1f})"
-            else:
-                reps_str = ",".join(str(r) for r in reps_list)
-                sets_str = f"({reps_str})@+{weight:.1f}"
-
-            rest_str = str(rest)
-            total_str = str(plan.total_reps)
-
-        # Marker for next session
-        marker = "[bold cyan]>[/bold cyan]" if i == next_idx else ""
-
-        # Highlight row style for next session
-        row_style = "bold" if i == next_idx else None
-
-        table.add_row(
-            marker,
-            str(plan.week_number),
-            plan.date,
-            plan.session_type,
-            plan.grip,
-            sets_str,
-            rest_str,
-            total_str,
-            str(plan.expected_tm),
-            style=row_style,
-        )
-
-    return table
 
 
 def print_max_plot(

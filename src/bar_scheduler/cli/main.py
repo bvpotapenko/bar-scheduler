@@ -43,7 +43,7 @@ def main_callback(
         "7": ("volume",        "Weekly volume chart"),
         "e": ("explain",          "Explain how a session was planned"),
         "r": ("1rm",              "Estimate 1-rep max"),
-        "s": ("skip",             "Rest day — shift plan forward"),
+        "s": ("skip",             "Rest day — shift plan forward or back"),
         "u": ("update-equipment", "Update training equipment"),
         "i": ("init",             "Setup / edit profile & training days"),
         "d": ("delete-record",    "Delete a session by ID"),

@@ -573,6 +573,11 @@ def generate_plan(
     # continue the rotation seamlessly from where history left off.
     grip_counts = _init_grip_counts(history, exercise)
 
+    # Pre-index history by session type for O(1) recent-session lookup in the plan loop
+    history_by_type: dict[str, list] = {}
+    for s in history:
+        history_by_type.setdefault(s.session_type, []).append(s)
+
     # For BSS: find last TEST added weight to use as the dumbbell weight in training
     last_test_weight = 0.0
     if exercise.load_type == "external_only":
@@ -611,7 +616,7 @@ def generate_plan(
             grip = exercise.primary_variant
 
         # Calculate sets based on current TM
-        recent_same_type = [s for s in history if s.session_type == session_type][-5:]
+        recent_same_type = history_by_type.get(session_type, [])[-5:]
         sets = calculate_set_prescription(
             session_type,  # type: ignore
             current_tm,

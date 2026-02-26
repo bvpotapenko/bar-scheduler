@@ -4,6 +4,41 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [Unreleased] — 2026-02-26
+
+### Refactored (codebase cleanup)
+
+#### Dead code removal
+- Deleted `format_plan_table`, `print_plan`, `print_plan_with_context`, and
+  `format_plan_table_with_marker` from `cli/views.py` — all four were superseded by
+  `print_unified_plan` + `build_timeline` and had zero callers outside the file.
+
+#### `build_timeline` — index-based history matching
+- Replaced `id()`-based object-identity tracking (`history_id_map`, `matched_history`)
+  with direct original-index tracking (`matched_indices`).
+  Same semantics; eliminates reliance on CPython memory-address stability.
+
+#### `planning.py` — DRY helpers
+- Added `_resolve_plan_start(store, user_state, default_offset_days)` helper.
+- Added `_total_weeks(plan_start_date, weeks_ahead)` helper.
+- Removed 4 inline copies of the plan-start resolution + weeks-clamping blocks from
+  `plan()`, `explain()`, `_menu_explain()`, and `skip()`.
+
+#### `planner.py` — O(1) recent-session lookup
+- `generate_plan()` now builds a `history_by_type` dict before the session loop.
+  Replaces a per-iteration O(n) history scan for `recent_same_type` with an O(1) dict lookup.
+
+#### `metrics.py` — single-pass linear regression
+- `linear_trend_max_reps()` replaced four separate `sum()` generator passes with a
+  single accumulator loop — same result, one pass over the data.
+
+#### `views.py` — decomposed `print_unified_plan`
+- Extracted four private helper functions from the 224-line `print_unified_plan`:
+  `_print_equipment_header`, `_emax_cell`, `_grip_legend_str`, `_print_band_progression`.
+- Moved `get_exercise` import from lazy local import to module-level.
+
+---
+
 ## [Unreleased] — 2026-02-24
 
 ### Added (task.md completion batch)

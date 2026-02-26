@@ -16,6 +16,26 @@ from .. import views
 from ..app import ExerciseOption, app, get_store
 
 
+def _resolve_plan_start(store, user_state, default_offset_days: int = 1) -> str:
+    """Return plan_start_date from store, or fall back to first history date + offset."""
+    plan_start_date = store.get_plan_start_date()
+    if plan_start_date is None:
+        if user_state.history:
+            first_dt = datetime.strptime(user_state.history[0].date, "%Y-%m-%d")
+            plan_start_date = (first_dt + timedelta(days=default_offset_days)).strftime("%Y-%m-%d")
+        else:
+            plan_start_date = (datetime.now() + timedelta(days=default_offset_days)).strftime("%Y-%m-%d")
+    return plan_start_date
+
+
+def _total_weeks(plan_start_date: str, weeks_ahead: int = 4) -> int:
+    """Return total plan horizon in weeks, clamped to [2, MAX_PLAN_WEEKS*3]."""
+    from ...core.config import MAX_PLAN_WEEKS
+    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
+    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
+    return max(2, min(weeks_since_start + weeks_ahead, MAX_PLAN_WEEKS * 3))
+
+
 def _prompt_baseline(store, bodyweight_kg: float, exercise=None) -> int | None:
     """
     Prompt user to enter their baseline max reps when no history exists.
@@ -135,8 +155,6 @@ def _diff_plan(old: list[dict], new: list[dict]) -> list[str]:
 
 def _menu_explain() -> None:
     """Interactive explain helper called from the main menu."""
-    from ...core.config import MAX_PLAN_WEEKS
-
     store = get_store(None)
     try:
         user_state = store.load_user_state()
@@ -144,17 +162,8 @@ def _menu_explain() -> None:
         views.print_error(str(e))
         return
 
-    plan_start_date = store.get_plan_start_date()
-    if plan_start_date is None:
-        if user_state.history:
-            first_dt = datetime.strptime(user_state.history[0].date, "%Y-%m-%d")
-            plan_start_date = (first_dt + timedelta(days=1)).strftime("%Y-%m-%d")
-        else:
-            plan_start_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-
-    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
-    total_weeks = max(2, min(weeks_since_start + 4, MAX_PLAN_WEEKS * 3))
+    plan_start_date = _resolve_plan_start(store, user_state)
+    total_weeks = _total_weeks(plan_start_date)
 
     views.console.print()
     date_input = views.console.input("Date to explain (YYYY-MM-DD) or 'next' [next]: ").strip() or "next"
@@ -233,13 +242,7 @@ def plan(
         user_state = store.load_user_state()
 
     # Determine where the plan started (set by init; fall back to first history date)
-    plan_start_date = store.get_plan_start_date()
-    if plan_start_date is None:
-        if user_state.history:
-            first_dt = datetime.strptime(user_state.history[0].date, "%Y-%m-%d")
-            plan_start_date = (first_dt + timedelta(days=1)).strftime("%Y-%m-%d")
-        else:
-            plan_start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    plan_start_date = _resolve_plan_start(store, user_state)
 
     # Auto-advance plan_start_date past last logged session so that plan sessions
     # the user missed (skipped days, gap in training) are dropped automatically.
@@ -250,17 +253,12 @@ def plan(
             store.set_plan_start_date(plan_start_date)
 
     # Generate plan for enough weeks to cover history + ahead
-    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
     if weeks is not None:
         weeks_ahead = weeks
         store.set_plan_weeks(weeks)
     else:
         weeks_ahead = store.get_plan_weeks() or 4
-    total_weeks = weeks_since_start + weeks_ahead
-
-    from ...core.config import MAX_PLAN_WEEKS
-    total_weeks = max(2, min(total_weeks, MAX_PLAN_WEEKS * 3))
+    total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
     try:
         plans = generate_plan(user_state, plan_start_date, total_weeks, baseline_max, exercise=exercise)
@@ -419,8 +417,6 @@ def explain(
     exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """Show exactly how a planned session's parameters were calculated."""
-    from ...core.config import MAX_PLAN_WEEKS
-
     exercise = get_exercise(exercise_id)
     store = get_store(history_path, exercise_id)
 
@@ -434,19 +430,9 @@ def explain(
         views.print_error(f"Invalid data: {e}")
         raise typer.Exit(1)
 
-    # Resolve plan_start_date (same logic as plan command)
-    plan_start_date = store.get_plan_start_date()
-    if plan_start_date is None:
-        if user_state.history:
-            first_dt = datetime.strptime(user_state.history[0].date, "%Y-%m-%d")
-            plan_start_date = (first_dt + timedelta(days=1)).strftime("%Y-%m-%d")
-        else:
-            plan_start_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-
-    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
+    plan_start_date = _resolve_plan_start(store, user_state)
     weeks_ahead_val = weeks if weeks is not None else 4
-    total_weeks = max(2, min(weeks_since_start + weeks_ahead_val, MAX_PLAN_WEEKS * 3))
+    total_weeks = _total_weeks(plan_start_date, weeks_ahead_val)
 
     # Resolve "next" → first upcoming planned session date
     if date.lower() == "next":
@@ -482,8 +468,6 @@ def skip(
     Adding N rest days pushes future sessions forward by N days.
     Using a negative number removes rest days, undoing a previous shift.
     """
-    from ...core.config import MAX_PLAN_WEEKS
-
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
@@ -500,9 +484,7 @@ def skip(
     exercise = get_exercise(exercise_id)
 
     # Build the current plan to find missed sessions for the default from-date
-    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
-    total_weeks = max(2, min(weeks_since_start + 4, MAX_PLAN_WEEKS * 3))
+    total_weeks = _total_weeks(plan_start_date)
     try:
         plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise)
     except ValueError:

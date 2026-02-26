@@ -440,10 +440,12 @@ def linear_trend_max_reps(
         return (0.0, 0.0)
 
     n = len(test_points)
-    sum_x = sum(p[0] for p in test_points)
-    sum_y = sum(p[1] for p in test_points)
-    sum_xy = sum(p[0] * p[1] for p in test_points)
-    sum_x2 = sum(p[0] ** 2 for p in test_points)
+    sum_x = sum_y = sum_xy = sum_x2 = 0
+    for x, y in test_points:
+        sum_x += x
+        sum_y += y
+        sum_xy += x * y
+        sum_x2 += x * x
 
     # Avoid division by zero
     denominator = n * sum_x2 - sum_x**2
