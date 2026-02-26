@@ -268,9 +268,10 @@ def plan(
         views.print_error(str(e))
         raise typer.Exit(1)
 
-    # Get training status
+    # Get training status (REST records don't count as training sessions)
+    training_history = [s for s in user_state.history if s.session_type != "REST"]
     training_status = get_training_status(
-        user_state.history,
+        training_history,
         user_state.current_bodyweight_kg,
         baseline_max,
     )
@@ -469,31 +470,19 @@ def explain(
 
 @app.command()
 def skip(
-    days: Annotated[
-        int,
-        typer.Option("--days", "-d", help="Number of days to shift the plan forward"),
-    ] = 1,
     history_path: Annotated[
         Optional[Path],
         typer.Option("--history-path", "-p", help="Path to history JSONL file"),
     ] = None,
     exercise_id: ExerciseOption = "pull_up",
-    force: Annotated[
-        bool,
-        typer.Option("--force", "-f", help="Skip confirmation prompt"),
-    ] = False,
 ) -> None:
     """
-    Mark a rest day and shift the plan forward by N days.
+    Add or remove rest days to shift the training plan forward or backward.
 
-    Use this when you can't train on a scheduled day. All future sessions
-    slide forward by the specified number of days.
+    Adding N rest days pushes future sessions forward by N days.
+    Using a negative number removes rest days, undoing a previous shift.
     """
     from ...core.config import MAX_PLAN_WEEKS
-
-    if days < 1:
-        views.print_error("--days must be at least 1")
-        raise typer.Exit(1)
 
     store = get_store(history_path, exercise_id)
 
@@ -507,41 +496,85 @@ def skip(
         views.print_error("No plan start date found. Run 'init' first.")
         raise typer.Exit(1)
 
-    # Compute new start date
-    start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-    new_start_dt = start_dt + timedelta(days=days)
-    new_start = new_start_dt.strftime("%Y-%m-%d")
-    day_word = "day" if days == 1 else "days"
+    user_state = store.load_user_state()
+    exercise = get_exercise(exercise_id)
 
-    views.console.print()
-    views.console.print(f"Current plan start : [bold]{plan_start_date}[/bold]")
-    views.console.print(f"New plan start     : [bold]{new_start}[/bold]  (+{days} {day_word})")
-
-    # Show the next session that will be shifted
+    # Build the current plan to find missed sessions for the default from-date
+    plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
+    weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
+    total_weeks = max(2, min(weeks_since_start + 4, MAX_PLAN_WEEKS * 3))
     try:
-        user_state = store.load_user_state()
-        exercise = get_exercise(exercise_id)
-        plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-        weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
-        total_weeks = max(2, min(weeks_since_start + 4, MAX_PLAN_WEEKS * 3))
         plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise)
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        nxt = next((p for p in plans if p.date >= today_str), None)
-        if nxt:
-            views.console.print(
-                f"\nNext session being shifted: [bold]{nxt.date}[/bold] — "
-                f"{nxt.session_type} ({nxt.grip})"
+    except ValueError:
+        plans = []
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    timeline = views.build_timeline(plans, user_state.history)
+    missed = [e for e in timeline if e.status == "missed" and e.date < today_str]
+    missed.sort(key=lambda e: e.date, reverse=True)
+    default_from = missed[0].date if missed else today_str
+
+    # Prompt for from-date
+    views.console.print()
+    from_input = views.console.input(f"Shift from [{default_from}]: ").strip()
+    from_date = from_input if from_input else default_from
+    try:
+        datetime.strptime(from_date, "%Y-%m-%d")
+    except ValueError:
+        views.print_error(f"Invalid date: {from_date!r}. Expected YYYY-MM-DD.")
+        raise typer.Exit(1)
+
+    # Prompt for shift days (positive = forward, negative = backward)
+    days_input = views.console.input("Shift by N days [0]: ").strip()
+    try:
+        shift_days = int(days_input) if days_input else 0
+    except ValueError:
+        views.print_error(f"Invalid number: {days_input!r}. Enter an integer.")
+        raise typer.Exit(1)
+
+    if shift_days == 0:
+        views.print_info("No change applied.")
+        raise typer.Exit(0)
+
+    if shift_days > 0:
+        # Add N consecutive REST records starting from from_date
+        bw = user_state.current_bodyweight_kg
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+        for i in range(shift_days):
+            rest_date = (from_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+            rest_session = SessionResult(
+                date=rest_date,
+                bodyweight_kg=bw,
+                grip=exercise.primary_variant,
+                session_type="REST",
+                exercise_id=exercise_id,
+                planned_sets=[],
+                completed_sets=[],
             )
-    except Exception:
-        pass
+            store.append_session(rest_session)
+        sign = "+"
+    else:
+        # Remove up to |shift_days| REST records at or before from_date (newest first)
+        all_history = store.load_history()
+        rest_candidates = [
+            (i, s) for i, s in enumerate(all_history)
+            if s.session_type == "REST" and s.date <= from_date
+        ]
+        rest_candidates.sort(key=lambda x: x[1].date, reverse=True)
+        to_delete = rest_candidates[:abs(shift_days)]
+        # Delete from highest index to lowest to keep earlier indices stable
+        for idx, _ in sorted(to_delete, key=lambda x: x[0], reverse=True):
+            store.delete_session_at(idx)
+        # Roll back plan_start_date to the last non-REST date
+        updated_history = store.load_history()
+        non_rest = [s for s in updated_history if s.session_type != "REST"]
+        if non_rest:
+            new_start = max(s.date for s in non_rest)
+            store.set_plan_start_date(new_start)
+        sign = ""
 
-    if not force:
-        views.console.print()
-        if not views.confirm_action(f"Shift plan forward by {days} {day_word}?"):
-            views.print_info("Cancelled.")
-            raise typer.Exit(0)
-
-    store.set_plan_start_date(new_start)
+    day_word = "day" if abs(shift_days) == 1 else "days"
     views.print_success(
-        f"Plan shifted +{days} {day_word}. Run 'plan' to see the updated schedule."
+        f"Plan shifted {sign}{shift_days} {day_word} from {from_date}. "
+        "Run 'plan' to see the updated schedule."
     )

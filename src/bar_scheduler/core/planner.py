@@ -82,7 +82,7 @@ def get_next_session_type_index(
     Returns:
         Index into schedule for the first planned session
     """
-    non_test = [s for s in history if s.session_type != "TEST"]
+    non_test = [s for s in history if s.session_type not in ("TEST", "REST")]
     if not non_test:
         return 0
     last_type = non_test[-1].session_type
@@ -401,10 +401,13 @@ def _init_grip_counts(
 
     Only counts sessions for the specified exercise so that a dip plan
     doesn't inherit pull-up grip rotation counts.
+    Returns empty dict when the exercise has no variant rotation.
     """
+    if not exercise.has_variant_rotation:
+        return {}
     counts: dict[str, int] = {}
     for s in history:
-        if s.exercise_id == exercise.exercise_id:
+        if s.exercise_id == exercise.exercise_id and s.session_type != "REST":
             counts[s.session_type] = counts.get(s.session_type, 0) + 1
     return counts
 
@@ -483,8 +486,11 @@ def generate_plan(
     if exercise is None:
         exercise = PULL_UP
 
-    # Filter history to this exercise
-    history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
+    # Filter history to this exercise, excluding REST records (they don't affect training logic)
+    history = [
+        s for s in user_state.history
+        if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
+    ]
 
     if not history and baseline_max is None:
         raise ValueError(
@@ -596,8 +602,11 @@ def generate_plan(
         # Use integer TM for prescriptions
         current_tm = int(tm_float)
 
-        # Select grip/variant via rotation
-        grip = _next_grip(session_type, grip_counts, exercise)
+        # Select grip/variant via rotation (or always use primary when no rotation)
+        if exercise.has_variant_rotation:
+            grip = _next_grip(session_type, grip_counts, exercise)
+        else:
+            grip = exercise.primary_variant
 
         # Calculate sets based on current TM
         recent_same_type = [s for s in history if s.session_type == session_type][-5:]

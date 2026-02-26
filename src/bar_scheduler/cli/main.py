@@ -86,7 +86,7 @@ def main_callback(
     elif chosen == "1rm":
         ctx.invoke(analysis.onerepmax, exercise_id=exercise_id)
     elif chosen == "skip":
-        ctx.invoke(planning.skip)
+        ctx.invoke(planning.skip, exercise_id=exercise_id)
     elif chosen == "update-equipment":
         ctx.invoke(profile.update_equipment_cmd, exercise_id=exercise_id)
     elif chosen == "init":

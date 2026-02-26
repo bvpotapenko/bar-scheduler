@@ -30,14 +30,6 @@ DIP = ExerciseDefinition(
         "tricep_upright": 1.03,   # harder for triceps
     },
 
-    grip_cycles={
-        "S": ["standard", "chest_lean", "tricep_upright"],
-        "H": ["standard", "chest_lean", "tricep_upright"],
-        "T": ["standard", "tricep_upright"],
-        "E": ["standard"],
-        "TEST": ["standard"],
-    },
-
     session_params={
         "S": SessionTypeParams(
             reps_fraction_low=0.35,
@@ -118,4 +110,6 @@ DIP = ExerciseDefinition(
     weight_increment_fraction=0.012,  # 1.2% of effective BW per TM point above threshold
     weight_tm_threshold=12,
     max_added_weight_kg=30.0,
+
+    has_variant_rotation=False,  # dips: always use standard form, no lean cycling
 )

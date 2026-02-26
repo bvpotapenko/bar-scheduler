@@ -6,7 +6,7 @@ exercise the planner can manage. SessionTypeParams holds per-session-type
 configuration (reps, sets, rest, RIR) tuned for the specific exercise.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -47,9 +47,6 @@ class ExerciseDefinition:
     primary_variant: str      # Used for standardised testing
     variant_factors: dict[str, float]  # Normalisation factor per variant
 
-    # Grip/variant rotation per session type
-    grip_cycles: dict[str, list[str]]  # session_type → ordered variant list
-
     # Session type configurations
     session_params: dict[str, SessionTypeParams]
 
@@ -69,3 +66,10 @@ class ExerciseDefinition:
     weight_increment_fraction: float  # Fraction of effective load per TM point above threshold
     weight_tm_threshold: int          # TM must exceed this before adding weight
     max_added_weight_kg: float        # Absolute cap on added weight
+
+    # Whether to rotate through variants across sessions.
+    # False = always use primary_variant (e.g. dips where varying lean is undesirable).
+    has_variant_rotation: bool = True
+
+    # Grip/variant rotation per session type (only used when has_variant_rotation=True)
+    grip_cycles: dict[str, list[str]] = field(default_factory=dict)

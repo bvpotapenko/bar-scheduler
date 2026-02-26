@@ -88,7 +88,7 @@ def validate_session_type(session_type: str) -> SessionType:
     Raises:
         ValidationError: If session type is invalid
     """
-    valid_types = ("S", "H", "E", "T", "TEST")
+    valid_types = ("S", "H", "E", "T", "TEST", "REST")
     if session_type not in valid_types:
         raise ValidationError(
             f"Invalid session_type: {session_type}. Must be one of {valid_types}"

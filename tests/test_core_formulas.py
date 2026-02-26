@@ -1217,3 +1217,93 @@ class TestEquipmentSerialization:
         }
         session = dict_to_session_result(legacy)
         assert session.equipment_snapshot is None
+
+
+# ===========================================================================
+# Regression tests for Bug 1: dip no-variant-rotation
+# ===========================================================================
+
+class TestDipNoVariantRotation:
+    """Dip plans must always use the primary variant (standard), never rotate."""
+
+    def test_dip_grip_always_standard(self):
+        """generate_plan for dip must return grip='standard' for every session."""
+        from bar_scheduler.core.planner import generate_plan
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.models import UserState, UserProfile, SessionResult, SetResult
+
+        exercise = get_exercise("dip")
+        profile = UserProfile(height_cm=180, sex="male", preferred_days_per_week=3)
+        test_set = SetResult(target_reps=7, actual_reps=7, rest_seconds_before=180)
+        history = [
+            SessionResult(
+                date="2026-01-01", bodyweight_kg=80.0, grip="standard",
+                session_type="TEST", exercise_id="dip",
+                planned_sets=[test_set], completed_sets=[test_set],
+            )
+        ]
+        user_state = UserState(profile=profile, current_bodyweight_kg=80.0, history=history)
+        plans = generate_plan(user_state, "2026-01-02", weeks_ahead=4, exercise=exercise)
+        bad = [p for p in plans if p.grip != "standard"]
+        assert not bad, f"Dip plans with non-standard grip: {[(p.date, p.grip) for p in bad]}"
+
+
+# ===========================================================================
+# Regression tests for Bug 2: REST session type
+# ===========================================================================
+
+class TestRestSessionType:
+    """REST sessions must be accepted, stored, and ignored by rotation/planner logic."""
+
+    def test_rest_is_valid_session_type(self):
+        """SessionResult with session_type='REST' must construct without error."""
+        from bar_scheduler.core.models import SessionResult
+
+        session = SessionResult(
+            date="2026-01-02", bodyweight_kg=80.0, grip="standard",
+            session_type="REST", exercise_id="dip",
+            planned_sets=[], completed_sets=[],
+        )
+        assert session.session_type == "REST"
+
+    def test_rest_not_counted_in_rotation(self):
+        """REST session between two S sessions must not reset S→H→E rotation."""
+        from bar_scheduler.core.planner import get_next_session_type_index, get_schedule_template
+        from bar_scheduler.core.models import SessionResult, SetResult
+
+        s_set = SetResult(target_reps=5, actual_reps=5, rest_seconds_before=180)
+        history = [
+            SessionResult(
+                date="2026-01-01", bodyweight_kg=80.0, grip="pronated",
+                session_type="S", exercise_id="pull_up",
+                planned_sets=[s_set], completed_sets=[s_set],
+            ),
+            SessionResult(
+                date="2026-01-02", bodyweight_kg=80.0, grip="pronated",
+                session_type="REST", exercise_id="pull_up",
+                planned_sets=[], completed_sets=[],
+            ),
+        ]
+        schedule = get_schedule_template(3)  # ["S", "H", "E"]
+        idx = get_next_session_type_index(history, schedule)
+        # After one S session (ignoring the REST), next should be H at index 1
+        assert idx == 1, (
+            f"Expected rotation index 1 (H after S), got {idx}. "
+            "REST session must not advance or reset the rotation."
+        )
+
+    def test_rest_serializes_to_jsonl(self):
+        """REST session must round-trip through JSONL serialization."""
+        from bar_scheduler.core.models import SessionResult
+        from bar_scheduler.io.serializers import session_result_to_dict, dict_to_session_result
+
+        session = SessionResult(
+            date="2026-01-02", bodyweight_kg=80.0, grip="standard",
+            session_type="REST", exercise_id="dip",
+            planned_sets=[], completed_sets=[],
+        )
+        d = session_result_to_dict(session)
+        assert d["session_type"] == "REST"
+        loaded = dict_to_session_result(d)
+        assert loaded.session_type == "REST"
+        assert loaded.date == "2026-01-02"

@@ -12,7 +12,7 @@ from typing import ClassVar, Literal
 # Grip is now a plain str to support non-pull-up variant names
 # (e.g. "standard", "chest_lean" for dips; "deficit" for BSS).
 Grip = str
-SessionType = Literal["S", "H", "E", "T", "TEST"]
+SessionType = Literal["S", "H", "E", "T", "TEST", "REST"]
 Sex = Literal["male", "female"]
 
 
@@ -148,7 +148,7 @@ class SessionResult:
 
         # Grip validation is exercise-specific; not enforced here.
 
-        if self.session_type not in ("S", "H", "E", "T", "TEST"):
+        if self.session_type not in ("S", "H", "E", "T", "TEST", "REST"):
             raise ValueError(f"Invalid session_type: {self.session_type}")
 
     @staticmethod
@@ -188,7 +188,7 @@ class SessionPlan:
         """Validate session plan data."""
         SessionResult._validate_date(self.date)
         # Grip validation is exercise-specific; not enforced here.
-        if self.session_type not in ("S", "H", "E", "T", "TEST"):
+        if self.session_type not in ("S", "H", "E", "T", "TEST", "REST"):
             raise ValueError(f"Invalid session_type: {self.session_type}")
 
     @property

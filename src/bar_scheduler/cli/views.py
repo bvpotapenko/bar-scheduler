@@ -18,7 +18,7 @@ from ..core.max_estimator import estimate_max_reps_from_session
 from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
 from ..core.models import EquipmentState, ExerciseTarget, SessionPlan, SessionResult, TrainingStatus, UserState
 
-TimelineStatus = Literal["done", "missed", "next", "planned", "extra"]
+TimelineStatus = Literal["done", "missed", "next", "planned", "extra", "rested"]
 
 
 @dataclass
@@ -94,7 +94,7 @@ def build_timeline(
 
         # Determine status — "next" is assigned by the second pass below
         if matched is not None:
-            status: TimelineStatus = "done"
+            status: TimelineStatus = "rested" if matched.session_type == "REST" else "done"
         elif plan.date < today:
             status = "missed"
         else:
@@ -237,7 +237,7 @@ _GRIP_ABBR: dict[str, str] = {
     "deficit": "Def", "front_foot_elevated": "FFE",
 }
 _TYPE_DISPLAY: dict[str, str] = {
-    "TEST": "TST", "S": "Str", "H": "Hpy", "E": "End", "T": "Tec",
+    "TEST": "TST", "S": "Str", "H": "Hpy", "E": "End", "T": "Tec", "REST": "Rest",
 }
 
 
@@ -245,7 +245,7 @@ def _fmt_date_cell(date_str: str, status: TimelineStatus) -> str:
     """Format status icon + date as a single compact cell: '> 02.18(Tue)'."""
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     date_part = dt.strftime("%m.%d(%a)")
-    icon = {"done": "✓", "missed": "—", "next": ">", "planned": " ", "extra": "·"}[
+    icon = {"done": "✓", "missed": "—", "next": ">", "planned": " ", "extra": "·", "rested": "~"}[
         status
     ]
     return f"{icon} {date_part}"
@@ -276,6 +276,9 @@ def print_unified_plan(
     """
     from ..core.exercises.registry import get_exercise
 
+    exercise = get_exercise(exercise_id)
+    show_grip = exercise.has_variant_rotation
+
     # Header
     console.print()
     console.print(format_status_display(status, exercise_target=exercise_target))
@@ -283,14 +286,13 @@ def print_unified_plan(
 
     # Equipment header line
     if equipment_state is not None:
-        ex = get_exercise(exercise_id)
         catalog = get_catalog(exercise_id)
         item_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
         a_kg = get_assistance_kg(
             equipment_state.active_item, exercise_id, equipment_state.machine_assistance_kg
         )
         if bodyweight_kg and bodyweight_kg > 0:
-            leff = compute_leff(ex.bw_fraction, bodyweight_kg, 0.0, a_kg)
+            leff = compute_leff(exercise.bw_fraction, bodyweight_kg, 0.0, a_kg)
             console.print(
                 f"[dim]Equipment: {item_label}  (Leff ≈ {leff:.0f} kg @ {bodyweight_kg:.0f} kg BW)[/dim]"
             )
@@ -311,7 +313,8 @@ def print_unified_plan(
     table.add_column("Wk", justify="right", style="dim", width=3)
     table.add_column("Date", style="cyan", width=14, no_wrap=True)  # ✓ MM.DD(Ddd)
     table.add_column("Type", style="magenta", width=5)              # Str/Hpy/End/Tec/TST
-    table.add_column("Grip", width=5)                               # Pro/Neu/Sup/…
+    if show_grip:
+        table.add_column("Grip", width=5)                           # Pro/Neu/Sup/…
     table.add_column("Prescribed", width=22)
     table.add_column("Actual", width=24)
     table.add_column(
@@ -376,12 +379,19 @@ def print_unified_plan(
         type_str = _TYPE_DISPLAY.get(raw_type, raw_type[:3] if raw_type else "")
         grip_str = _GRIP_ABBR.get(raw_grip, raw_grip[:3].capitalize() if raw_grip else "")
 
+        # REST rows: show the type label but no prescription/actual/eMax content
+        is_rest_row = entry.actual is not None and entry.actual.session_type == "REST"
+
         # For completed sessions: show the historically stored planned_sets
         # (frozen at log time) so past prescriptions are immutable across
         # plan regenerations.  Fall back to the regenerated plan only when
         # no stored prescription is available (e.g. sessions logged without
         # a prior plan).
-        if entry.actual and entry.actual.planned_sets:
+        if is_rest_row:
+            prescribed_str = ""
+            actual_str = ""
+            tm_str = ""
+        elif entry.actual and entry.actual.planned_sets:
             prescribed_str = _fmt_prescribed_sets(
                 entry.actual.planned_sets, entry.actual.session_type
             )
@@ -389,52 +399,49 @@ def print_unified_plan(
             prescribed_str = _fmt_prescribed(entry.planned)
         else:
             prescribed_str = ""
-        actual_str = _fmt_actual(entry.actual) if entry.actual else ""
+        if not is_rest_row:
+            actual_str = _fmt_actual(entry.actual) if entry.actual else ""
 
         # Style for the row
         if entry.status == "next":
             row_style = "bold"
-        elif entry.status == "done":
+        elif entry.status in ("done", "rested"):
             row_style = "dim"
         elif entry.status == "missed":
             row_style = "dim red"
         else:
             row_style = None
 
-        table.add_row(
-            id_str,
-            wk_str,
-            date_cell,
-            type_str,
-            grip_str,
-            prescribed_str,
-            actual_str,
-            tm_str,
-            style=row_style,
-        )
+        row_cells = [id_str, wk_str, date_cell, type_str]
+        if show_grip:
+            row_cells.append(grip_str)
+        row_cells.extend([prescribed_str, actual_str, tm_str])
+        table.add_row(*row_cells, style=row_style)
 
     console.print(table)
 
-    # Build a grip legend containing only the variants that appear in this plan
-    grips_seen: set[str] = set()
-    for e in entries:
-        if e.actual:
-            grips_seen.add(e.actual.grip)
-        elif e.planned:
-            grips_seen.add(e.planned.grip)
+    # Build a grip legend (only when the exercise uses variant rotation)
+    grip_legend = ""
+    if show_grip:
+        grips_seen: set[str] = set()
+        for e in entries:
+            if e.actual:
+                grips_seen.add(e.actual.grip)
+            elif e.planned:
+                grips_seen.add(e.planned.grip)
 
-    _GRIP_FULL: dict[str, str] = {
-        "pronated": "Pronated", "neutral": "Neutral", "supinated": "Supinated",
-        "standard": "Standard", "chest_lean": "Chest-lean", "tricep_upright": "Tricep-upright",
-        "deficit": "Deficit", "front_foot_elevated": "Front-foot-elevated",
-    }
-    grip_parts = [
-        f"{_GRIP_ABBR[g].strip()}={_GRIP_FULL[g]}"
-        for g in ("pronated", "neutral", "supinated", "standard",
-                  "chest_lean", "tricep_upright", "deficit", "front_foot_elevated")
-        if g in grips_seen and g in _GRIP_ABBR
-    ]
-    grip_legend = ("  |  Grip: " + "  ".join(grip_parts)) if grip_parts else ""
+        _GRIP_FULL: dict[str, str] = {
+            "pronated": "Pronated", "neutral": "Neutral", "supinated": "Supinated",
+            "standard": "Standard", "chest_lean": "Chest-lean", "tricep_upright": "Tricep-upright",
+            "deficit": "Deficit", "front_foot_elevated": "Front-foot-elevated",
+        }
+        grip_parts = [
+            f"{_GRIP_ABBR[g].strip()}={_GRIP_FULL[g]}"
+            for g in ("pronated", "neutral", "supinated", "standard",
+                      "chest_lean", "tricep_upright", "deficit", "front_foot_elevated")
+            if g in grips_seen and g in _GRIP_ABBR
+        ]
+        grip_legend = ("  |  Grip: " + "  ".join(grip_parts)) if grip_parts else ""
 
     console.print(
         "[dim]Type: Str=Strength  Hpy=Hypertrophy  End=Endurance  Tec=Technique  TST=Max-test"
