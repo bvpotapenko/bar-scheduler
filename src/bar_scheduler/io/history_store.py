@@ -33,15 +33,17 @@ class HistoryStore:
     A separate profile.json file stores user profile data.
     """
 
-    def __init__(self, history_path: str | Path):
+    def __init__(self, history_path: str | Path, exercise_id: str = "pull_up"):
         """
         Initialize the history store.
 
         Args:
             history_path: Path to the JSONL history file
+            exercise_id: Exercise this store belongs to (used to isolate plan_start_date)
         """
         self.history_path = Path(history_path)
         self.profile_path = self.history_path.parent / "profile.json"
+        self.exercise_id = exercise_id
 
     def exists(self) -> bool:
         """Check if the history file exists."""
@@ -77,7 +79,7 @@ class HistoryStore:
 
     def get_plan_start_date(self) -> str | None:
         """
-        Get the plan start date from profile.json.
+        Get the plan start date from profile.json for this exercise.
 
         Returns:
             ISO date string or None if not set
@@ -87,13 +89,21 @@ class HistoryStore:
         try:
             with open(self.profile_path, "r") as f:
                 data = json.load(f)
+            # Per-exercise format takes precedence
+            per_ex = data.get("plan_start_dates", {})
+            if self.exercise_id in per_ex:
+                return per_ex[self.exercise_id]
+            # Legacy single-key fallback
             return data.get("plan_start_date")
         except (json.JSONDecodeError, KeyError):
             return None
 
     def set_plan_start_date(self, date: str) -> None:
         """
-        Store the plan start date in profile.json.
+        Store the plan start date in profile.json for this exercise.
+
+        Writes to the per-exercise nested key so different exercises
+        don't overwrite each other's plan anchor.
 
         Args:
             date: ISO date string (YYYY-MM-DD)
@@ -102,7 +112,9 @@ class HistoryStore:
             return
         with open(self.profile_path, "r") as f:
             data = json.load(f)
-        data["plan_start_date"] = date
+        if "plan_start_dates" not in data:
+            data["plan_start_dates"] = {}
+        data["plan_start_dates"][self.exercise_id] = date
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 

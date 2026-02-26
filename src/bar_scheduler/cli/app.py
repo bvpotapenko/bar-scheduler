@@ -28,4 +28,4 @@ def get_store(history_path: Path | None, exercise_id: str = "pull_up") -> Histor
     """Get history store from path or default location for the given exercise."""
     if history_path is None:
         history_path = get_default_history_path(exercise_id)
-    return HistoryStore(history_path)
+    return HistoryStore(history_path, exercise_id=exercise_id)

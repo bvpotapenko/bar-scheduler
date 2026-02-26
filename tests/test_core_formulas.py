@@ -1307,3 +1307,51 @@ class TestRestSessionType:
         loaded = dict_to_session_result(d)
         assert loaded.session_type == "REST"
         assert loaded.date == "2026-01-02"
+
+
+class TestPlanStartDatePerExercise:
+    """plan_start_date is stored and read independently per exercise."""
+
+    def test_plan_start_dates_are_independent(self, tmp_path):
+        """Setting plan_start_date for dip must not affect pull_up."""
+        import json
+        from bar_scheduler.io.history_store import HistoryStore
+
+        profile = {"training_days_per_week": 3, "current_bodyweight_kg": 80.0}
+        (tmp_path / "profile.json").write_text(json.dumps(profile))
+
+        pull_up_store = HistoryStore(tmp_path / "history.jsonl", exercise_id="pull_up")
+        dip_store     = HistoryStore(tmp_path / "dip_history.jsonl", exercise_id="dip")
+
+        pull_up_store.set_plan_start_date("2026-02-20")
+        dip_store.set_plan_start_date("2026-02-26")
+
+        assert pull_up_store.get_plan_start_date() == "2026-02-20"
+        assert dip_store.get_plan_start_date()     == "2026-02-26"
+
+    def test_legacy_plan_start_date_readable(self, tmp_path):
+        """Legacy single plan_start_date key is still readable for pull_up."""
+        import json
+        from bar_scheduler.io.history_store import HistoryStore
+
+        profile = {"training_days_per_week": 3, "plan_start_date": "2026-02-15"}
+        (tmp_path / "profile.json").write_text(json.dumps(profile))
+
+        store = HistoryStore(tmp_path / "history.jsonl", exercise_id="pull_up")
+        assert store.get_plan_start_date() == "2026-02-15"
+
+    def test_legacy_key_not_written_on_update(self, tmp_path):
+        """After set_plan_start_date(), new per-exercise key is used; old key untouched."""
+        import json
+        from bar_scheduler.io.history_store import HistoryStore
+
+        profile = {"training_days_per_week": 3, "plan_start_date": "2026-02-15"}
+        (tmp_path / "profile.json").write_text(json.dumps(profile))
+
+        store = HistoryStore(tmp_path / "history.jsonl", exercise_id="pull_up")
+        store.set_plan_start_date("2026-02-20")
+
+        data = json.loads((tmp_path / "profile.json").read_text())
+        assert data["plan_start_dates"]["pull_up"] == "2026-02-20"
+        assert data["plan_start_date"] == "2026-02-15"   # legacy key untouched
+        assert store.get_plan_start_date() == "2026-02-20"  # new key takes precedence
