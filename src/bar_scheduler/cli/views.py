@@ -635,18 +635,40 @@ def print_recent_history(sessions: list[SessionResult]) -> None:
 
 def print_max_plot(
     sessions: list[SessionResult],
-    trajectory: list[tuple[datetime, float]] | None = None,
+    trajectory_z: list[tuple[datetime, float]] | None = None,
+    trajectory_g: list[tuple[datetime, float]] | None = None,
+    trajectory_m: list[tuple[datetime, float]] | None = None,
+    bw_load_kg: float = 0.0,
+    target_weight_kg: float = 0.0,
     exercise_name: str = "Pull-Up",
+    target: int = 30,
+    traj_types: frozenset[str] = frozenset(),
 ) -> None:
     """
     Print ASCII plot of max reps progress.
 
     Args:
         sessions: Sessions to plot
-        trajectory: Optional list of (date, projected_max) points for overlay
+        trajectory_z: BW reps trajectory (· dots)
+        trajectory_g: Goal-weight reps trajectory (× dots)
+        trajectory_m: 1RM added kg trajectory (○ dots, independent right axis)
+        bw_load_kg: BW × bw_fraction; used with trajectory_m for right axis
+        target_weight_kg: Goal added weight (for legend label)
         exercise_name: Display name shown in the chart title
+        target: Target rep count for y-axis scaling
+        traj_types: Set of requested trajectory flags (z/g/m); used for legend labels
     """
-    plot = create_max_reps_plot(sessions, trajectory=trajectory, exercise_name=exercise_name)
+    plot = create_max_reps_plot(
+        sessions,
+        trajectory_z=trajectory_z,
+        trajectory_g=trajectory_g,
+        trajectory_m=trajectory_m,
+        bw_load_kg=bw_load_kg,
+        target_weight_kg=target_weight_kg,
+        exercise_name=exercise_name,
+        target=target,
+        traj_types=traj_types,
+    )
     console.print(plot)
 
 

@@ -304,6 +304,64 @@ def epley_1rm(total_load_kg: float, reps: int) -> float:
     return total_load_kg * (1 + reps / 30)
 
 
+def lombardi_1rm(total_load_kg: float, reps: int) -> float:
+    """1RM = w × r^0.10  (Lombardi; non-linear, handles higher-rep sets better than Epley)."""
+    if reps <= 0:
+        return 0.0
+    return total_load_kg * (reps ** 0.10)
+
+
+def brzycki_1rm(total_load_kg: float, reps: int) -> float:
+    """1RM = w / (1.0278 − 0.0278 × r)  (Brzycki; accurate for r ≤ 10)."""
+    if reps <= 0:
+        return 0.0
+    denom = 1.0278 - 0.0278 * reps
+    if denom <= 0:
+        return float("inf")
+    return total_load_kg / denom
+
+
+def lander_1rm(total_load_kg: float, reps: int) -> float:
+    """1RM = 100 × w / (101.3 − 2.67123 × r)  (Lander; accurate for r ≤ 10)."""
+    if reps <= 0:
+        return 0.0
+    denom = 101.3 - 2.67123 * reps
+    if denom <= 0:
+        return float("inf")
+    return (100.0 * total_load_kg) / denom
+
+
+def blended_1rm_added(bw_load_kg: float, reps: int) -> float | None:
+    """
+    Rep-range–aware 1RM estimate returning ADDED kg only (total 1RM − bw_load).
+
+    Uses different formula blends by rep range for better accuracy:
+        r ≤ 5   → avg(Brzycki, Lander)         [strength range, most accurate]
+        r ≤ 10  → avg(Brzycki, Lander, Epley)  [moderate reps]
+        r ≤ 20  → avg(Lombardi, Epley)          [high reps; Lombardi corrects Epley bias]
+        r > 20  → None                          [unreliable; caller should cap at 20]
+
+    Args:
+        bw_load_kg: BW × bw_fraction (the load the exercise uses from bodyweight)
+        reps: Max reps performed with bodyweight only
+
+    Returns:
+        Estimated additional kg the user could add for 1 rep, or None if r > 20.
+    """
+    if reps <= 0:
+        return None
+    if reps > 20:
+        return None
+    w = bw_load_kg
+    if reps <= 5:
+        total = (brzycki_1rm(w, reps) + lander_1rm(w, reps)) / 2
+    elif reps <= 10:
+        total = (brzycki_1rm(w, reps) + lander_1rm(w, reps) + epley_1rm(w, reps)) / 3
+    else:  # 11 ≤ r ≤ 20
+        total = (lombardi_1rm(w, reps) + epley_1rm(w, reps)) / 2
+    return max(0.0, total - bw_load_kg)
+
+
 def estimate_pullup_1rm(
     history: list[SessionResult],
     current_bodyweight_kg: float,

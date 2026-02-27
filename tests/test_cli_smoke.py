@@ -626,11 +626,11 @@ class TestJSONAndTrajectory:
         self._init(history_path)
 
         result = runner.invoke(app, [
-            "plot-max", "--trajectory", "--history-path", str(history_path)
+            "plot-max", "--trajectory", "z", "--history-path", str(history_path)
         ])
         assert result.exit_code == 0
         # Either the trajectory dot character or the legend text should appear
-        assert "·" in result.output or "projected" in result.output
+        assert "·" in result.output or "BW reps" in result.output
 
 
 # ===========================================================================

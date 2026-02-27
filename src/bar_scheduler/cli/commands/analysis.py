@@ -10,7 +10,7 @@ import typer
 from ...core.adaptation import get_training_status
 from ...core.config import TM_FACTOR, expected_reps_per_week
 from ...core.exercises.registry import get_exercise
-from ...core.metrics import estimate_1rm, session_max_reps as _max_reps, training_max_from_baseline
+from ...core.metrics import blended_1rm_added, estimate_1rm, session_max_reps as _max_reps, training_max_from_baseline
 from ...io.serializers import ValidationError
 from .. import views
 from ..app import ExerciseOption, app, get_store
@@ -20,19 +20,24 @@ def _build_trajectory(
     test_sessions: list,
     target: int,
 ) -> list[tuple[datetime, float]]:
-    """Compute projected trajectory starting from the latest test session."""
+    """Compute projected trajectory starting from the latest test session.
+
+    target = goal test-max reps (what the user aims to achieve in a TEST).
+    Y-values are estimated test-max reps (tm / TM_FACTOR).
+    """
     if not test_sessions:
         return []
     latest = test_sessions[-1]
     start_dt = datetime.strptime(latest.date, "%Y-%m-%d")
     initial_tm = training_max_from_baseline(_max_reps(latest))
+    tm_target = int(target * TM_FACTOR)  # TM ceiling corresponding to the goal
     points: list[tuple[datetime, float]] = []
     d, tm_f = start_dt, float(initial_tm)
-    while tm_f < target and d <= start_dt + timedelta(weeks=104):
+    while tm_f < tm_target and d <= start_dt + timedelta(weeks=104):
         points.append((d, tm_f / TM_FACTOR))
-        tm_f = min(tm_f + expected_reps_per_week(int(tm_f), target), float(target))
+        tm_f = min(tm_f + expected_reps_per_week(int(tm_f), tm_target), float(tm_target))
         d += timedelta(weeks=1)
-    points.append((d, float(target)))
+    points.append((d, float(target)))   # endpoint = exact goal test-max
     return points
 
 
@@ -149,17 +154,26 @@ def plot_max(
         bool,
         typer.Option("--json", "-j", help="Output as JSON for machine processing"),
     ] = False,
-    show_trajectory: Annotated[
-        bool,
-        typer.Option("--trajectory", "-t", help="Overlay projected goal trajectory line"),
-    ] = False,
+    trajectory: Annotated[
+        Optional[str],
+        typer.Option(
+            "--trajectory", "-t",
+            help=(
+                "Trajectory lines to overlay. Letters: z=BW reps, g=goal reps, "
+                "m=added-kg @1RM right axis. Combine: -t zg, -t zmg."
+            ),
+        ),
+    ] = None,
     exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
     Display ASCII plot of max reps progress.
 
-    Use --trajectory to overlay a dotted line showing the projected growth
-    from your most recent test to the target.
+    Use --trajectory with one or more letters to overlay projected lines:
+      z  bodyweight max reps (·)
+      g  reps at goal weight (×) — only for weighted goals
+      m  1RM right-axis labels in kg
+    Examples: -t z, -t zg, -t zmg
     """
     from ...core.config import TARGET_MAX_REPS
     from ...core.metrics import get_test_sessions
@@ -172,32 +186,84 @@ def plot_max(
         raise typer.Exit(1)
 
     try:
-        sessions = store.load_history()
+        user_state = store.load_user_state()
     except (FileNotFoundError, ValidationError) as e:
         views.print_error(str(e))
         raise typer.Exit(1)
 
+    sessions = user_state.history
     display_name = get_exercise(exercise_id).display_name
 
-    # Compute trajectory if requested
-    traj_points: list[tuple[datetime, float]] | None = None
-    traj_json: list[dict] | None = None
-    if show_trajectory:
-        # Use the user's per-exercise target reps if available; fall back to config constant.
-        traj_target = TARGET_MAX_REPS
+    # Parse requested trajectory types
+    traj_types: set[str] = set(trajectory.lower()) if trajectory else set()
+
+    traj_z: list[tuple[datetime, float]] | None = None
+    traj_g: list[tuple[datetime, float]] | None = None
+    traj_m: list[tuple[datetime, float]] | None = None
+    traj_z_json: list[dict] | None = None
+    traj_g_json: list[dict] | None = None
+    traj_target = TARGET_MAX_REPS
+    bw_load_kg = 0.0
+    target_weight_kg = 0.0
+
+    if traj_types:
+        # Use _bw_load locally for all calculations; bw_load_kg is only
+        # set for the right axis when "m" is explicitly requested.
+        exercise_def = get_exercise(exercise_id)
+        _bw_load = user_state.current_bodyweight_kg * exercise_def.bw_fraction
+
         try:
             profile = store.load_profile()
-            traj_target = profile.target_for_exercise(exercise_id).reps
+            ex_target = profile.target_for_exercise(exercise_id)
+            target_weight_kg = ex_target.weight_kg
+            if ex_target.weight_kg > 0:
+                full_load = _bw_load + ex_target.weight_kg
+                one_rm = full_load * (1 + ex_target.reps / 30)
+                traj_target = max(int(round(30 * (one_rm / _bw_load - 1))), 1)
+            else:
+                traj_target = ex_target.reps
         except Exception:
             pass
 
-        pts = _build_trajectory(get_test_sessions(sessions), traj_target)
-        traj_points = pts or None
-        if pts:
-            traj_json = [
-                {"date": pt.strftime("%Y-%m-%d"), "projected_max": round(val, 2)}
-                for pt, val in pts
+        if "m" in traj_types:
+            bw_load_kg = _bw_load  # enables right axis
+
+        # Compute base trajectory whenever any trajectory type needs it
+        base_pts: list[tuple[datetime, float]] = []
+        if traj_types & {"z", "g", "m"}:
+            base_pts = _build_trajectory(get_test_sessions(sessions), traj_target)
+
+        # z trajectory
+        if base_pts and "z" in traj_types:
+            traj_z = base_pts
+            traj_z_json = [
+                {"date": pt.strftime("%Y-%m-%d"), "projected_bw_reps": round(val, 2)}
+                for pt, val in base_pts
             ]
+
+        # g trajectory derived from base_pts
+        if "g" in traj_types and base_pts:
+            if target_weight_kg > 0:
+                f = _bw_load / (_bw_load + target_weight_kg)
+                pts_g = [(d, max(0.0, f * z + 30.0 * (f - 1.0))) for d, z in base_pts]
+            else:
+                # BW goal: g == z (reps at 0 added weight = BW reps)
+                pts_g = list(base_pts)
+            traj_g = pts_g
+            traj_g_json = [
+                {"date": pt.strftime("%Y-%m-%d"), "projected_goal_reps": round(val, 2)}
+                for pt, val in pts_g
+            ]
+
+        # m trajectory: blended non-linear 1RM estimate → added kg (capped at r=20)
+        if "m" in traj_types and base_pts and _bw_load > 0:
+            m_pts: list[tuple[datetime, float]] = []
+            for d, reps in base_pts:
+                r = min(int(round(reps)), 20)  # cap; blended_1rm_added returns None above 20
+                added = blended_1rm_added(_bw_load, max(r, 1))
+                if added is not None:
+                    m_pts.append((d, added))
+            traj_m = m_pts or None
 
     if json_out:
         data_points = [
@@ -205,10 +271,24 @@ def plot_max(
             for s in get_test_sessions(sessions)
             if _max_reps(s) > 0
         ]
-        print(json.dumps({"data_points": data_points, "trajectory": traj_json}, indent=2))
+        print(json.dumps({
+            "data_points": data_points,
+            "trajectory_z": traj_z_json,
+            "trajectory_g": traj_g_json,
+        }, indent=2))
         return
 
-    views.print_max_plot(sessions, trajectory=traj_points, exercise_name=display_name)
+    views.print_max_plot(
+        sessions,
+        trajectory_z=traj_z,
+        trajectory_g=traj_g,
+        trajectory_m=traj_m,
+        bw_load_kg=bw_load_kg,
+        target_weight_kg=target_weight_kg,
+        exercise_name=display_name,
+        target=traj_target,
+        traj_types=traj_types,
+    )
 
 
 @app.command("1rm")

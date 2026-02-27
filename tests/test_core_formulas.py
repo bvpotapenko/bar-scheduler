@@ -2067,3 +2067,261 @@ class TestPlotMaxChart:
             f"Trajectory must start from latest test (2026-02-01), "
             f"got {first_traj_date.date()}"
         )
+
+    def test_label_shown_for_rightmost_data_point(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+
+        sessions = [
+            _make_plot_session("2026-01-01", 10),
+            _make_plot_session("2026-06-01", 20),
+        ]
+        plot = create_max_reps_plot(sessions)
+        assert "(20)" in plot, "Label for the rightmost data point must appear in the plot"
+
+    def test_weighted_goal_trajectory_extends_past_current_reps(self):
+        from bar_scheduler.cli.commands.analysis import _build_trajectory
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.metrics import get_test_sessions
+
+        sessions = [_make_plot_session("2026-02-01", 15, exercise_id="dip")]
+        test_sessions = get_test_sessions(sessions)
+
+        # Epley conversion: dip target 12 reps @ 25 kg, BW=80
+        exercise_def = get_exercise("dip")
+        bw = 80.0
+        bw_load = bw * exercise_def.bw_fraction
+        full_load = bw_load + 25.0
+        one_rm = full_load * (1 + 12 / 30)
+        traj_target = max(int(round(30 * (one_rm / bw_load - 1))), 1)
+
+        traj = _build_trajectory(test_sessions, target=traj_target)
+        assert len(traj) > 1, "Weighted-goal equiv target must produce a forward trajectory"
+        assert traj_target > 15, "Equiv target must exceed current BW max"
+
+    def test_vertical_segment_uses_pipe_not_corner(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+
+        # Same date → both map to the same x column → should draw │ vertically
+        sessions = [
+            _make_plot_session("2026-02-24", 7),
+            _make_plot_session("2026-02-24", 15),
+        ]
+        plot = create_max_reps_plot(sessions)
+        assert "│" in plot, "Same-column points must use │ for vertical connection"
+        lines_without_bullet = [l for l in plot.splitlines() if "╭" in l and "●" not in l]
+        assert not lines_without_bullet, f"╭ appears on non-data rows: {lines_without_bullet}"
+
+    def test_g_trajectory_linear_transform(self):
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        exercise_def = get_exercise("dip")
+        bw, tw = 80.0, 25.0
+        bw_load = bw * exercise_def.bw_fraction
+        f = bw_load / (bw_load + tw)
+
+        g_at_target = f * 26.0 + 30.0 * (f - 1.0)
+        assert abs(g_at_target - 12.0) < 0.5, f"g at equiv target must ≈12, got {g_at_target:.2f}"
+
+        g_now = f * 15.0 + 30.0 * (f - 1.0)
+        assert 3.0 < g_now < 5.0, f"g at current BW max must ≈4, got {g_now:.2f}"
+
+    def test_1rm_right_axis_shown_when_trajectory_m_provided(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+
+        sessions = [_make_plot_session("2026-02-01", 15, exercise_id="dip")]
+        bw_load = 73.6
+        traj_m = self._m_traj_kg(self._base_traj(target=30), bw_load)
+
+        plot_with = create_max_reps_plot(sessions, trajectory_m=traj_m, bw_load_kg=bw_load)
+        plot_without = create_max_reps_plot(sessions)
+        assert "kg" in plot_with, "Right axis must contain 'kg' labels when trajectory_m provided"
+        assert "kg" not in plot_without, "No 'kg' labels when no trajectory_m"
+
+    def test_trajectory_is_monotonically_non_decreasing(self):
+        from bar_scheduler.cli.commands.analysis import _build_trajectory
+        from bar_scheduler.core.metrics import get_test_sessions
+
+        sessions = [_make_plot_session("2026-02-01", 15)]
+        traj = _build_trajectory(get_test_sessions(sessions), target=26)
+        assert len(traj) > 1, "Trajectory must have at least 2 points"
+        values = [v for _, v in traj]
+        for i in range(len(values) - 1):
+            assert values[i] <= values[i + 1] + 0.01, (
+                f"Trajectory dropped at step {i}: {values[i]:.2f} → {values[i + 1]:.2f}"
+            )
+
+    # ------------------------------------------------------------------
+    # Trajectory flag regression tests (3 flags × 3 goal types = 9 cases)
+    # ------------------------------------------------------------------
+    # Helpers shared by all 9 tests
+
+    def _base_traj(self, target: int = 30):
+        from bar_scheduler.cli.commands.analysis import _build_trajectory
+        from bar_scheduler.core.metrics import get_test_sessions
+        return _build_trajectory(
+            get_test_sessions([_make_plot_session("2026-02-01", 12)]), target=target
+        )
+
+    def _g_transform(self, base, bw_load: float, added_kg: float):
+        f = bw_load / (bw_load + added_kg)
+        return [(d, max(0.0, f * v + 30 * (f - 1))) for d, v in base]
+
+    def _m_traj_kg(self, traj_reps, bw_load_kg: float):
+        """Convert a reps-based trajectory to added-kg using blended_1rm_added."""
+        from bar_scheduler.core.metrics import blended_1rm_added
+        m_pts = []
+        for d, reps in traj_reps:
+            r = min(int(round(reps)), 20)
+            added = blended_1rm_added(bw_load_kg, max(r, 1))
+            if added is not None:
+                m_pts.append((d, added))
+        return m_pts
+
+    # --- z tests (marker = '·') ---
+
+    def test_z_bw_goal_shows_dots(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        traj = self._base_traj(target=30)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(sessions, trajectory_z=traj, traj_types=frozenset({"z"}))
+        assert plot.count("·") >= 2, "z with BW goal must show ≥2 · dots"
+
+    def test_z_weighted_goal_shows_dots(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        # Equiv target ~26 for dip 12 reps @ 25kg, bw=80, bw_frac=0.92
+        traj = self._base_traj(target=26)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(sessions, trajectory_z=traj, traj_types=frozenset({"z"}))
+        assert plot.count("·") >= 2, "z with weighted goal must show ≥2 · dots"
+
+    def test_z_1rm_goal_shows_dots(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        # 1RM goal (1 rep @ 80kg) converts to a high equiv target
+        traj = self._base_traj(target=40)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(sessions, trajectory_z=traj, traj_types=frozenset({"z"}))
+        assert plot.count("·") >= 2, "z with 1RM goal must show ≥2 · dots"
+
+    # --- g tests (marker = '×') ---
+
+    def test_g_bw_goal_shows_cross_dots(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        # BW goal: g = z (same trajectory)
+        traj = self._base_traj(target=30)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(
+            sessions, trajectory_g=traj,
+            target_weight_kg=0, traj_types=frozenset({"g"})
+        )
+        assert plot.count("×") >= 2, "g with BW goal must show ≥2 × dots"
+        assert "right:" not in plot, "g alone must not show right axis"
+
+    def test_g_weighted_goal_shows_cross_dots(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        bw_load = 80 * 0.92
+        base = self._base_traj(target=26)
+        pts_g = self._g_transform(base, bw_load, added_kg=25)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(
+            sessions, trajectory_g=pts_g,
+            target_weight_kg=25, traj_types=frozenset({"g"})
+        )
+        assert plot.count("×") >= 2, "g with weighted goal must show ≥2 × dots"
+        assert "right:" not in plot, "g alone must not show right axis"
+
+    def test_g_1rm_goal_shows_cross_dots(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        # 1RM goal: 1 rep @ 80kg; g-reps are very small (≈0.5) so at bottom
+        bw_load = 80 * 1.0
+        base = self._base_traj(target=40)
+        pts_g = self._g_transform(base, bw_load, added_kg=80)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(
+            sessions, trajectory_g=pts_g,
+            target_weight_kg=80, traj_types=frozenset({"g"})
+        )
+        assert plot.count("×") >= 2, "g with 1RM goal must show ≥2 × dots"
+        assert "right:" not in plot, "g alone must not show right axis"
+
+    # --- m tests (○ dots shown + independent right axis with kg) ---
+
+    def test_m_bw_goal_shows_circle_dots_and_kg_axis(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        bw_load = 80.0
+        traj_m = self._m_traj_kg(self._base_traj(target=30), bw_load)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(
+            sessions, trajectory_m=traj_m,
+            bw_load_kg=bw_load, traj_types=frozenset({"m"})
+        )
+        assert plot.count("○") >= 2, "m with BW goal must show ≥2 trajectory ○ dots"
+        assert "kg" in plot, "m must show right kg axis"
+
+    def test_m_weighted_goal_shows_circle_dots_and_kg_axis(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        bw_load = 80 * 0.92
+        traj_m = self._m_traj_kg(self._base_traj(target=26), bw_load)
+        sessions = [_make_plot_session("2026-02-01", 12, exercise_id="dip")]
+        plot = create_max_reps_plot(
+            sessions, trajectory_m=traj_m,
+            bw_load_kg=bw_load, traj_types=frozenset({"m"})
+        )
+        assert plot.count("○") >= 2, "m with weighted goal must show ≥2 trajectory ○ dots"
+        assert "kg" in plot, "m must show right kg axis"
+
+    def test_m_1rm_goal_shows_circle_dots_and_kg_axis(self):
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+        bw_load = 80.0
+        traj_m = self._m_traj_kg(self._base_traj(target=40), bw_load)
+        sessions = [_make_plot_session("2026-02-01", 12)]
+        plot = create_max_reps_plot(
+            sessions, trajectory_m=traj_m,
+            bw_load_kg=bw_load, traj_types=frozenset({"m"})
+        )
+        assert plot.count("○") >= 2, "m with 1RM goal must show ≥2 trajectory ○ dots"
+        assert "kg" in plot, "m must show right kg axis"
+
+
+class TestBlended1RM:
+    """Unit tests for multi-formula 1RM estimators in metrics.py."""
+
+    def test_lombardi_1rm(self):
+        from bar_scheduler.core.metrics import lombardi_1rm
+        # 80 kg × 15^0.10 ≈ 80 × 1.3107 ≈ 104.9 kg
+        result = lombardi_1rm(80.0, 15)
+        assert abs(result - 104.9) < 0.5, f"lombardi_1rm(80, 15) expected ≈104.9, got {result:.2f}"
+
+    def test_brzycki_1rm(self):
+        from bar_scheduler.core.metrics import brzycki_1rm
+        # 80 / (1.0278 − 0.0278×5) = 80 / 0.8888 ≈ 90.0
+        result = brzycki_1rm(80.0, 5)
+        assert abs(result - 90.0) < 0.5, f"brzycki_1rm(80, 5) expected ≈90.0, got {result:.2f}"
+
+    def test_lander_1rm(self):
+        from bar_scheduler.core.metrics import lander_1rm
+        # 100×80 / (101.3 − 2.67123×5) = 8000 / 87.944 ≈ 90.9
+        result = lander_1rm(80.0, 5)
+        assert abs(result - 90.9) < 0.5, f"lander_1rm(80, 5) expected ≈90.9, got {result:.2f}"
+
+    def test_blended_1rm_added_returns_none_above_20(self):
+        from bar_scheduler.core.metrics import blended_1rm_added
+        assert blended_1rm_added(73.6, 21) is None
+        assert blended_1rm_added(73.6, 25) is None
+
+    def test_blended_1rm_added_non_negative(self):
+        from bar_scheduler.core.metrics import blended_1rm_added
+        for r in range(1, 21):
+            result = blended_1rm_added(73.6, r)
+            assert result is not None and result >= 0.0, f"blended_1rm_added(73.6, {r}) must be ≥0"
+
+    def test_m_trajectory_non_linear_differs_from_epley(self):
+        """Blended formula at r=5 uses Brzycki+Lander (no Epley), giving a distinct value."""
+        from bar_scheduler.core.metrics import blended_1rm_added, epley_1rm
+        bw_load = 73.6
+        # At r=5, blended = avg(Brzycki, Lander); Epley gives higher estimate at low reps
+        added_blended = blended_1rm_added(bw_load, 5)
+        added_epley = epley_1rm(bw_load, 5) - bw_load
+        assert added_blended is not None
+        assert abs(added_blended - added_epley) > 1.0, (
+            f"Blended@r=5 ({added_blended:.2f}kg) must differ from Epley ({added_epley:.2f}kg) by >1kg"
+        )
