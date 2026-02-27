@@ -636,6 +636,7 @@ def print_recent_history(sessions: list[SessionResult]) -> None:
 def print_max_plot(
     sessions: list[SessionResult],
     trajectory: list[tuple[datetime, float]] | None = None,
+    exercise_name: str = "Pull-Up",
 ) -> None:
     """
     Print ASCII plot of max reps progress.
@@ -643,8 +644,9 @@ def print_max_plot(
     Args:
         sessions: Sessions to plot
         trajectory: Optional list of (date, projected_max) points for overlay
+        exercise_name: Display name shown in the chart title
     """
-    plot = create_max_reps_plot(sessions, trajectory=trajectory)
+    plot = create_max_reps_plot(sessions, trajectory=trajectory, exercise_name=exercise_name)
     console.print(plot)
 
 

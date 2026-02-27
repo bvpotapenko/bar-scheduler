@@ -1357,6 +1357,132 @@ class TestPlanStartDatePerExercise:
         assert store.get_plan_start_date() == "2026-02-20"  # new key takes precedence
 
 
+# ===========================================================================
+# Regression tests: explain_plan_entry() accuracy bugs
+# ===========================================================================
+
+class TestExplainAccuracy:
+    """
+    Regression tests for bugs in explain_plan_entry() that caused it to diverge
+    from generate_plan().  Each test targets a specific known divergence.
+
+    Bug B: BSS last_test_weight not extracted → always shows 0 kg weight.
+    Bug C: week-number anchor uses first REST record as epoch → wrong week shown.
+    Bug F: has_variant_rotation not checked → _next_grip called for non-rotating exercises.
+    """
+
+    def test_bss_last_test_weight_used(self):
+        """
+        explain_plan_entry() must show the weight from the last BSS TEST session, not 0 kg.
+
+        Bug: _calculate_added_weight(exercise, tm, bw) is called without last_test_weight.
+        For BSS (load_type='external_only'), _calculate_added_weight returns last_test_weight
+        which defaults to 0.0 → the explain always shows "ADDED WEIGHT: 0.0 kg".
+        """
+        from bar_scheduler.core.planner import explain_plan_entry
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.models import UserState, UserProfile, SessionResult, SetResult
+
+        bss = get_exercise("bss")
+        profile = UserProfile(height_cm=175, sex="male", preferred_days_per_week=3)
+        test_set = SetResult(
+            target_reps=10, actual_reps=10, rest_seconds_before=180, added_weight_kg=15.0,
+        )
+        history = [
+            SessionResult(
+                date="2026-01-01", bodyweight_kg=80.0, grip="standard",
+                session_type="TEST", exercise_id="bss",
+                planned_sets=[test_set], completed_sets=[test_set],
+            ),
+        ]
+        state = UserState(profile=profile, current_bodyweight_kg=80.0, history=history)
+
+        # plan_start = day after TEST; first session is S (rotation idx 0, no prior S/H/E/T)
+        output = explain_plan_entry(state, "2026-01-02", "2026-01-02", exercise=bss)
+
+        assert "ADDED WEIGHT: 15.0 kg" in output, (
+            "Bug B: explain_plan_entry() showed 0.0 kg for BSS S session "
+            "instead of using the last TEST dumbbell weight (15.0 kg).\n"
+            f"Output:\n{output[:600]}"
+        )
+
+    def test_week_anchor_excludes_rest_sessions(self):
+        """
+        Week numbers in explain must match generate_plan week numbers even when
+        a REST record exists before the first real training session.
+
+        Bug: explain builds original_history without filtering REST, so first_date
+        can be a REST record → week_offset is inflated → week_num is too high.
+        """
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.models import UserState, UserProfile, SessionResult, SetResult
+
+        exercise = get_exercise("pull_up")
+        profile = UserProfile(height_cm=175, sex="male", preferred_days_per_week=3)
+        test_set = SetResult(target_reps=12, actual_reps=12, rest_seconds_before=180)
+        history = [
+            # REST record 12 days before the TEST — must NOT become the epoch anchor.
+            # If used: week_offset = 12//7 = 1 → week_num = 1+0+1 = 2 (WRONG).
+            SessionResult(
+                date="2025-12-25", bodyweight_kg=80.0, grip="pronated",
+                session_type="REST", exercise_id="pull_up",
+                planned_sets=[], completed_sets=[],
+            ),
+            SessionResult(
+                date="2026-01-05", bodyweight_kg=80.0, grip="pronated",
+                session_type="TEST", exercise_id="pull_up",
+                planned_sets=[test_set], completed_sets=[test_set],
+            ),
+        ]
+        state = UserState(profile=profile, current_bodyweight_kg=80.0, history=history)
+        plan_start = "2026-01-06"
+
+        # generate_plan correctly excludes REST → first plan session is Week 1
+        plans = generate_plan(state, plan_start, 4, exercise=exercise)
+        first = plans[0]
+
+        output = explain_plan_entry(state, plan_start, first.date, exercise=exercise)
+        expected_marker = f"Week {first.week_number}"  # "Week 1"
+        assert expected_marker in output, (
+            f"Bug C: explain shows wrong week number for {first.date}. "
+            f"generate_plan says week {first.week_number} but explain disagrees.\n"
+            f"Output:\n{output[:600]}"
+        )
+
+    def test_dip_explain_shows_primary_variant(self):
+        """
+        explain_plan_entry() for DIP must show the primary variant ('standard')
+        and must not crash when has_variant_rotation=False.
+
+        Bug F risk: explain calls _next_grip unconditionally; generate_plan checks
+        has_variant_rotation first. Both return primary_variant for DIP but for
+        different reasons — the guard ensures they always agree.
+        """
+        from bar_scheduler.core.planner import explain_plan_entry
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.models import UserState, UserProfile, SessionResult, SetResult
+
+        dip = get_exercise("dip")
+        profile = UserProfile(height_cm=175, sex="male", preferred_days_per_week=3)
+        test_set = SetResult(target_reps=10, actual_reps=10, rest_seconds_before=180)
+        history = [
+            SessionResult(
+                date="2026-01-01", bodyweight_kg=80.0, grip="standard",
+                session_type="TEST", exercise_id="dip",
+                planned_sets=[test_set], completed_sets=[test_set],
+            ),
+        ]
+        state = UserState(profile=profile, current_bodyweight_kg=80.0, history=history)
+
+        output = explain_plan_entry(state, "2026-01-02", "2026-01-02", exercise=dip)
+
+        # DIP should show 'standard' variant and must not crash
+        assert "standard" in output.lower(), (
+            f"explain_plan_entry() for DIP must show 'standard' variant.\nOutput:\n{output[:500]}"
+        )
+
+
 class TestStableWeekNumbers:
     """Week numbers must be based on the first session date, not on plan_start_date."""
 
@@ -1374,7 +1500,8 @@ class TestStableWeekNumbers:
         from datetime import datetime
         from bar_scheduler.core.planner import generate_plan
         from bar_scheduler.core.models import SessionResult, SetResult, UserProfile, UserState
-        from bar_scheduler.core.exercises.pull_up import PULL_UP
+        from bar_scheduler.core.exercises.registry import get_exercise
+        PULL_UP = get_exercise("pull_up")
 
         first_day = "2026-02-17"  # Tuesday — training epoch
         test_set = SetResult(target_reps=12, actual_reps=12, rest_seconds_before=180,
@@ -1401,3 +1528,542 @@ class TestStableWeekNumbers:
                 f"Date {plan.date}: expected week {expected_week}, got {plan.week_number}. "
                 f"Bug: week boundary drifts with plan_start_date."
             )
+
+
+# ===========================================================================
+# Rest-adherence signal in calculate_adaptive_rest()
+# ===========================================================================
+
+class TestRestAdherence:
+    """
+    calculate_adaptive_rest() must adjust its prescription toward the user's
+    actual rest pattern when they consistently rest far outside the configured
+    [rest_min, rest_max] range.
+
+    Uses pull_up H session params: rest_min=120, rest_max=180, mid=150.
+    Threshold for "short": avg < rest_min * 0.85 = 102 s → rest -= 20
+    Threshold for "long":  avg > rest_max * 1.10 = 198 s → rest += 20
+    """
+
+    def _h_sessions_with_rest(self, n: int, rest_per_set: int) -> list:
+        """Create n H sessions each containing 4 sets with the given rest.
+
+        rir_reported=None so no RIR signal fires; adherence is the only signal.
+        All sets same reps so no drop-off signal fires either.
+        """
+        from bar_scheduler.core.models import SessionResult, SetResult
+        sessions = []
+        for i in range(n):
+            sets = [
+                SetResult(
+                    target_reps=8, actual_reps=8,
+                    rest_seconds_before=rest_per_set,
+                    rir_reported=None,  # no RIR signal — isolates adherence signal
+                )
+                for _ in range(4)
+            ]
+            sessions.append(
+                SessionResult(
+                    date=f"2026-01-{i + 1:02d}", bodyweight_kg=80.0, grip="pronated",
+                    session_type="H", exercise_id="pull_up",
+                    planned_sets=sets, completed_sets=sets,
+                )
+            )
+        return sessions
+
+    def test_shorter_actual_rests_lower_prescription(self):
+        """
+        Avg actual rest of 60 s is well below rest_min (120) * 0.85 = 102 s.
+        Adherence signal must lower the prescription below the midpoint (150 s).
+        """
+        from bar_scheduler.core.planner import calculate_adaptive_rest
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        exercise = get_exercise("pull_up")
+        sessions = self._h_sessions_with_rest(5, rest_per_set=60)
+        result = calculate_adaptive_rest("H", sessions, None, exercise)
+
+        mid = (exercise.session_params["H"].rest_min + exercise.session_params["H"].rest_max) // 2
+        assert result < mid, (
+            f"Expected rest < {mid} s when user consistently rests 60 s "
+            f"(well below rest_min={exercise.session_params['H'].rest_min}), got {result} s."
+        )
+
+    def test_longer_actual_rests_raise_prescription(self):
+        """
+        Avg actual rest of 220 s is above rest_max (180) * 1.10 = 198 s.
+        Adherence signal must raise the prescription above the midpoint (150 s).
+        """
+        from bar_scheduler.core.planner import calculate_adaptive_rest
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        exercise = get_exercise("pull_up")
+        sessions = self._h_sessions_with_rest(5, rest_per_set=220)
+        result = calculate_adaptive_rest("H", sessions, None, exercise)
+
+        mid = (exercise.session_params["H"].rest_min + exercise.session_params["H"].rest_max) // 2
+        assert result > mid, (
+            f"Expected rest > {mid} s when user consistently rests 220 s "
+            f"(above rest_max={exercise.session_params['H'].rest_max}), got {result} s."
+        )
+
+    def test_adherence_within_range_no_adjustment(self):
+        """
+        Avg actual rest of 150 s (exactly at midpoint) is within [rest_min, rest_max].
+        Neither adherence threshold fires; prescription stays at midpoint (before other signals).
+        """
+        from bar_scheduler.core.planner import calculate_adaptive_rest
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        exercise = get_exercise("pull_up")
+        # RIR=3 on all sets: all-RIR-≥-3 signal fires → rest -= 15 → 150-15 = 135
+        # But the adherence signal must NOT fire since 150 is within [120, 180].
+        # Compare result with identical sessions but different rest: if adherence fired,
+        # the two would diverge. Here we just verify the threshold is not crossed.
+        sessions = self._h_sessions_with_rest(5, rest_per_set=150)
+        result = calculate_adaptive_rest("H", sessions, None, exercise)
+
+        # rir_reported=None → no RIR signal; adherence within range → no extra adjustment
+        # → result must equal midpoint exactly
+        params = exercise.session_params["H"]
+        mid = (params.rest_min + params.rest_max) // 2
+        assert result == mid, (
+            f"Expected {mid} s (no signals fire when avg rest is at midpoint "
+            f"and rir_reported=None), got {result} s."
+        )
+
+
+# =============================================================================
+# YAML exercise loading tests
+# =============================================================================
+
+
+class TestYamlExerciseLoading:
+    """Tests for loader.py and registry.py YAML-backed exercise loading."""
+
+    def test_yaml_exercises_match_expected_values(self):
+        """Key fields from YAML files match the expected exercise definitions."""
+        from bar_scheduler.core.exercises.loader import load_exercises_from_yaml
+
+        loaded = load_exercises_from_yaml()
+        assert loaded is not None, "load_exercises_from_yaml() returned None (YAML not available?)"
+
+        expected = {
+            "pull_up": {"bw_fraction": 1.0,  "target_value": 30.0, "has_variant_rotation": True},
+            "dip":     {"bw_fraction": 0.92, "target_value": 40.0, "has_variant_rotation": False},
+            "bss":     {"bw_fraction": 0.71, "target_value": 20.0, "has_variant_rotation": True},
+        }
+
+        for ex_id, fields in expected.items():
+            assert ex_id in loaded, f"'{ex_id}' missing from YAML exercises"
+            yaml_def = loaded[ex_id]
+
+            assert yaml_def.exercise_id == ex_id, f"{ex_id}: exercise_id mismatch"
+            assert yaml_def.bw_fraction == fields["bw_fraction"], (
+                f"{ex_id}: bw_fraction {yaml_def.bw_fraction} != {fields['bw_fraction']}"
+            )
+            assert yaml_def.target_value == fields["target_value"], (
+                f"{ex_id}: target_value {yaml_def.target_value} != {fields['target_value']}"
+            )
+            assert len(yaml_def.session_params) == 5, (
+                f"{ex_id}: expected 5 session_params, got {len(yaml_def.session_params)}"
+            )
+            assert yaml_def.has_variant_rotation == fields["has_variant_rotation"], (
+                f"{ex_id}: has_variant_rotation mismatch"
+            )
+
+    def test_exercise_from_dict_missing_field_raises(self):
+        """exercise_from_dict() raises ValueError when a required field is absent."""
+        from bar_scheduler.core.exercises.loader import exercise_from_dict
+
+        # Build a minimal valid dict, then remove bw_fraction
+        minimal = {
+            "exercise_id": "test_ex",
+            "display_name": "Test",
+            "muscle_group": "test",
+            # bw_fraction intentionally omitted
+            "load_type": "bw_plus_external",
+            "variants": ["standard"],
+            "primary_variant": "standard",
+            "variant_factors": {"standard": 1.0},
+            "session_params": {
+                "S": {
+                    "reps_fraction_low": 0.35,
+                    "reps_fraction_high": 0.55,
+                    "reps_min": 3,
+                    "reps_max": 8,
+                    "sets_min": 3,
+                    "sets_max": 5,
+                    "rest_min": 120,
+                    "rest_max": 180,
+                    "rir_target": 2,
+                }
+            },
+            "target_metric": "max_reps",
+            "target_value": 10.0,
+            "test_protocol": "Test protocol",
+            "test_frequency_weeks": 4,
+            "onerm_includes_bodyweight": True,
+            "onerm_explanation": "Explanation",
+            "weight_increment_fraction": 0.01,
+            "weight_tm_threshold": 9,
+            "max_added_weight_kg": 20.0,
+        }
+        import pytest
+
+        with pytest.raises(ValueError, match="bw_fraction"):
+            exercise_from_dict(minimal)
+
+    def test_session_params_missing_field_raises(self):
+        """_validate_session_params() raises ValueError when rir_target is absent."""
+        from bar_scheduler.core.exercises.loader import _validate_session_params
+        import pytest
+
+        incomplete = {
+            "reps_fraction_low": 0.35,
+            "reps_fraction_high": 0.55,
+            "reps_min": 3,
+            "reps_max": 8,
+            "sets_min": 3,
+            "sets_max": 5,
+            "rest_min": 120,
+            "rest_max": 180,
+            # rir_target intentionally omitted
+        }
+        with pytest.raises(ValueError, match="rir_target"):
+            _validate_session_params(incomplete)
+
+    def test_load_exercises_from_yaml_contains_all_three(self):
+        """The YAML exercises block defines pull_up, dip, and bss."""
+        from bar_scheduler.core.exercises.loader import load_exercises_from_yaml
+
+        loaded = load_exercises_from_yaml()
+        assert loaded is not None
+        assert "pull_up" in loaded
+        assert "dip" in loaded
+        assert "bss" in loaded
+
+    def test_registry_get_exercise_all_exercises(self):
+        """get_exercise() returns an ExerciseDefinition for each known id."""
+        from bar_scheduler.core.exercises.registry import get_exercise
+        from bar_scheduler.core.exercises.base import ExerciseDefinition
+
+        for ex_id in ("pull_up", "dip", "bss"):
+            result = get_exercise(ex_id)
+            assert isinstance(result, ExerciseDefinition), (
+                f"get_exercise('{ex_id}') returned {type(result)}, expected ExerciseDefinition"
+            )
+            assert result.exercise_id == ex_id
+
+    def test_registry_unknown_exercise_raises(self):
+        """get_exercise() raises ValueError for an unknown exercise id."""
+        from bar_scheduler.core.exercises.registry import get_exercise
+        import pytest
+
+        with pytest.raises(ValueError, match="foo"):
+            get_exercise("foo")
+
+    def test_bundled_exercise_yaml_files_exist_on_disk(self):
+        """
+        Regression: PyYAML was previously an optional dep; if missing, YAML
+        files load as empty dicts, registry raises RuntimeError, CLI crashes
+        on startup. Verify the files are reachable at the expected path.
+        """
+        from bar_scheduler.core.exercises.loader import _get_bundled_exercises_dir
+
+        exercises_dir = _get_bundled_exercises_dir()
+        assert exercises_dir is not None, (
+            "Bundled exercises directory not found. "
+            "Check that src/bar_scheduler/exercises/ exists."
+        )
+        for exercise_id in ("pull_up", "dip", "bss"):
+            yaml_file = exercises_dir / f"{exercise_id}.yaml"
+            assert yaml_file.exists(), (
+                f"Missing bundled exercise file: {yaml_file}. "
+                "This would cause a RuntimeError at CLI startup."
+            )
+
+    def test_exercise_registry_builds_at_import_time(self):
+        """
+        Regression: EXERCISE_REGISTRY must be populated at module import time.
+        If load_exercises_from_yaml() fails (e.g. PyYAML not installed),
+        _build_registry() raises RuntimeError and the CLI crashes on startup.
+        """
+        from bar_scheduler.core.exercises.registry import EXERCISE_REGISTRY
+
+        assert len(EXERCISE_REGISTRY) >= 3, (
+            f"Expected at least 3 exercises, got {len(EXERCISE_REGISTRY)}"
+        )
+        for ex_id in ("pull_up", "dip", "bss"):
+            assert ex_id in EXERCISE_REGISTRY, (
+                f"'{ex_id}' missing from EXERCISE_REGISTRY at import time."
+            )
+
+
+# =============================================================================
+# explain_plan_entry() thin-wrapper tests
+# =============================================================================
+
+
+def _make_user_state_with_test(exercise_id="pull_up", test_reps=12, added_kg=0.0, bw=80.0):
+    """Return a UserState with one TEST session logged."""
+    from datetime import date, timedelta
+    from bar_scheduler.core.models import (
+        UserProfile, UserState, SessionResult, SetResult,
+    )
+    test_date = (date.today() - timedelta(days=7)).isoformat()
+    test_set = SetResult(
+        target_reps=test_reps,
+        actual_reps=test_reps,
+        rest_seconds_before=180,
+        added_weight_kg=added_kg,
+        rir_target=0,
+        rir_reported=0,
+    )
+    session = SessionResult(
+        date=test_date,
+        bodyweight_kg=bw,
+        grip="pronated",
+        session_type="TEST",
+        exercise_id=exercise_id,
+        planned_sets=[test_set],
+        completed_sets=[test_set],
+    )
+    profile = UserProfile(height_cm=178, sex="male", preferred_days_per_week=3)
+    return UserState(
+        profile=profile,
+        current_bodyweight_kg=bw,
+        history=[session],
+    )
+
+
+class TestExplainWrapper:
+    """Verify that explain_plan_entry() delegates to _plan_core() and produces correct output."""
+
+    def _plan_start(self):
+        """Return tomorrow's date string."""
+        from datetime import date, timedelta
+        return (date.today() + timedelta(days=1)).isoformat()
+
+    def _first_session_date(self, plan_start_str, days_per_week=3):
+        """Return the date string of the first planned session."""
+        from bar_scheduler.core.planner import generate_plan
+        user_state = _make_user_state_with_test()
+        plans = generate_plan(user_state, plan_start_str, weeks_ahead=4)
+        return plans[0].date
+
+    def test_explain_s_session_pull_up(self):
+        """S session explanation contains type label, week marker, and grip."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        user_state = _make_user_state_with_test()
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4)
+        s_plans = [p for p in plans if p.session_type == "S"]
+        assert s_plans, "No S session in plan"
+        result = explain_plan_entry(user_state, plan_start, s_plans[0].date, weeks_ahead=4)
+        assert "Strength (S)" in result
+        assert "Week" in result
+        assert "TRAINING MAX" in result
+        assert "SETS" in result
+        assert "REPS PER SET" in result
+
+    def test_explain_h_session(self):
+        """H session explanation shows 'Hypertrophy (H)'."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        user_state = _make_user_state_with_test()
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4)
+        h_plans = [p for p in plans if p.session_type == "H"]
+        assert h_plans, "No H session in plan"
+        result = explain_plan_entry(user_state, plan_start, h_plans[0].date, weeks_ahead=4)
+        assert "Hypertrophy (H)" in result
+
+    def test_explain_test_session(self):
+        """TEST session explanation shows 'Max Test (TEST)'."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        user_state = _make_user_state_with_test()
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=12)
+        test_plans = [p for p in plans if p.session_type == "TEST"]
+        assert test_plans, "No TEST session in plan"
+        result = explain_plan_entry(user_state, plan_start, test_plans[0].date, weeks_ahead=12)
+        assert "Max Test (TEST)" in result
+
+    def test_explain_bss_s_shows_correct_weight(self):
+        """BSS S session: last TEST weight appears in the ADDED WEIGHT line."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        from bar_scheduler.core.exercises.registry import get_exercise
+        exercise = get_exercise("bss")
+        user_state = _make_user_state_with_test(exercise_id="bss", test_reps=8, added_kg=12.5)
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4, exercise=exercise)
+        s_plans = [p for p in plans if p.session_type == "S"]
+        assert s_plans, "No S session in BSS plan"
+        result = explain_plan_entry(
+            user_state, plan_start, s_plans[0].date, weeks_ahead=4, exercise=exercise
+        )
+        assert "ADDED WEIGHT" in result
+        assert "12.5" in result, f"Expected '12.5' in output, got:\n{result}"
+
+    def test_explain_dip_no_variant_cycle(self):
+        """DIP has no variant rotation — explain must not show '…-step cycle'."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        from bar_scheduler.core.exercises.registry import get_exercise
+        exercise = get_exercise("dip")
+        user_state = _make_user_state_with_test(exercise_id="dip")
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4, exercise=exercise)
+        s_plans = [p for p in plans if p.session_type == "S"]
+        assert s_plans, "No S session in DIP plan"
+        result = explain_plan_entry(
+            user_state, plan_start, s_plans[0].date, weeks_ahead=4, exercise=exercise
+        )
+        assert "-step cycle" not in result, (
+            f"DIP explain should not contain '-step cycle': {result}"
+        )
+        assert "GRIP" in result
+        assert "primary variant" in result.lower() or "no rotation" in result.lower()
+
+    def test_explain_not_found_returns_warning(self):
+        """A date beyond the plan horizon returns a yellow warning string."""
+        from bar_scheduler.core.planner import explain_plan_entry
+        user_state = _make_user_state_with_test()
+        plan_start = self._plan_start()
+        result = explain_plan_entry(user_state, plan_start, "2030-01-01", weeks_ahead=4)
+        assert "[yellow]" in result
+        assert "2030-01-01" in result
+
+    def test_explain_no_history_returns_error(self):
+        """No history and no baseline_max returns a yellow error string."""
+        from bar_scheduler.core.planner import explain_plan_entry
+        from bar_scheduler.core.models import UserProfile, UserState
+        profile = UserProfile(height_cm=178, sex="male", preferred_days_per_week=3)
+        user_state = UserState(profile=profile, current_bodyweight_kg=80.0, history=[])
+        plan_start = self._plan_start()
+        result = explain_plan_entry(user_state, plan_start, plan_start, weeks_ahead=4)
+        assert "[yellow]" in result
+
+    def test_explain_first_week_no_progression(self):
+        """First session of the plan shows 'No weekly progression yet'."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        user_state = _make_user_state_with_test()
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4)
+        result = explain_plan_entry(user_state, plan_start, plans[0].date, weeks_ahead=4)
+        assert "No weekly progression yet" in result
+
+    def test_explain_week2_shows_progression_log(self):
+        """A session in week 2 shows at least one 'Week N: TM' progression log line."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        from datetime import date, timedelta
+        user_state = _make_user_state_with_test()
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4)
+        # Find a session in week 2 (plan_start + 7 days into the plan)
+        start_dt = date.fromisoformat(plan_start)
+        week2_sessions = [
+            p for p in plans
+            if (date.fromisoformat(p.date) - start_dt).days >= 7
+        ]
+        assert week2_sessions, "No sessions found in week 2 of plan"
+        result = explain_plan_entry(
+            user_state, plan_start, week2_sessions[0].date, weeks_ahead=4
+        )
+        assert "Progression by week:" in result
+        assert "TM" in result and "+" in result
+
+    def test_explain_autoreg_off_below_threshold(self):
+        """With < MIN_SESSIONS_FOR_AUTOREG history, output says autoregulation is off."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        user_state = _make_user_state_with_test()   # 1 TEST session → autoreg off
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4)
+        result = explain_plan_entry(user_state, plan_start, plans[0].date, weeks_ahead=4)
+        assert "Autoregulation" in result
+        assert "off" in result
+
+    def test_explain_matches_generate_plan_date(self):
+        """explain_plan_entry output date matches the SessionPlan.date."""
+        from bar_scheduler.core.planner import explain_plan_entry, generate_plan
+        user_state = _make_user_state_with_test()
+        plan_start = self._plan_start()
+        plans = generate_plan(user_state, plan_start, weeks_ahead=4)
+        target = plans[1].date   # second session
+        result = explain_plan_entry(user_state, plan_start, target, weeks_ahead=4)
+        assert target in result
+
+
+# =============================================================================
+# plot-max chart tests
+# =============================================================================
+
+
+def _make_plot_session(date: str, reps: int, exercise_id: str = "pull_up"):
+    """Return a TEST SessionResult with the given max reps."""
+    from bar_scheduler.core.models import SessionResult, SetResult
+    set_ = SetResult(
+        target_reps=reps, actual_reps=reps, rest_seconds_before=180,
+        added_weight_kg=0.0, rir_target=0, rir_reported=0,
+    )
+    return SessionResult(
+        date=date, bodyweight_kg=80.0, grip="pronated",
+        session_type="TEST", exercise_id=exercise_id,
+        planned_sets=[set_], completed_sets=[set_],
+    )
+
+
+class TestPlotMaxChart:
+    """Regression tests for the three plot-max bugs."""
+
+    def test_caption_uses_exercise_display_name(self):
+        """
+        Regression: caption was hardcoded to 'Strict Pull-ups'.
+        create_max_reps_plot() must include the exercise_name argument in the title.
+        """
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+
+        s = _make_plot_session("2026-01-01", 10)
+        for name in ("Parallel Bar Dip", "Bulgarian Split Squat (DB)", "My Custom Exercise"):
+            plot = create_max_reps_plot([s], exercise_name=name)
+            assert name in plot, f"Expected '{name}' in chart title. Got:\n{plot[:200]}"
+            assert "Strict Pull-ups" not in plot, (
+                f"Hardcoded 'Strict Pull-ups' found despite exercise_name='{name}'"
+            )
+
+    def test_line_style_uses_staircase_corners(self):
+        """
+        Regression: connecting lines used only '╯' (linear interpolation).
+        The staircase algorithm must produce '╭', '─', and '╯' characters.
+        """
+        from bar_scheduler.core.ascii_plot import create_max_reps_plot
+
+        # Two sessions far apart in value — forces multi-row traversal
+        sessions = [
+            _make_plot_session("2026-01-01", 5),
+            _make_plot_session("2026-02-01", 20),
+        ]
+        plot = create_max_reps_plot(sessions)
+        assert "╭" in plot, f"Expected '╭' staircase corner in chart:\n{plot}"
+        assert "─" in plot, f"Expected '─' horizontal segment in chart:\n{plot}"
+        assert "╯" in plot, f"Expected '╯' staircase corner in chart:\n{plot}"
+
+    def test_trajectory_starts_from_latest_test(self):
+        """
+        Regression: trajectory was anchored to the first test, not the latest.
+        _build_trajectory() must use test_sessions[-1] as its starting point.
+        """
+        from datetime import datetime
+        from bar_scheduler.cli.commands.analysis import _build_trajectory
+        from bar_scheduler.core.metrics import get_test_sessions
+
+        sessions = [
+            _make_plot_session("2026-01-01", 5),   # first (old) test
+            _make_plot_session("2026-02-01", 15),   # latest test
+        ]
+        traj = _build_trajectory(get_test_sessions(sessions), target=30)
+        assert traj, "Trajectory must not be empty"
+        first_traj_date = traj[0][0]
+        assert first_traj_date == datetime(2026, 2, 1), (
+            f"Trajectory must start from latest test (2026-02-01), "
+            f"got {first_traj_date.date()}"
+        )

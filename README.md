@@ -63,7 +63,7 @@ bar-scheduler plot-max
 | `delete-record N` | Delete history entry #N (shown in plan `#` column) |
 | `status` | Show current training status; `--json` |
 | `volume` | Show weekly volume chart; `--weeks N`; `--json` |
-| `explain DATE\|next` | Step-by-step breakdown of how a planned session was calculated |
+| `explain DATE\|next` | Step-by-step breakdown of how a planned session was calculated (guaranteed to match plan output) |
 | `skip` | Shift plan forward N days; `--days N` (default 1); `--force` |
 | `update-equipment` | Update training equipment (band class, machine kg, BSS surface); `--exercise` |
 | `1rm` | Estimate 1-rep max using the Epley formula; `--exercise` |
@@ -435,7 +435,7 @@ Edit this file directly, or re-run `bar-scheduler init` to update core fields wh
 ## Config Customisation (#14)
 
 Model constants (time constants, progression rates, rest normalization exponents, etc.)
-are documented in `src/bar_scheduler/exercises.yaml`.
+and full exercise definitions are documented in `src/bar_scheduler/exercises.yaml`.
 
 To customise without editing source code, create `~/.bar-scheduler/exercises.yaml`
 with only the values you want to change:
@@ -447,15 +447,27 @@ fitness_fatigue:
 
 progression:
   DELTA_PROGRESSION_MAX: 0.7   # default: 1.0 reps/week
+
+# Override example: raise pull-up test frequency and lower S-session min rest
+exercises:
+  pull_up:
+    test_frequency_weeks: 4
+    session_params:
+      S:
+        rest_min: 120
 ```
 
-Any key you omit falls back to the bundled default.  Requires `PyYAML`:
+Any key you omit falls back to the bundled default.  Exercise overrides deep-merge
+per-exercise-id so you only need to list the fields you want to change.
+
+Requires `PyYAML`:
 ```bash
 pip install PyYAML
 ```
 
-See [docs/training_model.md](docs/training_model.md) for the full constant reference
-with YAML paths and explanations.
+See [docs/training_model.md](docs/training_model.md) for the model-constant reference
+and [docs/exercise-structure.md](docs/exercise-structure.md) for the full exercise
+field-by-field schema, including how to add a completely new exercise.
 
 ---
 
@@ -521,6 +533,7 @@ bar-scheduler/
 │   ├── training_model.md                 # Model formulas, ExerciseDefinition schema, 1RM, config
 │   ├── adaptation_guide.md               # Adaptation timeline guide
 │   ├── assessment_protocols.md           # Test protocols for all exercises
+│   ├── exercise-structure.md             # YAML exercise schema + custom exercise guide
 │   ├── cli_examples.md
 │   ├── formulas_reference.md
 │   ├── api_info.md
@@ -531,23 +544,24 @@ bar-scheduler/
 │   └── references/
 │       └── max_estimation.md
 ├── src/bar_scheduler/
-│   ├── exercises.yaml            # Model constants (YAML, user-overridable)
+│   ├── exercises.yaml            # Model constants + exercise definitions (YAML, user-overridable)
 │   ├── core/
 │   │   ├── config.py             # Python constants (matches exercises.yaml)
 │   │   ├── models.py             # Dataclasses
 │   │   ├── metrics.py            # Pure functions
 │   │   ├── physiology.py         # Fitness-fatigue model
 │   │   ├── adaptation.py         # Plateau/deload logic
-│   │   ├── planner.py            # Plan generation
+│   │   ├── planner.py            # Plan generation (_plan_core, generate_plan, explain_plan_entry)
 │   │   ├── max_estimator.py      # Track B max estimation
 │   │   ├── equipment.py          # Equipment / Leff calculations
 │   │   ├── ascii_plot.py         # ASCII plotting
 │   │   ├── exercises/            # ExerciseDefinition per exercise
 │   │   │   ├── base.py           # ExerciseDefinition + SessionTypeParams
-│   │   │   ├── pull_up.py
+│   │   │   ├── pull_up.py        # Python fallback constants
 │   │   │   ├── dip.py
 │   │   │   ├── bss.py
-│   │   │   └── registry.py       # get_exercise()
+│   │   │   ├── loader.py         # YAML → ExerciseDefinition (with fallback)
+│   │   │   └── registry.py       # get_exercise(); loads from YAML, falls back to Python
 │   │   └── engine/
 │   │       └── config_loader.py  # YAML → typed config
 │   ├── io/

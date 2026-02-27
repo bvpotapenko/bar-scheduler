@@ -16,6 +16,7 @@ def create_max_reps_plot(
     height: int = 20,
     target: int = 30,
     trajectory: list[tuple[datetime, float]] | None = None,
+    exercise_name: str = "Pull-Up",
 ) -> str:
     """
     Create an ASCII plot of max reps progress over time.
@@ -101,34 +102,52 @@ def create_max_reps_plot(
                 if grid[y][x] == " ":
                     grid[y][x] = "·"
 
-    # Draw connecting lines
+    # Draw connecting lines (staircase style: ╭─╯)
     for i in range(len(plot_points) - 1):
-        x1, y1, _ = plot_points[i]
-        x2, y2, _ = plot_points[i + 1]
+        col1, row1, _ = plot_points[i]
+        col2, row2, _ = plot_points[i + 1]
 
-        # Simple line drawing
-        dx = x2 - x1
-        dy = y2 - y1
-        steps = max(abs(dx), abs(dy), 1)
+        n_rows = abs(row2 - row1)
+        if n_rows == 0:
+            # Same grid row: pure horizontal segment
+            for x in range(col1 + 1, col2):
+                if 0 <= x < plot_width and grid[row1][x] == " ":
+                    grid[row1][x] = "─"
+            continue
 
-        for step in range(steps + 1):
-            t = step / steps if steps > 0 else 0
-            x = int(x1 + t * dx)
-            y = int(y1 + t * dy)
+        row_dir = -1 if row2 < row1 else 1  # -1 = going up (higher value)
+        up = row_dir == -1
+        corner_exit  = "╯" if up else "╮"   # right end of segment, transitions up/down
+        corner_entry = "╭" if up else "╰"   # left end of segment, arrives from prev row
 
-            if 0 <= x < plot_width and 0 <= y < plot_height:
-                # Choose character based on direction
-                if abs(dy) > abs(dx):
-                    char = "│"
-                elif dy < 0:
-                    char = "╭" if step == 0 else "╯"
-                elif dy > 0:
-                    char = "╰" if step == 0 else "╮"
-                else:
-                    char = "─"
+        # n_segs horizontal segments, one for each grid row from row1 to row2 (inclusive)
+        n_segs = n_rows + 1
 
-                if grid[y][x] == " ":
-                    grid[y][x] = char
+        for step in range(n_segs):
+            row = row1 + row_dir * step
+            pivot_in  = col1 + (col2 - col1) * step       // n_segs
+            pivot_out = col1 + (col2 - col1) * (step + 1) // n_segs
+
+            def _p(x: int, ch: str, r: int = row) -> None:
+                if 0 <= x < plot_width and 0 <= r < plot_height and grid[r][x] == " ":
+                    grid[r][x] = ch
+
+            if step == 0:
+                # First row: ● at col1, draw ─ rightward then exit corner
+                for x in range(col1 + 1, pivot_out):
+                    _p(x, "─")
+                _p(pivot_out, corner_exit)
+            elif step == n_segs - 1:
+                # Last row: entry corner then ─ up to col2-1 (● at col2)
+                _p(pivot_in, corner_entry)
+                for x in range(pivot_in + 1, col2):
+                    _p(x, "─")
+            else:
+                # Intermediate rows: entry corner, ─, exit corner
+                _p(pivot_in, corner_entry)
+                for x in range(pivot_in + 1, pivot_out):
+                    _p(x, "─")
+                _p(pivot_out, corner_exit)
 
     # Draw data points
     for x, y, reps in plot_points:
@@ -139,7 +158,7 @@ def create_max_reps_plot(
     lines = []
 
     # Title
-    lines.append("Max Reps Progress (Strict Pull-ups)")
+    lines.append(f"Max Reps Progress ({exercise_name})")
     lines.append("─" * width)
 
     # Y-axis labels and plot

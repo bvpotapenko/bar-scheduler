@@ -8,11 +8,32 @@ from typing import Annotated, Optional
 import typer
 
 from ...core.adaptation import get_training_status
+from ...core.config import TM_FACTOR, expected_reps_per_week
 from ...core.exercises.registry import get_exercise
-from ...core.metrics import estimate_1rm, training_max_from_baseline
+from ...core.metrics import estimate_1rm, session_max_reps as _max_reps, training_max_from_baseline
 from ...io.serializers import ValidationError
 from .. import views
 from ..app import ExerciseOption, app, get_store
+
+
+def _build_trajectory(
+    test_sessions: list,
+    target: int,
+) -> list[tuple[datetime, float]]:
+    """Compute projected trajectory starting from the latest test session."""
+    if not test_sessions:
+        return []
+    latest = test_sessions[-1]
+    start_dt = datetime.strptime(latest.date, "%Y-%m-%d")
+    initial_tm = training_max_from_baseline(_max_reps(latest))
+    points: list[tuple[datetime, float]] = []
+    d, tm_f = start_dt, float(initial_tm)
+    while tm_f < target and d <= start_dt + timedelta(weeks=104):
+        points.append((d, tm_f / TM_FACTOR))
+        tm_f = min(tm_f + expected_reps_per_week(int(tm_f), target), float(target))
+        d += timedelta(weeks=1)
+    points.append((d, float(target)))
+    return points
 
 
 @app.command()
@@ -137,11 +158,11 @@ def plot_max(
     """
     Display ASCII plot of max reps progress.
 
-    Use --trajectory to overlay a dotted line showing the planned growth
-    from your first test to the target (30 reps).
+    Use --trajectory to overlay a dotted line showing the projected growth
+    from your most recent test to the target.
     """
-    from ...core.config import TARGET_MAX_REPS, TM_FACTOR, expected_reps_per_week
-    from ...core.metrics import get_test_sessions, session_max_reps as _max_reps
+    from ...core.config import TARGET_MAX_REPS
+    from ...core.metrics import get_test_sessions
 
     store = get_store(history_path, exercise_id)
 
@@ -156,6 +177,8 @@ def plot_max(
         views.print_error(str(e))
         raise typer.Exit(1)
 
+    display_name = get_exercise(exercise_id).display_name
+
     # Compute trajectory if requested
     traj_points: list[tuple[datetime, float]] | None = None
     traj_json: list[dict] | None = None
@@ -168,21 +191,12 @@ def plot_max(
         except Exception:
             pass
 
-        test_sessions = get_test_sessions(sessions)
-        if test_sessions:
-            first_test = test_sessions[0]
-            start_dt = datetime.strptime(first_test.date, "%Y-%m-%d")
-            initial_tm = training_max_from_baseline(_max_reps(first_test))
-            traj_points = []
-            d, tm_f = start_dt, float(initial_tm)
-            while tm_f < traj_target and d <= start_dt + timedelta(weeks=104):
-                traj_points.append((d, tm_f / TM_FACTOR))
-                tm_f = min(tm_f + expected_reps_per_week(int(tm_f), traj_target), float(traj_target))
-                d += timedelta(weeks=1)
-            traj_points.append((d, float(traj_target)))
+        pts = _build_trajectory(get_test_sessions(sessions), traj_target)
+        traj_points = pts or None
+        if pts:
             traj_json = [
                 {"date": pt.strftime("%Y-%m-%d"), "projected_max": round(val, 2)}
-                for pt, val in traj_points
+                for pt, val in pts
             ]
 
     if json_out:
@@ -194,7 +208,7 @@ def plot_max(
         print(json.dumps({"data_points": data_points, "trajectory": traj_json}, indent=2))
         return
 
-    views.print_max_plot(sessions, trajectory=traj_points)
+    views.print_max_plot(sessions, trajectory=traj_points, exercise_name=display_name)
 
 
 @app.command("1rm")

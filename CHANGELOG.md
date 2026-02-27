@@ -4,6 +4,61 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [Unreleased] — 2026-02-27
+
+### Fixed (explain accuracy — 6 bugs in `explain_plan_entry()`)
+
+| # | Bug | Fix |
+|---|-----|-----|
+| A | REST sessions counted in grip rotation | Added `s.session_type != "REST"` filter to history in `explain_plan_entry()` |
+| B | Week-number anchor used REST date as epoch | Same REST filter applied to `original_history` (week-anchor branch) |
+| C | BSS `last_test_weight` always 0.0 | `last_test_weight` now extracted from last TEST completed_sets before `_calculate_added_weight()` |
+| D | Inline autoregulation diverged from `apply_autoregulation()` | Replaced inline block with `apply_autoregulation()` call |
+| E | `same_type_sessions` not capped to 5 | Added `[-5:]` slice to match `generate_plan()` |
+| F | `has_variant_rotation` not checked; DIP showed cycle text | Guard added; non-rotating exercises always use `primary_variant` |
+
+### Added (rest-adherence feedback in `calculate_adaptive_rest()`)
+
+- Reads `rest_seconds_before` from all completed sets across the last 5 same-type sessions
+  (values of 0 excluded — first set of each session).
+- Fires when `len(actual_rests) >= 3`:
+  - avg actual rest < `rest_min × 0.85` → prescription −20 s
+  - avg actual rest > `rest_max × 1.10` → prescription +20 s
+- Signal is weaker than RIR/z-score signals (±20 s vs ±15–30 s); intended as a soft nudge
+  toward the user's observed behaviour rather than a hard override.
+- Adherence signal is now also shown in `explain` output under the REST section.
+
+### Added (YAML exercise definitions)
+
+- `exercises:` block added to `src/bar_scheduler/exercises.yaml` — all three exercises
+  (pull_up, dip, bss) fully defined in YAML with all `ExerciseDefinition` fields.
+- `core/exercises/loader.py` — `exercise_from_dict()` + `_validate_session_params()` with
+  missing-field detection; `load_exercises_from_yaml()` returns `None` (not raises) on any failure.
+- `core/exercises/registry.py` — `_build_registry()` tries YAML first, falls back silently to
+  Python constants (pull_up.py / dip.py / bss.py) if PyYAML is absent, YAML is malformed, or
+  any required field is missing.
+- `docs/exercise-structure.md` — full field-by-field schema for `ExerciseDefinition` and
+  `SessionTypeParams`, `grip_cycles` rules, validator behaviour, user-override guide, and
+  complete worked example for adding a new "ring_row" exercise.
+- 6 new tests in `TestYamlExerciseLoading` covering field validation, registry fallback,
+  and key-field parity between YAML and Python constants.
+
+### Refactored (`explain_plan_entry()` as thin wrapper over `generate_plan()`)
+
+- **`_plan_core()` generator** extracted as the single source of truth for all plan logic.
+  Yields `(SessionPlan, _SessionTrace)` per session.  Both `generate_plan()` and
+  `explain_plan_entry()` delegate here — the explanation is now mathematically guaranteed
+  to match the plan.
+- **`_SessionTrace` dataclass** captures every intermediate value (TM, grip counts, weekly_log,
+  adj_sets/reps/rest, recent_same_type, etc.) at yield time.  No recomputation in the formatter.
+- **`generate_plan()`** body replaced with a one-line list comprehension over `_plan_core()`.
+- **`_format_explain()`** extracted as a pure formatting function; `explain_plan_entry()` is
+  now 12 lines (down from 347).
+- 11 new tests in `TestExplainWrapper` covering all session types, BSS weight, DIP no-cycle
+  display, not-found warning, first-week / week-2 progression, autoreg-off display.
+
+---
+
 ## [Unreleased] — 2026-02-26
 
 ### Refactored (codebase cleanup)

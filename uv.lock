@@ -16,6 +16,7 @@ name = "bar-scheduler"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pyyaml" },
     { name = "rich" },
     { name = "typer" },
 ]
@@ -24,22 +25,17 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
-    { name = "pyyaml" },
-]
-yaml = [
-    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
-    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
-provides-extras = ["dev", "yaml"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "click"

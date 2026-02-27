@@ -140,6 +140,8 @@ plan_horizon:
 # Day offsets ensure minimum rest between sessions.
 # =============================================================================
 schedule:
+  SCHEDULE_1_DAYS: ["S"]
+  SCHEDULE_2_DAYS: ["S", "E"]
   SCHEDULE_3_DAYS: ["S", "H", "E"]
   SCHEDULE_4_DAYS: ["S", "H", "T", "E"]
   DAY_SPACING:
@@ -148,3 +150,15 @@ schedule:
     E: 1     # At least 1 rest day after Endurance
     T: 0     # Technique can follow same day (low fatigue)
     TEST: 2  # More recovery after a max test
+
+# =============================================================================
+# EXERCISE DEFINITIONS
+# Each exercise is defined in a separate YAML file under:
+#   src/bar_scheduler/exercises/<exercise_id>.yaml
+#
+# To override an existing exercise or add a new one, place a matching file in:
+#   ~/.bar-scheduler/exercises/<exercise_id>.yaml
+# Only the keys you want to change need to be listed — the file is deep-merged
+# over the bundled definition.
+# See docs/exercise-structure.md for the full field-by-field reference.
+# =============================================================================

@@ -1,0 +1,98 @@
+exercise_id: bss
+display_name: "Bulgarian Split Squat (DB)"
+muscle_group: lower
+
+bw_fraction: 0.71
+load_type: external_only
+
+variants: [standard, deficit, front_foot_elevated]
+primary_variant: standard
+variant_factors:
+  standard: 1.00
+  deficit: 1.05
+  front_foot_elevated: 0.95
+
+has_variant_rotation: true
+grip_cycles:
+  S: [standard, deficit, front_foot_elevated]
+  H: [standard, deficit, front_foot_elevated]
+  T: [standard, deficit]
+  E: [standard]
+  TEST: [standard]
+
+session_params:
+  S:
+    reps_fraction_low: 0.50
+    reps_fraction_high: 0.70
+    reps_min: 4
+    reps_max: 8
+    sets_min: 3
+    sets_max: 4
+    rest_min: 150
+    rest_max: 240
+    rir_target: 2
+  H:
+    reps_fraction_low: 0.60
+    reps_fraction_high: 0.80
+    reps_min: 8
+    reps_max: 15
+    sets_min: 3
+    sets_max: 5
+    rest_min: 90
+    rest_max: 150
+    rir_target: 2
+  E:
+    reps_fraction_low: 0.40
+    reps_fraction_high: 0.60
+    reps_min: 10
+    reps_max: 20
+    sets_min: 3
+    sets_max: 5
+    rest_min: 60
+    rest_max: 90
+    rir_target: 3
+  T:
+    reps_fraction_low: 0.30
+    reps_fraction_high: 0.50
+    reps_min: 5
+    reps_max: 10
+    sets_min: 2
+    sets_max: 4
+    rest_min: 60
+    rest_max: 120
+    rir_target: 4
+  TEST:
+    reps_fraction_low: 1.0
+    reps_fraction_high: 1.0
+    reps_min: 1
+    reps_max: 30
+    sets_min: 1
+    sets_max: 1
+    rest_min: 180
+    rest_max: 300
+    rir_target: 0
+
+target_metric: max_reps
+target_value: 20.0
+
+test_protocol: |
+  BULGARIAN SPLIT SQUAT MAX REP TEST (per leg)
+  Setup: bench height ~45-50 cm; rear foot on bench, laces down;
+  front foot ~60-75 cm in front.
+  Warm-up: 5 BW lunges per leg, 5 BSS per leg with ~50% test weight, rest 2 min.
+  Test: lower until front thigh at or below parallel, drive to full extension.
+  Maintain upright torso. Count clean reps. Rest 2-3 min, test other leg.
+  Record the LOWER of the two legs as your score.
+  Log as: --exercise bss --session-type TEST --sets 'N@<total_db_kg>/180'
+test_frequency_weeks: 4
+
+onerm_includes_bodyweight: true
+onerm_explanation: >
+  BSS 1RM uses effective load: Leff = 0.71xBW + total_dumbbell_weight.
+  This accounts for the ~71% of bodyweight borne by the lead leg.
+  Formula: 1RM = Leff x (1 + reps/30)  [Epley].
+  Example: 80 kg BW + 2x10 kg dumbbells -> Leff = 56.8 + 20 = 76.8 kg.
+
+weight_increment_fraction: 0.0
+weight_tm_threshold: 999
+max_added_weight_kg: 72.0

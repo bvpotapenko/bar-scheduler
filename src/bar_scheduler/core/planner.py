@@ -7,6 +7,8 @@ parameterised by an ExerciseDefinition so the same engine works
 for pull-ups, dips, BSS, and any future exercise.
 """
 
+from dataclasses import dataclass
+from typing import Any, Generator
 from datetime import datetime, timedelta
 
 from .adaptation import (
@@ -32,8 +34,10 @@ from .config import (
     estimate_weeks_to_target,
     expected_reps_per_week,
 )
-from .exercises.base import ExerciseDefinition
-from .exercises.pull_up import PULL_UP
+from .exercises.base import ExerciseDefinition, SessionTypeParams
+from .exercises.registry import get_exercise
+
+PULL_UP = get_exercise("pull_up")
 from .metrics import training_max_from_baseline
 from .models import (
     Grip,
@@ -45,6 +49,69 @@ from .models import (
     TrainingStatus,
     UserState,
 )
+
+
+@dataclass
+class _SessionTrace:
+    """
+    All intermediate values from _plan_core() for one session.
+
+    Consumed by _format_explain() to produce the step-by-step explanation
+    without any re-computation or divergence from the plan.
+    """
+
+    # Identity
+    date_str: str
+    session_type: str
+    session_week_idx: int
+    week_num: int
+    week_offset: int
+    weeks_ahead: int
+
+    # Grip / variant
+    grip: str
+    cycle: list
+    count_before: int       # grip count before this session (history + prior plan)
+    hist_count: int         # grip count from history only
+
+    # Training max
+    initial_tm: int
+    current_tm: int
+    tm_float: float
+    weekly_log: list        # [(abs_week_idx, prog, tm_before, tm_after), ...]
+
+    # Sets / reps
+    base_sets: int
+    base_reps: int
+    adj_sets: int
+    adj_reps: int
+    has_autoreg: bool
+    z_score: float
+    reps_low: int
+    reps_high: int
+
+    # Weight
+    added_weight: float
+    last_test_weight: float
+
+    # Rest
+    adj_rest: int
+    recent_same_type: list  # last 5 same-type history sessions
+
+    # Expected TM
+    expected_tm_after: int
+
+    # Plan context
+    history: list           # filtered exercise history (non-REST)
+    history_len: int
+    days_per_week: int
+    user_target: int
+    schedule: list
+
+    # Typed config objects
+    params: SessionTypeParams
+    exercise: ExerciseDefinition
+    ff_state: Any           # FitnessFatigueState
 
 
 def get_schedule_template(days_per_week: int) -> list[str]:
@@ -149,6 +216,8 @@ def calculate_adaptive_rest(
     - Drop-off > DROP_OFF_THRESHOLD: +15s (within-session fatigue)
     - Readiness z-score < READINESS_Z_LOW: +30s (low readiness)
     - All sets RIR >= 3: -15s (session felt easy)
+    - Avg actual rest across sessions < rest_min*0.85: -20s (user rests short)
+    - Avg actual rest across sessions > rest_max*1.10: +20s (user needs more rest)
     Clamped to [rest_min, rest_max].
 
     Args:
@@ -195,6 +264,22 @@ def calculate_adaptive_rest(
         z = (readiness - ff_state.readiness_mean) / math.sqrt(readiness_var)
         if z < READINESS_Z_LOW:
             rest += 30
+
+    # Rest-adherence signal: if the user consistently rests well outside the
+    # prescribed range across recent sessions, shift the prescription toward
+    # their actual pattern. rest_seconds_before=0 means first set — excluded.
+    actual_rests = [
+        s.rest_seconds_before
+        for session in recent_sessions
+        for s in session.completed_sets
+        if s.rest_seconds_before > 0
+    ]
+    if len(actual_rests) >= 3:
+        avg_actual = sum(actual_rests) / len(actual_rests)
+        if avg_actual < params.rest_min * 0.85:
+            rest -= 20  # user consistently rests short → lower prescription
+        elif avg_actual > params.rest_max * 1.10:
+            rest += 20  # user needs more rest than max → raise prescription
 
     return max(params.rest_min, min(params.rest_max, rest))
 
@@ -463,30 +548,26 @@ def create_synthetic_test_session(
     )
 
 
-def generate_plan(
+def _plan_core(
     user_state: UserState,
     start_date: str,
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
     exercise: ExerciseDefinition | None = None,
-) -> list[SessionPlan]:
+) -> Generator[tuple[SessionPlan, _SessionTrace], None, None]:
     """
-    Generate a deterministic training plan with progressive overload.
+    Core plan generator — single source of truth for all plan logic.
 
-    Args:
-        user_state: Current user state with profile and history
-        start_date: Start date for the plan (ISO format)
-        weeks_ahead: Number of weeks to plan (None = estimate)
-        baseline_max: Baseline max if no history
-        exercise: ExerciseDefinition to parameterise the plan (default: PULL_UP)
+    Yields (SessionPlan, _SessionTrace) for every planned session.
+    Both generate_plan() and explain_plan_entry() delegate here so that
+    the explanation is guaranteed to reflect the actual plan.
 
-    Returns:
-        List of SessionPlan for the planning horizon
+    Raises ValueError if there is no history and no baseline_max.
     """
     if exercise is None:
         exercise = PULL_UP
 
-    # Filter history to this exercise, excluding REST records (they don't affect training logic)
+    # Filter history: this exercise only, REST records excluded
     history = [
         s for s in user_state.history
         if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
@@ -497,189 +578,10 @@ def generate_plan(
             "No history available. Please provide baseline_max or log a TEST session."
         )
 
-    # If no history, create synthetic test
     if not history:
         today = datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=1)
         synthetic = create_synthetic_test_session(
             today.strftime("%Y-%m-%d"),
-            user_state.current_bodyweight_kg,
-            baseline_max,  # type: ignore
-            exercise.exercise_id,
-        )
-        history = [synthetic]
-
-    # Get training status
-    status = get_training_status(
-        history,
-        user_state.current_bodyweight_kg,
-        baseline_max,
-    )
-
-    # Determine initial training max.
-    # Always start from training_max = floor(0.9 × test_max) per TM_FACTOR.
-    # This is the conventional conservative base; prescriptions build from here.
-    tm = status.training_max
-    if tm <= 1 and baseline_max is not None:
-        tm = int(baseline_max * TM_FACTOR) or baseline_max
-
-    # Track TM as float for fractional progression.
-    # Neither tm_float nor uncapped_tm_float is capped at target — prescriptions
-    # continue past the target so users can progress beyond it.
-    # The target is only used for estimating plan length.
-    tm_float = float(tm)
-    uncapped_tm_float = float(tm)
-    target = int(exercise.target_value)
-
-    # Determine plan length
-    if weeks_ahead is None:
-        estimated = estimate_weeks_to_target(tm, target)
-        weeks_ahead = max(MIN_PLAN_WEEKS, min(DEFAULT_PLAN_WEEKS, estimated))
-    else:
-        weeks_ahead = max(MIN_PLAN_WEEKS, min(MAX_PLAN_WEEKS, weeks_ahead))
-
-    # Calculate session dates, resuming the S/H/T/E rotation from history.
-    # Use per-exercise days if configured; fall back to the global default.
-    days_per_week = user_state.profile.days_for_exercise(exercise.exercise_id)
-    start = datetime.strptime(start_date, "%Y-%m-%d")
-    schedule = get_schedule_template(days_per_week)
-    start_rotation_idx = get_next_session_type_index(history, schedule)
-    session_dates = calculate_session_days(
-        start,
-        days_per_week,
-        weeks_ahead,
-        start_rotation_idx=start_rotation_idx,
-    )
-
-    # Insert auto-TEST sessions at configured intervals
-    session_dates = _insert_test_sessions(
-        session_dates, history, exercise.test_frequency_weeks, start
-    )
-
-    # Anchor for stable week numbering: the first real (non-REST) session in history.
-    # REST records are synthetic shift markers and must not affect the training epoch.
-    original_history = [
-        s for s in user_state.history
-        if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
-    ]
-    first_date: datetime | None = (
-        datetime.strptime(original_history[0].date, "%Y-%m-%d") if original_history else None
-    )
-
-    # Generate sessions with progressive TM
-    plans: list[SessionPlan] = []
-    ff_state = status.fitness_fatigue_state
-
-    # Grip rotation: initialise counters from history so planned sessions
-    # continue the rotation seamlessly from where history left off.
-    grip_counts = _init_grip_counts(history, exercise)
-
-    # Pre-index history by session type for O(1) recent-session lookup in the plan loop
-    history_by_type: dict[str, list] = {}
-    for s in history:
-        history_by_type.setdefault(s.session_type, []).append(s)
-
-    # For BSS: find last TEST added weight to use as the dumbbell weight in training
-    last_test_weight = 0.0
-    if exercise.load_type == "external_only":
-        test_hist = [s for s in history if s.session_type == "TEST"]
-        if test_hist and test_hist[-1].completed_sets:
-            weights = [
-                s.added_weight_kg for s in test_hist[-1].completed_sets
-                if s.added_weight_kg > 0
-            ]
-            if weights:
-                last_test_weight = weights[-1]
-
-    # Weekly progression tracking: apply progression once per calendar week.
-    current_plan_week_idx = 0
-
-    for date, session_type in session_dates:
-        date_str = date.strftime("%Y-%m-%d")
-
-        # Calendar week index within this plan (0 = first plan week)
-        session_week_idx = (date - start).days // 7
-
-        # Apply progression exactly once when entering a new calendar week
-        if session_week_idx > current_plan_week_idx:
-            progression = expected_reps_per_week(int(tm_float), target)
-            tm_float += progression
-            uncapped_tm_float += progression
-            current_plan_week_idx = session_week_idx
-
-        # Use integer TM for prescriptions
-        current_tm = int(tm_float)
-
-        # Select grip/variant via rotation (or always use primary when no rotation)
-        if exercise.has_variant_rotation:
-            grip = _next_grip(session_type, grip_counts, exercise)
-        else:
-            grip = exercise.primary_variant
-
-        # Calculate sets based on current TM
-        recent_same_type = history_by_type.get(session_type, [])[-5:]
-        sets = calculate_set_prescription(
-            session_type,  # type: ignore
-            current_tm,
-            ff_state,
-            user_state.current_bodyweight_kg,
-            history_sessions=len(history),
-            recent_same_type=recent_same_type,
-            exercise=exercise,
-            last_test_weight=last_test_weight,
-        )
-
-        expected_tm_after = int(uncapped_tm_float)
-
-        plan = SessionPlan(
-            date=date_str,
-            grip=grip,
-            session_type=session_type,  # type: ignore
-            exercise_id=exercise.exercise_id,
-            sets=sets,
-            expected_tm=expected_tm_after,
-            week_number=(date - first_date).days // 7 + 1 if first_date else session_week_idx + 1,
-        )
-        plans.append(plan)
-
-    return plans
-
-
-def explain_plan_entry(
-    user_state: UserState,
-    plan_start_date: str,
-    target_date: str,
-    weeks_ahead: int | None = None,
-    baseline_max: int | None = None,
-    exercise: ExerciseDefinition | None = None,
-) -> str:
-    """
-    Generate a step-by-step Rich-markup explanation of a planned session.
-
-    Re-runs the generate_plan() loop, stops at target_date, and formats
-    every intermediate value with its source formula.
-
-    Args:
-        user_state: Current user state
-        plan_start_date: Start date of the plan (ISO)
-        target_date: Date of the session to explain (ISO)
-        weeks_ahead: Plan horizon (None = estimate)
-        baseline_max: Baseline max if no history
-
-    Returns:
-        Rich-markup string ready for console.print()
-    """
-    if exercise is None:
-        exercise = PULL_UP
-
-    history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
-
-    if not history and baseline_max is None:
-        return "[yellow]No history available. Run 'init --baseline-max N' first.[/yellow]"
-
-    if not history:
-        start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-        synthetic = create_synthetic_test_session(
-            (start_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
             user_state.current_bodyweight_kg,
             baseline_max,  # type: ignore
             exercise.exercise_id,
@@ -704,34 +606,55 @@ def explain_plan_entry(
     else:
         weeks_ahead = max(MIN_PLAN_WEEKS, min(MAX_PLAN_WEEKS, weeks_ahead))
 
-    start = datetime.strptime(plan_start_date, "%Y-%m-%d")
+    start = datetime.strptime(start_date, "%Y-%m-%d")
     schedule = get_schedule_template(days_per_week)
     start_rotation_idx = get_next_session_type_index(history, schedule)
-    session_dates = calculate_session_days(start, days_per_week, weeks_ahead, start_rotation_idx)
-    session_dates = _insert_test_sessions(session_dates, history, exercise.test_frequency_weeks, start)
+    session_dates = calculate_session_days(
+        start, days_per_week, weeks_ahead, start_rotation_idx
+    )
+    session_dates = _insert_test_sessions(
+        session_dates, history, exercise.test_frequency_weeks, start
+    )
 
-    # Cumulative week offset from first history session
-    original_history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
-    if original_history:
-        first_date = datetime.strptime(original_history[0].date, "%Y-%m-%d")
-        week_offset = (start - first_date).days // 7
-    else:
-        week_offset = 0
+    # Stable week-number anchor: first real (non-REST) session in ALL history
+    original_history = [
+        s for s in user_state.history
+        if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
+    ]
+    first_date: datetime | None = (
+        datetime.strptime(original_history[0].date, "%Y-%m-%d") if original_history else None
+    )
+    week_offset = (start - first_date).days // 7 if first_date is not None else 0
 
+    # Grip rotation: initialise from history so the plan continues seamlessly
     grip_counts = _init_grip_counts(history, exercise)
-    grip_history_counts = dict(grip_counts)
+    grip_history_counts = dict(grip_counts)   # snapshot of history-only counts
+
+    # Pre-index history by session type for O(1) lookup in the loop
+    history_by_type: dict[str, list] = {}
+    for s in history:
+        history_by_type.setdefault(s.session_type, []).append(s)
+
+    # BSS: carry dumbbell weight from the last TEST session
+    last_test_weight = 0.0
+    if exercise.load_type == "external_only":
+        test_hist = [s for s in history if s.session_type == "TEST"]
+        if test_hist and test_hist[-1].completed_sets:
+            weights = [
+                s.added_weight_kg for s in test_hist[-1].completed_sets
+                if s.added_weight_kg > 0
+            ]
+            if weights:
+                last_test_weight = weights[-1]
+
     current_plan_week_idx = 0
     weekly_log: list[tuple[int, float, float, float]] = []
-
-    TYPE_NAMES = {
-        "S": "Strength", "H": "Hypertrophy", "E": "Endurance",
-        "T": "Technique", "TEST": "Max Test",
-    }
 
     for date, session_type in session_dates:
         date_str = date.strftime("%Y-%m-%d")
         session_week_idx = (date - start).days // 7
 
+        # Apply weekly TM progression exactly once per calendar-week boundary
         if session_week_idx > current_plan_week_idx:
             prog = expected_reps_per_week(int(tm_float), user_target)
             old_tm = tm_float
@@ -740,256 +663,459 @@ def explain_plan_entry(
             current_plan_week_idx = session_week_idx
 
         current_tm = int(tm_float)
+
+        # Grip selection
         count_before = grip_counts.get(session_type, 0)
-        grip = _next_grip(session_type, grip_counts, exercise)
+        if exercise.has_variant_rotation:
+            grip = _next_grip(session_type, grip_counts, exercise)
+        else:
+            grip = exercise.primary_variant
         cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
 
-        week_num = week_offset + session_week_idx + 1
-        expected_tm_after = int(tm_float)
+        week_num = (
+            (date - first_date).days // 7 + 1 if first_date is not None
+            else session_week_idx + 1
+        )
 
-        if date_str != target_date:
-            continue
-
-        # ── Found the target session — build explanation ────────────────────
+        # --- Compute trace values (pure math, cheap) ---
         params = exercise.session_params[session_type]
-        type_name = TYPE_NAMES.get(session_type, session_type)
-
         reps_low = max(params.reps_min, int(current_tm * params.reps_fraction_low))
         reps_high = min(params.reps_max, int(current_tm * params.reps_fraction_high))
-        base_reps = (reps_low + reps_high) // 2
-        base_reps = max(params.reps_min, min(params.reps_max, base_reps))
+        base_reps = max(params.reps_min, min(params.reps_max, (reps_low + reps_high) // 2))
         base_sets = (params.sets_min + params.sets_max) // 2
-        rest = (params.rest_min + params.rest_max) // 2
         has_autoreg = len(history) >= MIN_SESSIONS_FOR_AUTOREG
 
-        adj_sets = base_sets
-        adj_reps = base_reps
         if has_autoreg:
-            if z_score < READINESS_Z_LOW:
-                adj_sets = max(3, int(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
-            elif z_score > READINESS_Z_HIGH:
-                adj_reps = base_reps + 1
-
-        added_weight = _calculate_added_weight(exercise, current_tm, user_state.current_bodyweight_kg)
-
-        rule = "─" * 54
-        L: list[str] = []
-
-        # Header
-        L.append(
-            f"[bold cyan]{type_name} ({session_type})"
-            f"  ·  {date_str}"
-            f"  ·  Week {week_num}[/bold cyan]"
-        )
-        L.append(rule)
-
-        # SESSION TYPE
-        L.append("\n[bold]SESSION TYPE[/bold]")
-        L.append(f"  {days_per_week}-day schedule template: [cyan]{' → '.join(schedule)}[/cyan] (repeating weekly).")
-        L.append(f"  Week {week_num} → [magenta]{session_type}[/magenta].")
-
-        # GRIP
-        hist_count = grip_history_counts.get(session_type, 0)
-        plan_count = count_before - hist_count
-        cycle_str = " → ".join(cycle)
-        L.append(f"\n[bold]GRIP: {grip}[/bold]")
-        L.append(f"  {session_type} sessions rotate: [cyan]{cycle_str}[/cyan] ({len(cycle)}-step cycle).")
-        L.append(f"  In history: {hist_count} {session_type} session(s).")
-        if plan_count > 0:
-            L.append(f"  In this plan before {date_str}: {plan_count} {session_type} session(s).")
-        L.append(f"  Total before this session: {count_before}.")
-        L.append(
-            f"  {count_before} mod {len(cycle)} = [bold]{count_before % len(cycle)}[/bold]"
-            f" → [green]{grip}[/green]."
-        )
-
-        # TRAINING MAX
-        L.append(f"\n[bold]TRAINING MAX: {current_tm}[/bold]")
-        test_sessions = [s for s in history if s.session_type == "TEST"]
-        if test_sessions:
-            latest_test = max(test_sessions, key=lambda s: s.date)
-            latest_max = max(
-                (s.actual_reps for s in latest_test.completed_sets if s.actual_reps),
-                default=0,
-            )
-            tm_from_test = int(TM_FACTOR * latest_max)
-            L.append(f"  Latest TEST: {latest_max} reps on {latest_test.date}.")
-            L.append(
-                f"  Starting TM = floor({TM_FACTOR} × {latest_max}) = {tm_from_test}."
-            )
+            adj_sets, adj_reps = apply_autoregulation(base_sets, base_reps, ff_state)
         else:
-            L.append(f"  Starting TM: {initial_tm}.")
-        if weekly_log:
-            L.append("  Progression by week:")
-            for wk, prog, before, after in weekly_log:
-                L.append(
-                    f"    Week {wk}: TM {before:.2f} + {prog:.2f} = [bold]{after:.2f}[/bold]"
-                    f" (int = {int(after)})"
-                )
-        else:
-            L.append("  No weekly progression yet (first week of plan).")
-        L.append(f"  → TM for this session: int({tm_float:.2f}) = [bold green]{current_tm}[/bold green].")
+            adj_sets, adj_reps = base_sets, base_reps
 
-        # SETS
-        L.append(f"\n[bold]SETS: {adj_sets}[/bold]")
-        L.append(
-            f"  {session_type} config: sets [{params.sets_min}–{params.sets_max}]."
-            f"  Base = ({params.sets_min}+{params.sets_max})//2 = {base_sets}."
+        recent_same_type = history_by_type.get(session_type, [])[-5:]
+        adj_rest = calculate_adaptive_rest(session_type, recent_same_type, ff_state, exercise)
+        added_weight = _calculate_added_weight(
+            exercise, current_tm, user_state.current_bodyweight_kg, last_test_weight
         )
-        L.append(
-            f"  How the range is used: the midpoint ({base_sets}) is the operational target."
-            f"  Autoregulation can only reduce sets (never push above midpoint)."
-            f"  High readiness adds +1 rep/set rather than adding more sets."
-        )
-        L.append(
-            f"  Readiness z-score: {z_score:+.2f}"
-            f"  (thresholds: low={READINESS_Z_LOW}, high=+{READINESS_Z_HIGH})."
-        )
-        if not has_autoreg:
-            L.append(f"  Autoregulation: [dim]off[/dim] (need ≥ {MIN_SESSIONS_FOR_AUTOREG} sessions, have {len(history)}).")
-        elif z_score < READINESS_Z_LOW:
-            L.append(
-                f"  z < {READINESS_Z_LOW} → reduce by {int(READINESS_VOLUME_REDUCTION*100)}%:"
-                f" max(3, {int(base_sets*(1-READINESS_VOLUME_REDUCTION))}) = [bold]{adj_sets}[/bold]."
-            )
-        elif z_score > READINESS_Z_HIGH:
-            L.append(f"  z > +{READINESS_Z_HIGH} → sets unchanged, +1 rep (see Reps).")
-        else:
-            L.append(f"  z in [{READINESS_Z_LOW}, +{READINESS_Z_HIGH}] → no change.")
-        L.append(f"  → [bold green]{adj_sets} sets[/bold green].")
+        expected_tm_after = int(tm_float)
 
-        # REPS
-        L.append(f"\n[bold]REPS PER SET: {adj_reps}[/bold]")
-        L.append(
-            f"  {session_type} config: fraction [{params.reps_fraction_low}–{params.reps_fraction_high}]"
-            f" of TM, clamped to [{params.reps_min}–{params.reps_max}]."
-        )
-        L.append(
-            f"  Low  = max({params.reps_min}, int({current_tm} × {params.reps_fraction_low}))"
-            f" = max({params.reps_min}, {int(current_tm * params.reps_fraction_low)}) = {reps_low}."
-        )
-        L.append(
-            f"  High = min({params.reps_max}, int({current_tm} × {params.reps_fraction_high}))"
-            f" = min({params.reps_max}, {int(current_tm * params.reps_fraction_high)}) = {reps_high}."
-        )
-        L.append(
-            f"  Target = ({reps_low}+{reps_high})//2 = {(reps_low+reps_high)//2},"
-            f" clamped to [{params.reps_min}–{params.reps_max}] → {base_reps}."
-        )
-        if has_autoreg and z_score > READINESS_Z_HIGH:
-            L.append(f"  High readiness (z={z_score:+.2f} > +{READINESS_Z_HIGH}) → +1 rep → {adj_reps}.")
-        L.append(f"  → [bold green]{adj_reps} reps/set[/bold green].")
-
-        # WEIGHT (S) or VOLUME (E)
-        if session_type == "S":
-            L.append(f"\n[bold]ADDED WEIGHT: {added_weight:.1f} kg[/bold]")
-            thr = exercise.weight_tm_threshold
-            frac = exercise.weight_increment_fraction
-            bwf = exercise.bw_fraction
-            if exercise.load_type == "external_only":
-                L.append("  External-load exercise — dumbbell weight from last TEST session.")
-            elif current_tm > thr:
-                eff_bw = user_state.current_bodyweight_kg * bwf
-                raw_w = eff_bw * frac * (current_tm - thr)
-                rounded = round(raw_w * 2) / 2
-                L.append(
-                    f"  TM = {current_tm} > {thr} → BW×{bwf}×{frac}×(TM−{thr})"
-                    f" = {eff_bw:.1f}×{frac}×{current_tm - thr} = {raw_w:.2f} kg."
-                )
-                L.append(
-                    f"  Rounded to nearest 0.5 kg: {rounded:.1f} kg."
-                    f"  Cap at {exercise.max_added_weight_kg:.0f} kg"
-                    f" → [bold green]{added_weight:.1f} kg[/bold green]."
-                )
-            else:
-                L.append(f"  TM = {current_tm} ≤ {thr} → bodyweight only (0 kg added).")
-        elif session_type == "E":
-            ke = endurance_volume_multiplier(current_tm)
-            total_target = int(ke * current_tm)
-            L.append("\n[bold]VOLUME (Endurance — descending ladder)[/bold]")
-            L.append(
-                f"  kE(TM={current_tm}) = 3.0 + 2.0 × clip(({current_tm}-5)/25, 0, 1) = {ke:.2f}."
-            )
-            L.append(
-                f"  Total target = kE × TM = {ke:.2f} × {current_tm} = {total_target} reps."
-            )
-            L.append(
-                f"  Starting at {base_reps} reps/set, decreasing by 1 each set"
-                f" (min {params.reps_min})."
-            )
-            L.append(
-                f"  Stops when accumulated ≥ {total_target} reps or {params.sets_max} sets reached."
-            )
-
-        # REST — compute adaptive rest inline (mirrors calculate_adaptive_rest logic)
-        import math as _math
-        adj_rest = rest  # start from midpoint
-        rest_adj_notes: list[str] = []
-        same_type_sessions = [s for s in history if s.session_type == session_type]
-        if same_type_sessions:
-            last_same = same_type_sessions[-1]
-            sets_done = [s for s in last_same.completed_sets if s.actual_reps is not None]
-            if sets_done:
-                rirs = [s.rir_reported for s in sets_done if s.rir_reported is not None]
-                if rirs:
-                    if any(r <= 1 for r in rirs):
-                        adj_rest += 30
-                        rest_adj_notes.append("RIR ≤ 1 in a set → +30 s")
-                    elif all(r >= 3 for r in rirs):
-                        adj_rest -= 15
-                        rest_adj_notes.append("all sets RIR ≥ 3 → −15 s")
-                reps_done = [s.actual_reps for s in sets_done if s.actual_reps is not None]
-                if len(reps_done) >= 2 and reps_done[0] > 0:
-                    drop = (reps_done[0] - reps_done[-1]) / reps_done[0]
-                    if drop > DROP_OFF_THRESHOLD:
-                        adj_rest += 15
-                        rest_adj_notes.append(f"drop-off {drop:.0%} > {int(DROP_OFF_THRESHOLD*100)}% → +15 s")
-        if ff_state is not None:
-            readiness_val = ff_state.fitness - ff_state.fatigue
-            readiness_var_val = max(ff_state.readiness_var, 0.01)
-            z_rest = (readiness_val - ff_state.readiness_mean) / _math.sqrt(readiness_var_val)
-            if z_rest < READINESS_Z_LOW:
-                adj_rest += 30
-                rest_adj_notes.append(f"readiness z={z_rest:+.2f} < {READINESS_Z_LOW} → +30 s")
-        adj_rest = max(params.rest_min, min(params.rest_max, adj_rest))
-
-        L.append(f"\n[bold]REST: {adj_rest} s[/bold]")
-        L.append(
-            f"  {session_type} config: rest [{params.rest_min}–{params.rest_max}] s."
-            f"  Base = ({params.rest_min}+{params.rest_max})//2 = {rest} s."
-        )
-        if same_type_sessions and rest_adj_notes:
-            L.append(f"  Adjustments from last {session_type} session ({same_type_sessions[-1].date}):")
-            for note in rest_adj_notes:
-                L.append(f"    {note}")
-            L.append(f"  Clamped to [{params.rest_min}–{params.rest_max}] s → {adj_rest} s.")
-        elif not same_type_sessions:
-            L.append(f"  No previous {session_type} session found → using midpoint.")
-        else:
-            L.append(f"  No adjustments needed from last {session_type} session → midpoint unchanged.")
-        L.append(f"  → [bold green]{adj_rest} s[/bold green].")
-
-        # EXPECTED TM AFTER
-        next_week_prog = expected_reps_per_week(current_tm, user_target)
-        next_week_tm = tm_float + next_week_prog
-        L.append(f"\n[bold]EXPECTED TM AFTER: {expected_tm_after}[/bold]")
-        L.append(f"  TM is updated once per calendar week boundary.")
-        L.append(f"  Current TM (this week): int({tm_float:.2f}) = {current_tm}.")
-        L.append(
-            f"  Next week's TM ≈ {tm_float:.2f} + {next_week_prog:.2f}"
-            f" = {next_week_tm:.2f} → int = {int(next_week_tm)}."
-        )
-        L.append(
-            f"  → [bold green]{expected_tm_after}[/bold green] (this week's TM, shown consistently"
-            f" for all sessions in week {week_num})."
+        # --- Build the plan entry ---
+        sets = calculate_set_prescription(
+            session_type,  # type: ignore
+            current_tm,
+            ff_state,
+            user_state.current_bodyweight_kg,
+            history_sessions=len(history),
+            recent_same_type=recent_same_type,
+            exercise=exercise,
+            last_test_weight=last_test_weight,
         )
 
-        return "\n".join(L)
+        plan = SessionPlan(
+            date=date_str,
+            grip=grip,
+            session_type=session_type,  # type: ignore
+            exercise_id=exercise.exercise_id,
+            sets=sets,
+            expected_tm=expected_tm_after,
+            week_number=week_num,
+        )
 
+        trace = _SessionTrace(
+            date_str=date_str,
+            session_type=session_type,
+            session_week_idx=session_week_idx,
+            week_num=week_num,
+            week_offset=week_offset,
+            weeks_ahead=weeks_ahead,
+            grip=grip,
+            cycle=list(cycle),
+            count_before=count_before,
+            hist_count=grip_history_counts.get(session_type, 0),
+            initial_tm=initial_tm,
+            current_tm=current_tm,
+            tm_float=tm_float,
+            weekly_log=list(weekly_log),    # snapshot at yield time
+            base_sets=base_sets,
+            base_reps=base_reps,
+            adj_sets=adj_sets,
+            adj_reps=adj_reps,
+            has_autoreg=has_autoreg,
+            z_score=z_score,
+            reps_low=reps_low,
+            reps_high=reps_high,
+            added_weight=added_weight,
+            last_test_weight=last_test_weight,
+            adj_rest=adj_rest,
+            recent_same_type=recent_same_type,
+            expected_tm_after=expected_tm_after,
+            history=history,
+            history_len=len(history),
+            days_per_week=days_per_week,
+            user_target=user_target,
+            schedule=list(schedule),
+            params=params,
+            exercise=exercise,
+            ff_state=ff_state,
+        )
+
+        yield plan, trace
+
+
+def generate_plan(
+    user_state: UserState,
+    start_date: str,
+    weeks_ahead: int | None = None,
+    baseline_max: int | None = None,
+    exercise: ExerciseDefinition | None = None,
+) -> list[SessionPlan]:
+    """
+    Generate a deterministic training plan with progressive overload.
+
+    Args:
+        user_state: Current user state with profile and history
+        start_date: Start date for the plan (ISO format)
+        weeks_ahead: Number of weeks to plan (None = estimate)
+        baseline_max: Baseline max if no history
+        exercise: ExerciseDefinition to parameterise the plan (default: PULL_UP)
+
+    Returns:
+        List of SessionPlan for the planning horizon
+    """
+    return [plan for plan, _ in _plan_core(user_state, start_date, weeks_ahead, baseline_max, exercise)]
+
+
+def explain_plan_entry(
+    user_state: UserState,
+    plan_start_date: str,
+    target_date: str,
+    weeks_ahead: int | None = None,
+    baseline_max: int | None = None,
+    exercise: ExerciseDefinition | None = None,
+) -> str:
+    """
+    Generate a step-by-step Rich-markup explanation of a planned session.
+
+    Delegates to _plan_core() so the explanation is guaranteed to match
+    the plan produced by generate_plan() exactly.
+
+    Args:
+        user_state: Current user state
+        plan_start_date: Start date of the plan (ISO)
+        target_date: Date of the session to explain (ISO)
+        weeks_ahead: Plan horizon (None = estimate)
+        baseline_max: Baseline max if no history
+        exercise: ExerciseDefinition (default: PULL_UP)
+
+    Returns:
+        Rich-markup string ready for console.print()
+    """
+    if exercise is None:
+        exercise = PULL_UP
+    last_weeks_ahead: int | None = None
+    try:
+        for plan, trace in _plan_core(
+            user_state, plan_start_date, weeks_ahead, baseline_max, exercise
+        ):
+            last_weeks_ahead = trace.weeks_ahead
+            if plan.date == target_date:
+                return _format_explain(trace, user_state.current_bodyweight_kg)
+    except ValueError as exc:
+        return f"[yellow]{exc}[/yellow]"
+    horizon = f"{last_weeks_ahead}-week " if last_weeks_ahead is not None else ""
     return (
         f"[yellow]No planned session found for {target_date}.[/yellow]\n"
-        f"Is this date within the {weeks_ahead}-week plan horizon starting {plan_start_date}?"
+        f"Is this date within the {horizon}plan horizon starting {plan_start_date}?"
     )
+
+
+def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
+    """
+    Format a _SessionTrace into a Rich-markup step-by-step explanation.
+
+    Pure formatter: no computation, no side-effects.
+    All values come from the trace built by _plan_core().
+    """
+    import math as _math
+
+    TYPE_NAMES = {
+        "S": "Strength", "H": "Hypertrophy", "E": "Endurance",
+        "T": "Technique", "TEST": "Max Test",
+    }
+
+    ex = trace.exercise
+    params = trace.params
+    session_type = trace.session_type
+    type_name = TYPE_NAMES.get(session_type, session_type)
+    rest_mid = (params.rest_min + params.rest_max) // 2
+    rule = "─" * 54
+    L: list[str] = []
+
+    # Header
+    L.append(
+        f"[bold cyan]{type_name} ({session_type})"
+        f"  ·  {trace.date_str}"
+        f"  ·  Week {trace.week_num}[/bold cyan]"
+    )
+    L.append(rule)
+
+    # SESSION TYPE
+    L.append("\n[bold]SESSION TYPE[/bold]")
+    L.append(
+        f"  {trace.days_per_week}-day schedule template: "
+        f"[cyan]{' → '.join(trace.schedule)}[/cyan] (repeating weekly)."
+    )
+    L.append(f"  Week {trace.week_num} → [magenta]{session_type}[/magenta].")
+
+    # GRIP
+    L.append(f"\n[bold]GRIP: {trace.grip}[/bold]")
+    if ex.has_variant_rotation:
+        cycle_str = " → ".join(trace.cycle)
+        plan_count = trace.count_before - trace.hist_count
+        L.append(
+            f"  {session_type} sessions rotate: [cyan]{cycle_str}[/cyan]"
+            f" ({len(trace.cycle)}-step cycle)."
+        )
+        L.append(f"  In history: {trace.hist_count} {session_type} session(s).")
+        if plan_count > 0:
+            L.append(
+                f"  In this plan before {trace.date_str}: {plan_count} {session_type} session(s)."
+            )
+        L.append(f"  Total before this session: {trace.count_before}.")
+        L.append(
+            f"  {trace.count_before} mod {len(trace.cycle)}"
+            f" = [bold]{trace.count_before % len(trace.cycle)}[/bold]"
+            f" → [green]{trace.grip}[/green]."
+        )
+    else:
+        L.append(f"  Always uses primary variant (no rotation for {ex.display_name}).")
+
+    # TRAINING MAX
+    L.append(f"\n[bold]TRAINING MAX: {trace.current_tm}[/bold]")
+    test_sessions = [s for s in trace.history if s.session_type == "TEST"]
+    if test_sessions:
+        latest_test = max(test_sessions, key=lambda s: s.date)
+        latest_max = max(
+            (s.actual_reps for s in latest_test.completed_sets if s.actual_reps),
+            default=0,
+        )
+        tm_from_test = int(TM_FACTOR * latest_max)
+        L.append(f"  Latest TEST: {latest_max} reps on {latest_test.date}.")
+        L.append(f"  Starting TM = floor({TM_FACTOR} × {latest_max}) = {tm_from_test}.")
+    else:
+        L.append(f"  Starting TM: {trace.initial_tm}.")
+    if trace.weekly_log:
+        L.append("  Progression by week:")
+        for wk, prog, before, after in trace.weekly_log:
+            L.append(
+                f"    Week {wk}: TM {before:.2f} + {prog:.2f} = [bold]{after:.2f}[/bold]"
+                f" (int = {int(after)})"
+            )
+    else:
+        L.append("  No weekly progression yet (first week of plan).")
+    L.append(
+        f"  → TM for this session: int({trace.tm_float:.2f})"
+        f" = [bold green]{trace.current_tm}[/bold green]."
+    )
+
+    # SETS
+    L.append(f"\n[bold]SETS: {trace.adj_sets}[/bold]")
+    L.append(
+        f"  {session_type} config: sets [{params.sets_min}–{params.sets_max}]."
+        f"  Base = ({params.sets_min}+{params.sets_max})//2 = {trace.base_sets}."
+    )
+    L.append(
+        f"  How the range is used: the midpoint ({trace.base_sets}) is the operational target."
+        f"  Autoregulation can only reduce sets (never push above midpoint)."
+        f"  High readiness adds +1 rep/set rather than adding more sets."
+    )
+    L.append(
+        f"  Readiness z-score: {trace.z_score:+.2f}"
+        f"  (thresholds: low={READINESS_Z_LOW}, high=+{READINESS_Z_HIGH})."
+    )
+    if not trace.has_autoreg:
+        L.append(
+            f"  Autoregulation: [dim]off[/dim]"
+            f" (need ≥ {MIN_SESSIONS_FOR_AUTOREG} sessions, have {trace.history_len})."
+        )
+    elif trace.z_score < READINESS_Z_LOW:
+        L.append(
+            f"  z < {READINESS_Z_LOW} → reduce by {int(READINESS_VOLUME_REDUCTION*100)}%:"
+            f" max(3, {int(trace.base_sets*(1-READINESS_VOLUME_REDUCTION))})"
+            f" = [bold]{trace.adj_sets}[/bold]."
+        )
+    elif trace.z_score > READINESS_Z_HIGH:
+        L.append(f"  z > +{READINESS_Z_HIGH} → sets unchanged, +1 rep (see Reps).")
+    else:
+        L.append(f"  z in [{READINESS_Z_LOW}, +{READINESS_Z_HIGH}] → no change.")
+    L.append(f"  → [bold green]{trace.adj_sets} sets[/bold green].")
+
+    # REPS
+    L.append(f"\n[bold]REPS PER SET: {trace.adj_reps}[/bold]")
+    L.append(
+        f"  {session_type} config:"
+        f" fraction [{params.reps_fraction_low}–{params.reps_fraction_high}]"
+        f" of TM, clamped to [{params.reps_min}–{params.reps_max}]."
+    )
+    L.append(
+        f"  Low  = max({params.reps_min}, int({trace.current_tm} × {params.reps_fraction_low}))"
+        f" = max({params.reps_min}, {int(trace.current_tm * params.reps_fraction_low)})"
+        f" = {trace.reps_low}."
+    )
+    L.append(
+        f"  High = min({params.reps_max}, int({trace.current_tm} × {params.reps_fraction_high}))"
+        f" = min({params.reps_max}, {int(trace.current_tm * params.reps_fraction_high)})"
+        f" = {trace.reps_high}."
+    )
+    L.append(
+        f"  Target = ({trace.reps_low}+{trace.reps_high})//2"
+        f" = {(trace.reps_low + trace.reps_high) // 2},"
+        f" clamped to [{params.reps_min}–{params.reps_max}] → {trace.base_reps}."
+    )
+    if trace.has_autoreg and trace.z_score > READINESS_Z_HIGH:
+        L.append(
+            f"  High readiness (z={trace.z_score:+.2f} > +{READINESS_Z_HIGH})"
+            f" → +1 rep → {trace.adj_reps}."
+        )
+    L.append(f"  → [bold green]{trace.adj_reps} reps/set[/bold green].")
+
+    # WEIGHT (S) or VOLUME (E)
+    if session_type == "S":
+        L.append(f"\n[bold]ADDED WEIGHT: {trace.added_weight:.1f} kg[/bold]")
+        thr = ex.weight_tm_threshold
+        frac = ex.weight_increment_fraction
+        bwf = ex.bw_fraction
+        if ex.load_type == "external_only":
+            L.append(
+                f"  External-load exercise — dumbbell weight from last TEST session"
+                f" ({trace.last_test_weight:.1f} kg)."
+            )
+        elif trace.current_tm > thr:
+            eff_bw = bodyweight_kg * bwf
+            raw_w = eff_bw * frac * (trace.current_tm - thr)
+            rounded = round(raw_w * 2) / 2
+            L.append(
+                f"  TM = {trace.current_tm} > {thr} → BW×{bwf}×{frac}×(TM−{thr})"
+                f" = {eff_bw:.1f}×{frac}×{trace.current_tm - thr} = {raw_w:.2f} kg."
+            )
+            L.append(
+                f"  Rounded to nearest 0.5 kg: {rounded:.1f} kg."
+                f"  Cap at {ex.max_added_weight_kg:.0f} kg"
+                f" → [bold green]{trace.added_weight:.1f} kg[/bold green]."
+            )
+        else:
+            L.append(f"  TM = {trace.current_tm} ≤ {thr} → bodyweight only (0 kg added).")
+    elif session_type == "E":
+        ke = endurance_volume_multiplier(trace.current_tm)
+        total_target = int(ke * trace.current_tm)
+        L.append("\n[bold]VOLUME (Endurance — descending ladder)[/bold]")
+        L.append(
+            f"  kE(TM={trace.current_tm}) = 3.0 + 2.0"
+            f" × clip(({trace.current_tm}-5)/25, 0, 1) = {ke:.2f}."
+        )
+        L.append(
+            f"  Total target = kE × TM = {ke:.2f} × {trace.current_tm} = {total_target} reps."
+        )
+        L.append(
+            f"  Starting at {trace.base_reps} reps/set, decreasing by 1 each set"
+            f" (min {params.reps_min})."
+        )
+        L.append(
+            f"  Stops when accumulated ≥ {total_target} reps"
+            f" or {params.sets_max} sets reached."
+        )
+
+    # REST — rebuild rest_adj_notes from trace.recent_same_type using the same
+    # logic as calculate_adaptive_rest() so the display stays in sync.
+    rest_adj_notes: list[str] = []
+    same_type_sessions = trace.recent_same_type
+    if same_type_sessions:
+        last_same = same_type_sessions[-1]
+        sets_done = [s for s in last_same.completed_sets if s.actual_reps is not None]
+        if sets_done:
+            rirs = [s.rir_reported for s in sets_done if s.rir_reported is not None]
+            if rirs:
+                if any(r <= 1 for r in rirs):
+                    rest_adj_notes.append("RIR ≤ 1 in a set → +30 s")
+                elif all(r >= 3 for r in rirs):
+                    rest_adj_notes.append("all sets RIR ≥ 3 → −15 s")
+            reps_done = [s.actual_reps for s in sets_done if s.actual_reps is not None]
+            if len(reps_done) >= 2 and reps_done[0] > 0:
+                drop = (reps_done[0] - reps_done[-1]) / reps_done[0]
+                if drop > DROP_OFF_THRESHOLD:
+                    rest_adj_notes.append(
+                        f"drop-off {drop:.0%} > {int(DROP_OFF_THRESHOLD*100)}% → +15 s"
+                    )
+    if trace.ff_state is not None:
+        readiness_val = trace.ff_state.fitness - trace.ff_state.fatigue
+        readiness_var_val = max(trace.ff_state.readiness_var, 0.01)
+        z_rest = (
+            (readiness_val - trace.ff_state.readiness_mean)
+            / _math.sqrt(readiness_var_val)
+        )
+        if z_rest < READINESS_Z_LOW:
+            rest_adj_notes.append(
+                f"readiness z={z_rest:+.2f} < {READINESS_Z_LOW} → +30 s"
+            )
+    # Rest-adherence signal (Phase 3 addition)
+    actual_rests = [
+        s.rest_seconds_before
+        for session in same_type_sessions
+        for s in session.completed_sets
+        if s.rest_seconds_before > 0
+    ]
+    if len(actual_rests) >= 3:
+        avg_actual = sum(actual_rests) / len(actual_rests)
+        if avg_actual < params.rest_min * 0.85:
+            rest_adj_notes.append(
+                f"avg actual rest {avg_actual:.0f} s"
+                f" < {params.rest_min}×0.85={params.rest_min * 0.85:.0f} s → −20 s"
+            )
+        elif avg_actual > params.rest_max * 1.10:
+            rest_adj_notes.append(
+                f"avg actual rest {avg_actual:.0f} s"
+                f" > {params.rest_max}×1.10={params.rest_max * 1.10:.0f} s → +20 s"
+            )
+
+    L.append(f"\n[bold]REST: {trace.adj_rest} s[/bold]")
+    L.append(
+        f"  {session_type} config: rest [{params.rest_min}–{params.rest_max}] s."
+        f"  Base = ({params.rest_min}+{params.rest_max})//2 = {rest_mid} s."
+    )
+    if same_type_sessions and rest_adj_notes:
+        L.append(
+            f"  Adjustments from last {session_type} session"
+            f" ({same_type_sessions[-1].date}):"
+        )
+        for note in rest_adj_notes:
+            L.append(f"    {note}")
+        L.append(
+            f"  Clamped to [{params.rest_min}–{params.rest_max}] s → {trace.adj_rest} s."
+        )
+    elif not same_type_sessions:
+        L.append(f"  No previous {session_type} session found → using midpoint.")
+    else:
+        L.append(
+            f"  No adjustments needed from last {session_type} session → midpoint unchanged."
+        )
+    L.append(f"  → [bold green]{trace.adj_rest} s[/bold green].")
+
+    # EXPECTED TM AFTER
+    next_week_prog = expected_reps_per_week(trace.current_tm, trace.user_target)
+    next_week_tm = trace.tm_float + next_week_prog
+    L.append(f"\n[bold]EXPECTED TM AFTER: {trace.expected_tm_after}[/bold]")
+    L.append(f"  TM is updated once per calendar week boundary.")
+    L.append(
+        f"  Current TM (this week): int({trace.tm_float:.2f}) = {trace.current_tm}."
+    )
+    L.append(
+        f"  Next week's TM ≈ {trace.tm_float:.2f} + {next_week_prog:.2f}"
+        f" = {next_week_tm:.2f} → int = {int(next_week_tm)}."
+    )
+    L.append(
+        f"  → [bold green]{trace.expected_tm_after}[/bold green]"
+        f" (this week's TM, shown consistently for all sessions in week {trace.week_num})."
+    )
+
+    return "\n".join(L)
 
 
 def estimate_plan_completion_date(

@@ -12,16 +12,13 @@ authors = [
 dependencies = [
     "typer>=0.15.0",
     "rich>=13.0.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
-    "PyYAML>=6.0",
-]
-yaml = [
-    "PyYAML>=6.0",
 ]
 
 [project.scripts]
