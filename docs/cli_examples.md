@@ -312,15 +312,27 @@ Plan start updated to 2026-02-23.
 ```bash
 $ bar-scheduler 1rm
 
-1RM estimate (Pull-up)
-- Epley 1RM: 102.7 kg
-- Based on: last 5 sessions
+1RM Estimate — Pull-Up
+  Bodyweight:  81.2 kg
+  Best set:    8 reps @ +0.0 kg added  (2026-02-22)
+  Total load:  81.2 kg
+
+  Formula      1RM      Notes
+  ─────────────────────────────────────────────────────────────
+  Epley        102.9    general; tends to overestimate at r > 10
+  Brzycki       98.4 ★  most accurate for r ≤ 10
+  Lander        99.1 ★  most accurate for r ≤ 10
+  Lombardi     104.2    better for r > 10; less reliable at low reps
+  Blended       99.8    rep-range weighted average (recommended)
+  ─────────────────────────────────────────────────────────────
+
+★ = most representative formula for this rep count
 
 # BSS (external load only — bodyweight not included in formula)
 $ bar-scheduler 1rm --exercise bss
 ```
 
-The Epley formula `1RM = load × (1 + reps/30)` is applied to each set in the last 5 sessions. The highest estimate is returned. For pull-ups and dips, total load = bodyweight + added weight. For BSS, total load = added weight only.
+Five formulas are computed from the best single set in the last 5 sessions. The ★ marker indicates the most reliable formula(s) for the rep count used. For r ≤ 10, Brzycki and Lander are most accurate; for 10 < r ≤ 20, the blended formula is used; above 20 reps all formulas become less reliable. For pull-ups and dips, total load = bodyweight × fraction + added weight. For BSS, total load = added weight only.
 
 ## Delete a Session
 
@@ -351,16 +363,36 @@ Max Reps Progress (Strict Pull-ups)
     Feb 01   Feb 15   Mar 01   Mar 15   Apr 01   Apr 15
 ```
 
-### Trajectory Line
+### Trajectory Overlays
 
-Add `--trajectory` (or `-t`) to overlay a dotted line showing the planned max reps growth from your first test to the goal:
+Add `--trajectory` (or `-t`) to overlay projected lines. Three types are available and can be freely combined by passing multiple letters in one value:
+
+| Letter | Marker | What it shows |
+|--------|--------|---------------|
+| `z` | `·` | Projected bodyweight max reps from current to goal (left axis) |
+| `g` | `×` | Projected reps achievable at your **goal added weight** (left axis) |
+| `m` | `○` | Projected **1RM added kg** using blended non-linear formula (independent right axis) |
 
 ```bash
-$ bar-scheduler plot-max --trajectory
+# BW reps trajectory only
+$ bar-scheduler plot-max -t z
 
+# 1RM added-kg trajectory with right axis
+$ bar-scheduler plot-max -t m
+
+# All three together
+$ bar-scheduler plot-max -t zmg
+
+# For a different exercise
+$ bar-scheduler plot-max -t zm --exercise dip
+```
+
+**`-t z` — bodyweight reps projection:**
+
+```
 Max Reps Progress (Strict Pull-ups)
 ──────────────────────────────────────────────────────────────
- 30 ┤                                         ········· (30)
+ 30 ┤                                         ·········
  22 ┤                                      ╭──●
  20 ┤                                 ·····╯
  16 ┤                     ····╭──● (16)
@@ -369,10 +401,73 @@ Max Reps Progress (Strict Pull-ups)
   8 ● (8)─╯
 ──────────────────────────────────────────────────────────────
     Feb 01   Feb 15   Mar 01
-● actual max reps   · projected trajectory
+● max reps   · BW reps (z)
 ```
 
-The trajectory is calculated from your first TEST session using the model's progression formula. The trajectory field is included in `plot-max --json` when the flag is given, and `null` otherwise.
+**`-t m` — 1RM added kg with independent right axis:**
+
+The `m` trajectory shows how much added weight you could lift for a single rep as your training max improves. It uses a **rep-range–aware blended formula**:
+
+- r ≤ 5 → avg(Brzycki, Lander)
+- r ≤ 10 → avg(Brzycki, Lander, Epley)
+- 11 ≤ r ≤ 20 → avg(Lombardi, Epley)
+- r > 20 → not plotted (formulas become unreliable)
+
+The right axis is calibrated independently from the m-trajectory's own kg range, so the `○` dots land at **different positions** than the `·` dots — visually distinguishing strength capacity from rep capacity.
+
+```bash
+$ bar-scheduler plot-max -t m
+```
+
+```
+Max Reps Progress (Strict Pull-ups)
+──────────────────────────────────────────────────────────────────
+ 30 ┤                                      ╭──● (30)      ┤ 33kg
+ 26 ┤                                    ╭─╯              ┤ 27kg
+ 22 ┤                              ○  ╭──●                ┤ 22kg
+ 18 ┤                           ○  ╭─╯                    ┤ 17kg
+ 14 ┤                      ○  ╭──●                        ┤ 12kg
+ 12 ┤               ○  ╭──● (12)                          ┤  9kg
+  8 ● (8)───────╯                                          ┤  3kg
+──────────────────────────────────────────────────────────────────
+    Feb 01              Mar 01
+● max reps   ○ 1RM added kg (m)   right: added kg (m)
+```
+
+**`-t zmg` — all three overlaid:**
+
+```bash
+$ bar-scheduler plot-max -t zmg
+```
+
+Shows `·` for BW reps projection, `×` for reps at goal weight, and `○` for 1RM added kg — all on the same chart, with the right axis for `○`.
+
+### JSON output with trajectory
+
+The `--json` flag outputs trajectory data points (z and g only; m is rendered to the chart only):
+
+```bash
+$ bar-scheduler plot-max -t zg --json
+```
+
+```json
+{
+  "data_points": [
+    { "date": "2026-02-01", "max_reps": 12 },
+    { "date": "2026-03-01", "max_reps": 16 }
+  ],
+  "trajectory_z": [
+    { "date": "2026-02-01", "projected_bw_reps": 12.0 },
+    { "date": "2026-03-15", "projected_bw_reps": 18.3 },
+    { "date": "2026-04-28", "projected_bw_reps": 24.0 },
+    { "date": "2026-06-10", "projected_bw_reps": 30.0 }
+  ],
+  "trajectory_g": [
+    { "date": "2026-02-01", "projected_goal_reps": 6.2 },
+    { "date": "2026-03-15", "projected_goal_reps": 9.4 }
+  ]
+}
+```
 
 ## Update Bodyweight
 
@@ -503,9 +598,17 @@ $ bar-scheduler plan --json | jq '.sessions[] | select(.status == "next")'
 $ bar-scheduler 1rm --json
 {
   "exercise_id": "pull_up",
-  "epley_1rm_kg": 102.7,
-  "best_set_reps": 5,
-  "best_set_load_kg": 82.5,
+  "1rm_kg": 102.9,
+  "formulas": {
+    "epley": 102.9,
+    "brzycki": 98.4,
+    "lander": 99.1,
+    "lombardi": 104.2,
+    "blended": 99.8
+  },
+  "recommended_formula": "brzycki+lander",
+  "best_set_reps": 8,
+  "best_set_load_kg": 81.2,
   "sessions_scanned": 5
 }
 

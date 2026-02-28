@@ -6,7 +6,7 @@ from typing import Annotated, Optional
 
 import typer
 
-from ...core.adaptation import get_training_status
+from ...core.adaptation import get_training_status, overtraining_severity
 from ...core.exercises.registry import get_exercise
 from ...core.metrics import training_max_from_baseline
 from ...core.models import SessionResult, SetResult
@@ -153,9 +153,10 @@ def _diff_plan(old: list[dict], new: list[dict]) -> list[str]:
     return changes
 
 
-def _menu_explain() -> None:
+def _menu_explain(exercise_id: str = "pull_up") -> None:
     """Interactive explain helper called from the main menu."""
-    store = get_store(None)
+    exercise = get_exercise(exercise_id)
+    store = get_store(None, exercise_id)
     try:
         user_state = store.load_user_state()
     except Exception as e:
@@ -168,20 +169,39 @@ def _menu_explain() -> None:
     views.console.print()
     date_input = views.console.input("Date to explain (YYYY-MM-DD) or 'next' [next]: ").strip() or "next"
 
+    # Compute overtraining severity — only applies near-term (see cutoff below)
+    training_history = [s for s in user_state.history if s.session_type != "REST"]
+    ot_severity = overtraining_severity(training_history,
+                                        user_state.profile.preferred_days_per_week,
+                                        full_history=user_state.history)
+    ot_level = ot_severity["level"]
+    ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
+
+    today_dt = datetime.now()
+    ot_cutoff = (today_dt + timedelta(days=max(ot_rest + 14, 14))).strftime("%Y-%m-%d")
+
     if date_input.lower() == "next":
         try:
-            plans = generate_plan(user_state, plan_start_date, total_weeks)
+            plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise,
+                                  overtraining_level=ot_level, overtraining_rest_days=ot_rest)
         except ValueError as e:
             views.print_error(str(e))
             return
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = today_dt.strftime("%Y-%m-%d")
         nxt = next((p for p in plans if p.date >= today_str), None)
         if nxt is None:
             views.print_error("No upcoming sessions in plan.")
             return
         date_input = nxt.date
 
-    result = explain_plan_entry(user_state, plan_start_date, date_input, total_weeks)
+    # Don't apply overtraining shift for dates beyond the near-term recovery window
+    if date_input > ot_cutoff:
+        ot_level, ot_rest = 0, 0
+
+    result = explain_plan_entry(user_state, plan_start_date, date_input, total_weeks,
+                                exercise=exercise,
+                                overtraining_level=ot_level,
+                                overtraining_rest_days=ot_rest)
     views.console.print()
     views.console.print(result)
     views.console.print()
@@ -244,13 +264,16 @@ def plan(
     # Determine where the plan started (set by init; fall back to first history date)
     plan_start_date = _resolve_plan_start(store, user_state)
 
-    # Auto-advance plan_start_date past last logged session so that plan sessions
-    # the user missed (skipped days, gap in training) are dropped automatically.
+    # Auto-advance plan_start_date only past the last REST record (written by the
+    # skip command).  Training sessions must NOT advance the anchor — doing so
+    # shifts every future session to a different day-of-week.
     if user_state.history:
-        last_logged = max(s.date for s in user_state.history)
-        if last_logged > plan_start_date:
-            plan_start_date = last_logged
-            store.set_plan_start_date(plan_start_date)
+        rest_dates = [s.date for s in user_state.history if s.session_type == "REST"]
+        if rest_dates:
+            last_rest = max(rest_dates)
+            if last_rest > plan_start_date:
+                plan_start_date = last_rest
+                store.set_plan_start_date(plan_start_date)
 
     # Generate plan for enough weeks to cover history + ahead
     if weeks is not None:
@@ -260,14 +283,25 @@ def plan(
         weeks_ahead = store.get_plan_weeks() or 4
     total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
+    # Filter out REST records for training analysis
+    training_history = [s for s in user_state.history if s.session_type != "REST"]
+
+    # Overtraining detection — check before generating plan so level can be passed in
+    days_per_week = user_state.profile.preferred_days_per_week
+    severity = overtraining_severity(training_history, days_per_week,
+                                     full_history=user_state.history)
+    overtraining_level = severity["level"]
+
     try:
-        plans = generate_plan(user_state, plan_start_date, total_weeks, baseline_max, exercise=exercise)
+        plans = generate_plan(
+            user_state, plan_start_date, total_weeks, baseline_max,
+            exercise=exercise, overtraining_level=overtraining_level,
+        )
     except ValueError as e:
         views.print_error(str(e))
         raise typer.Exit(1)
 
     # Get training status (REST records don't count as training sessions)
-    training_history = [s for s in user_state.history if s.session_type != "REST"]
     training_status = get_training_status(
         training_history,
         user_state.current_bodyweight_kg,
@@ -330,6 +364,37 @@ def plan(
         views.console.print("[yellow]Plan updated:[/yellow]")
         for c in plan_changes[:5]:
             views.console.print(f"  {c}")
+        views.console.print()
+
+    # Overtraining density warning
+    if overtraining_level >= 3:
+        extra = severity["extra_rest_days"]
+        desc = severity["description"]
+        views.console.print(
+            f"[bold yellow]⚠  High training density: {desc} (level 3/3)[/bold yellow]\n"
+            f"   Estimated additional recovery needed: ~{extra} days\n"
+            f"   Plan adjusted: next {overtraining_level} sessions have reduced volume and extended rest.\n"
+            f"[dim]   To delay training until recovered: bar-scheduler skip (enter {extra} days when prompted)[/dim]"
+        )
+        views.console.print()
+    elif overtraining_level == 2:
+        desc = severity["description"]
+        extra = severity["extra_rest_days"]
+        views.console.print(
+            f"[yellow]⚠  Moderate training density: {desc} (level 2/3)[/yellow]\n"
+            f"   Plan adjusted: next 2 sessions have reduced volume and extended rest."
+        )
+        if extra > 0:
+            views.console.print(
+                f"[dim]   Optional: bar-scheduler skip (enter {extra} days when prompted)[/dim]"
+            )
+        views.console.print()
+    elif overtraining_level == 1:
+        desc = severity["description"]
+        views.console.print(
+            f"[cyan]ℹ  Training density note: {desc}.[/cyan]\n"
+            f"   Next session rest extended by 30 s."
+        )
         views.console.print()
 
     # Volume cap warnings — informational only, plan is still executed as-is
@@ -434,21 +499,41 @@ def explain(
     weeks_ahead_val = weeks if weeks is not None else 4
     total_weeks = _total_weeks(plan_start_date, weeks_ahead_val)
 
+    # Compute overtraining severity for shift/notice — only relevant for near-term dates.
+    # Overtraining is a current-state condition; by the time the user trains 2+ weeks
+    # from now it will have resolved, so far-future explains should not show the notice.
+    training_history = [s for s in user_state.history if s.session_type != "REST"]
+    days_per_week = user_state.profile.preferred_days_per_week
+    ot_severity = overtraining_severity(training_history, days_per_week,
+                                        full_history=user_state.history)
+    ot_level = ot_severity["level"]
+    ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
+
+    # Cutoff: overtraining only affects sessions within (ot_rest + 14) days from today.
+    today_dt = datetime.now()
+    ot_cutoff = (today_dt + timedelta(days=max(ot_rest + 14, 14))).strftime("%Y-%m-%d")
+
     # Resolve "next" → first upcoming planned session date
     if date.lower() == "next":
         try:
-            plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise)
+            plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise,
+                                  overtraining_level=ot_level, overtraining_rest_days=ot_rest)
         except ValueError as e:
             views.print_error(str(e))
             raise typer.Exit(1)
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = today_dt.strftime("%Y-%m-%d")
         nxt = next((p for p in plans if p.date >= today_str), None)
         if nxt is None:
             views.print_error("No upcoming sessions in plan.")
             raise typer.Exit(1)
         date = nxt.date
 
-    result = explain_plan_entry(user_state, plan_start_date, date, total_weeks, exercise=exercise)
+    # Don't apply overtraining shift for dates beyond the near-term recovery window
+    if date > ot_cutoff:
+        ot_level, ot_rest = 0, 0
+
+    result = explain_plan_entry(user_state, plan_start_date, date, total_weeks, exercise=exercise,
+                                overtraining_level=ot_level, overtraining_rest_days=ot_rest)
     views.console.print()
     views.console.print(result)
     views.console.print()
@@ -536,23 +621,30 @@ def skip(
             store.append_session(rest_session)
         sign = "+"
     else:
-        # Remove up to |shift_days| REST records at or before from_date (newest first)
+        # Compute target date: from_date shifted back by |shift_days| calendar days
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+        target_dt = from_dt + timedelta(days=shift_days)  # shift_days < 0
+        target_date_str = target_dt.strftime("%Y-%m-%d")
+
+        # Remove plan-REST records in the gap [target_date, from_date).
+        # These were added by a previous forward skip; removing them clears the gap.
+        # Never touch training sessions the user explicitly logged (session_type != "REST").
         all_history = store.load_history()
-        rest_candidates = [
+        gap_rest = [
             (i, s) for i, s in enumerate(all_history)
-            if s.session_type == "REST" and s.date <= from_date
+            if s.session_type == "REST"
+            and target_date_str <= s.date < from_date
         ]
-        rest_candidates.sort(key=lambda x: x[1].date, reverse=True)
-        to_delete = rest_candidates[:abs(shift_days)]
-        # Delete from highest index to lowest to keep earlier indices stable
-        for idx, _ in sorted(to_delete, key=lambda x: x[0], reverse=True):
+        for idx, _ in sorted(gap_rest, key=lambda x: x[0], reverse=True):
             store.delete_session_at(idx)
-        # Roll back plan_start_date to the last non-REST date
-        updated_history = store.load_history()
-        non_rest = [s for s in updated_history if s.session_type != "REST"]
+
+        # Set plan anchor to target_date (clamp: not before first training session)
+        non_rest = [s for s in store.load_history() if s.session_type != "REST"]
         if non_rest:
-            new_start = max(s.date for s in non_rest)
-            store.set_plan_start_date(new_start)
+            first_training = min(s.date for s in non_rest)
+            if target_date_str < first_training:
+                target_date_str = first_training
+        store.set_plan_start_date(target_date_str)
         sign = ""
 
     day_word = "day" if abs(shift_days) == 1 else "days"

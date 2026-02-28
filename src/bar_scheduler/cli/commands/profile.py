@@ -84,8 +84,8 @@ def init(
         views.print_error("Sex must be 'male' or 'female'")
         raise typer.Exit(1)
 
-    if days_per_week not in (3, 4):
-        views.print_error("Days per week must be 3 or 4")
+    if days_per_week not in (1, 2, 3, 4, 5):
+        views.print_error("Days per week must be 1–5")
         raise typer.Exit(1)
 
     if bodyweight_kg <= 0:
@@ -340,18 +340,18 @@ def _detect_active_exercises() -> list[str]:
 
 
 def _ask_days(label: str, default: int) -> int:
-    """Prompt for training days/week (3 or 4) with a given label and default."""
+    """Prompt for training days/week (1–5) with a given label and default."""
     while True:
-        raw = views.console.input(f"{label} (3/4) [{default}]: ").strip()
+        raw = views.console.input(f"{label} (1–5) [{default}]: ").strip()
         if not raw:
             return default
         try:
             d = int(raw)
-            if d in (3, 4):
+            if d in (1, 2, 3, 4, 5):
                 return d
         except ValueError:
             pass
-        views.print_error("Enter 3 or 4")
+        views.print_error("Enter 1–5")
 
 
 def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> EquipmentState:

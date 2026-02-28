@@ -202,6 +202,7 @@ def plot_max(
     traj_m: list[tuple[datetime, float]] | None = None
     traj_z_json: list[dict] | None = None
     traj_g_json: list[dict] | None = None
+    traj_m_json: list[dict] | None = None
     traj_target = TARGET_MAX_REPS
     bw_load_kg = 0.0
     target_weight_kg = 0.0
@@ -264,6 +265,11 @@ def plot_max(
                 if added is not None:
                     m_pts.append((d, added))
             traj_m = m_pts or None
+            if traj_m:
+                traj_m_json = [
+                    {"date": pt.strftime("%Y-%m-%d"), "projected_1rm_added_kg": round(val, 2)}
+                    for pt, val in traj_m
+                ]
 
     if json_out:
         data_points = [
@@ -275,6 +281,7 @@ def plot_max(
             "data_points": data_points,
             "trajectory_z": traj_z_json,
             "trajectory_g": traj_g_json,
+            "trajectory_m": traj_m_json,
         }, indent=2))
         return
 
@@ -304,13 +311,14 @@ def onerepmax(
     exercise_id: ExerciseOption = "pull_up",
 ) -> None:
     """
-    Estimate 1-rep max using the Epley formula.
+    Estimate 1-rep max using multiple formulas.
 
-    Scans recent sessions for the best loaded set and computes:
-      1RM = total_load × (1 + reps / 30)   [Epley]
+    Scans recent sessions for the best loaded set and computes 1RM via five
+    formulas. The best set is selected using the Epley estimate. The most
+    accurate formula is highlighted with ★ based on the rep count.
 
-    For pull-ups: total_load = bodyweight + added_weight.
-    For BSS:      total_load = added_weight (external only).
+    For pull-ups/dips: total_load = bodyweight × bw_fraction + added_weight.
+    For BSS:           total_load = added_weight (external only).
     """
     exercise = get_exercise(exercise_id)
     store = get_store(history_path, exercise_id)
@@ -339,18 +347,51 @@ def onerepmax(
     bw = user_state.current_bodyweight_kg
     added = result["best_added_weight_kg"]
     bw_frac = result["bw_fraction"]
+    reps = result["best_reps"]
+    rec = result["recommended_formula"]
     if exercise.onerm_includes_bodyweight:
         load_details = f"{bw:.1f} kg BW × {bw_frac} + {added:.1f} kg added"
     else:
         load_details = f"{added:.1f} kg external load"
 
+    # Determine which formulas to highlight with ★
+    if reps <= 10:
+        starred = {"brzycki", "lander"}
+    elif reps <= 20:
+        starred = {"blended"}
+    else:
+        starred = {"epley"}
+
+    formula_meta = [
+        ("epley",    "Epley",    "general purpose; tends to overestimate at r > 10"),
+        ("brzycki",  "Brzycki",  "most accurate for r ≤ 10"),
+        ("lander",   "Lander",   "most accurate for r ≤ 10"),
+        ("lombardi", "Lombardi", "better for r > 10; less reliable at low reps"),
+        ("blended",  "Blended",  "rep-range weighted average (recommended)"),
+    ]
+
     views.console.print()
     views.console.print(f"[bold cyan]1RM Estimate — {exercise.display_name}[/bold cyan]")
-    views.console.print(f"  Method:        Epley (1RM = load × (1 + reps/30))")
-    views.console.print(f"  Bodyweight:    {bw:.1f} kg")
-    views.console.print(f"  Best set:      {result['best_reps']} reps @ +{added:.1f} kg added  ({result['best_date']})")
-    views.console.print(f"  Total load:    {result['effective_load_kg']:.1f} kg  ({load_details})")
-    views.console.print(f"  [bold green]1RM ≈ {result['1rm_kg']:.1f} kg[/bold green]")
+    views.console.print(f"  Bodyweight:  {bw:.1f} kg")
+    views.console.print(f"  Best set:    {reps} reps @ +{added:.1f} kg added  ({result['best_date']})")
+    views.console.print(f"  Total load:  {result['effective_load_kg']:.1f} kg  ({load_details})")
+    views.console.print()
+
+    sep = "  " + "─" * 62
+    views.console.print(f"  {'Formula':<12}{'1RM':>8}    Notes")
+    views.console.print(sep)
+    fmls = result["formulas"]
+    for key, label, note in formula_meta:
+        val = fmls.get(key)
+        if val is None:
+            val_str = "  n/a  "
+        else:
+            val_str = f"{val:6.1f} kg"
+        star = " ★" if key in starred else "  "
+        views.console.print(f"  {label:<12}{val_str}{star}  {note}")
+    views.console.print(sep)
+    views.console.print(f"  ★ = most representative for {reps}-rep set  (recommended: {rec})")
+    views.console.print()
     views.console.print(f"  {exercise.onerm_explanation}")
     views.console.print()
 

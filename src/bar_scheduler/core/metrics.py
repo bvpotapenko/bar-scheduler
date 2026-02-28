@@ -399,6 +399,15 @@ def estimate_pullup_1rm(
     return sorted_estimates[n // 2]
 
 
+def _recommended_formula(reps: int) -> str:
+    """Return the name of the most accurate 1RM formula for the given rep count."""
+    if reps <= 10:
+        return "brzycki+lander"
+    if reps <= 20:
+        return "blended"
+    return "epley (unreliable above 20 reps)"
+
+
 def estimate_1rm(
     exercise,  # ExerciseDefinition — avoid circular import by not type-hinting here
     bodyweight_kg: float,
@@ -406,24 +415,21 @@ def estimate_1rm(
     window_sessions: int = 5,
 ) -> dict | None:
     """
-    Estimate 1RM for any exercise using the Epley formula.
+    Estimate 1RM for any exercise.
+
+    Best set is selected by the Epley estimate. All five formulas are then
+    computed for that set and returned in the ``formulas`` key.
 
     For BW-based exercises (bw_fraction > 0):
         effective_load = BW × bw_fraction + added_weight
     For external-only exercises (bw_fraction == 0):
         effective_load = added_weight
 
-    Best set = set with highest Epley estimate across last window_sessions.
-
-    Args:
-        exercise: ExerciseDefinition with bw_fraction and load_type
-        bodyweight_kg: Current bodyweight in kg
-        history: Training history
-        window_sessions: Number of recent sessions to scan
-
     Returns:
         Dict with keys: 1rm_kg, best_reps, best_added_weight_kg, best_date,
-        effective_load_kg, onerm_includes_bodyweight, explanation.
+        effective_load_kg, onerm_includes_bodyweight, explanation,
+        formulas (dict with epley/brzycki/lander/lombardi/blended),
+        recommended_formula.
         Returns None if no usable sets found.
     """
     best_1rm = 0.0
@@ -443,19 +449,12 @@ def estimate_1rm(
             if exercise.load_type == "external_only":
                 if s.added_weight_kg <= 0:
                     continue
-                eff_load = max(
-                    0.0,
-                    bodyweight_kg * exercise.bw_fraction
-                    + s.added_weight_kg
-                    - assistance_kg,
-                )
-            else:
-                eff_load = max(
-                    0.0,
-                    bodyweight_kg * exercise.bw_fraction
-                    + s.added_weight_kg
-                    - assistance_kg,
-                )
+            eff_load = max(
+                0.0,
+                bodyweight_kg * exercise.bw_fraction
+                + s.added_weight_kg
+                - assistance_kg,
+            )
 
             if eff_load <= 0:
                 continue
@@ -463,9 +462,17 @@ def estimate_1rm(
             est = epley_1rm(eff_load, s.actual_reps)
             if est > best_1rm:
                 best_1rm = est
+                reps = s.actual_reps
+
+                # Compute all formulas for the best set
+                brzycki = round(brzycki_1rm(eff_load, reps), 1) if reps < 37 else None
+                lander = round(lander_1rm(eff_load, reps), 1) if reps < 37 else None
+                blended_added = blended_1rm_added(eff_load, reps)
+                blended = round(eff_load + blended_added, 1) if blended_added is not None else None
+
                 best_info = {
                     "1rm_kg": round(est, 1),
-                    "best_reps": s.actual_reps,
+                    "best_reps": reps,
                     "best_added_weight_kg": s.added_weight_kg,
                     "best_date": session.date,
                     "effective_load_kg": round(eff_load, 1),
@@ -473,6 +480,14 @@ def estimate_1rm(
                     "bodyweight_kg": bodyweight_kg,
                     "bw_fraction": exercise.bw_fraction,
                     "explanation": exercise.onerm_explanation,
+                    "formulas": {
+                        "epley": round(est, 1),
+                        "brzycki": brzycki,
+                        "lander": lander,
+                        "lombardi": round(lombardi_1rm(eff_load, reps), 1),
+                        "blended": blended,
+                    },
+                    "recommended_formula": _recommended_formula(reps),
                 }
 
     return best_info

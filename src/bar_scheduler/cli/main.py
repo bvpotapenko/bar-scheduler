@@ -82,7 +82,7 @@ def main_callback(
     elif chosen == "volume":
         ctx.invoke(analysis.volume, exercise_id=exercise_id)
     elif chosen == "explain":
-        planning._menu_explain()
+        planning._menu_explain(exercise_id)
     elif chosen == "1rm":
         ctx.invoke(analysis.onerepmax, exercise_id=exercise_id)
     elif chosen == "skip":
@@ -92,7 +92,7 @@ def main_callback(
     elif chosen == "init":
         profile._menu_init()
     elif chosen == "delete-record":
-        sessions._menu_delete_record()
+        sessions._menu_delete_record(exercise_id)
     elif chosen == "help-adaptation":
         ctx.invoke(analysis.help_adaptation)
 

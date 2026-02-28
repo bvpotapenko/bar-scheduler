@@ -441,9 +441,9 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
     if data.get("sex") not in ("male", "female"):
         raise ValidationError(f"Invalid sex: {data.get('sex')}. Must be 'male' or 'female'")
 
-    if data.get("preferred_days_per_week") not in (3, 4):
+    if data.get("preferred_days_per_week") not in (1, 2, 3, 4, 5):
         raise ValidationError(
-            f"Invalid preferred_days_per_week: {data.get('preferred_days_per_week')}. Must be 3 or 4"
+            f"Invalid preferred_days_per_week: {data.get('preferred_days_per_week')}. Must be 1–5"
         )
 
     raw_exercise_days = data.get("exercise_days") or {}

@@ -89,9 +89,9 @@ def _interactive_sets() -> str:
     return ", ".join(parts)
 
 
-def _menu_delete_record() -> None:
+def _menu_delete_record(exercise_id: str = "pull_up") -> None:
     """Interactive delete-session helper called from the main menu."""
-    store = get_store(None)
+    store = get_store(None, exercise_id)
     try:
         sessions = store.load_history()
     except Exception as e:

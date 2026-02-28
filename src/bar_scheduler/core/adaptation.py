@@ -330,3 +330,88 @@ def apply_autoregulation(
 
     # Normal: use base
     return (base_sets, base_reps)
+
+
+def overtraining_severity(
+    history: list[SessionResult],
+    days_per_week: int = 3,
+    full_history: list[SessionResult] | None = None,
+) -> dict:
+    """
+    Assess how much the user has overcompressed their recent training load.
+
+    Looks at the last 7 calendar days of non-REST sessions and compares the
+    actual session density to the expected spacing based on days_per_week.
+
+    REST days that fall within the training span are credited as recovery,
+    reducing the apparent severity.
+
+    Args:
+        history:      Non-REST sessions (training_history in the caller).
+        days_per_week: User's preferred training frequency.
+        full_history: Full session history including REST records, used to
+                      credit deliberate rest days within the training span.
+
+    Returns:
+        level (int):           0=none, 1=mild, 2=moderate, 3=severe
+        sessions (int):        N non-REST sessions found in the last 7 days
+        span_days (int):       calendar days from first to last recent session (exclusive)
+        extra_rest_days (int): estimated additional rest days needed
+        description (str):     human-readable summary, e.g. "3 sessions in 4 days"
+    """
+    _empty = {"level": 0, "sessions": 0, "span_days": 0, "extra_rest_days": 0, "description": ""}
+    if not history:
+        return _empty
+
+    latest = datetime.strptime(history[-1].date, "%Y-%m-%d")
+    cutoff = latest - timedelta(days=6)  # 7-day window inclusive
+
+    recent = [
+        s for s in history
+        if s.session_type != "REST"
+        and datetime.strptime(s.date, "%Y-%m-%d") >= cutoff
+    ]
+    n = len(recent)
+    if n < 2:
+        return _empty
+
+    dates = sorted(datetime.strptime(s.date, "%Y-%m-%d") for s in recent)
+    span_days = (dates[-1] - dates[0]).days  # 0 = all on same day
+
+    # Credit REST days that fell within the training span as recovery.
+    rest_in_span = 0
+    if full_history and len(dates) >= 2:
+        span_start, span_end = dates[0], dates[-1]
+        rest_dates_in_span = {
+            s.date for s in full_history
+            if s.session_type == "REST"
+            and span_start <= datetime.strptime(s.date, "%Y-%m-%d") <= span_end
+        }
+        rest_in_span = len(rest_dates_in_span)
+
+    # Expected time to complete n sessions at the user's planned frequency
+    expected_days = n * (7.0 / max(days_per_week, 1))
+    # Actual elapsed time, crediting deliberate rest days within the span
+    actual_days = max(span_days + rest_in_span, 1)
+    extra = max(0, round(expected_days - actual_days))
+
+    if extra == 0:
+        level = 0
+    elif extra == 1:
+        level = 1
+    elif extra <= 3:
+        level = 2
+    else:
+        level = 3
+
+    # Use inclusive calendar-day count for the human-readable description
+    inclusive_days = span_days + 1
+    day_word = "day" if inclusive_days <= 1 else "days"
+    description = f"{n} sessions in {inclusive_days} {day_word}"
+    return {
+        "level": level,
+        "sessions": n,
+        "span_days": span_days,
+        "extra_rest_days": extra,
+        "description": description,
+    }

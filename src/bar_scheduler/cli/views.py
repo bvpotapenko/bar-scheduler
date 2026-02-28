@@ -5,7 +5,7 @@ Handles table formatting and display of training data.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from rich.console import Console
@@ -58,11 +58,16 @@ def build_timeline(
     """
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Stable week-number anchor: first real (non-REST) training session
+    # Stable week-number anchor: Monday of the week containing the first real session.
+    # Anchoring to Monday means Mon-Sun calendar weeks stay together (e.g. sessions
+    # on Mon 03.02 and Wed 03.04 both appear as "week 3", not split across weeks).
     real_history = [s for s in history if s.session_type != "REST"]
     first_date: datetime | None = (
         datetime.strptime(min(s.date for s in real_history), "%Y-%m-%d")
         if real_history else None
+    )
+    first_monday: datetime | None = (
+        first_date - timedelta(days=first_date.weekday()) if first_date is not None else None
     )
 
     # Build lookup: date -> list of (original_index, session) pairs
@@ -147,7 +152,7 @@ def build_timeline(
     for orig_i, s in enumerate(history):
         if orig_i not in matched_indices:
             session_dt = datetime.strptime(s.date, "%Y-%m-%d")
-            wn = (session_dt - first_date).days // 7 + 1 if first_date else 0
+            wn = (session_dt - first_monday).days // 7 + 1 if first_monday else 0
             entries.append(
                 TimelineEntry(
                     date=s.date,

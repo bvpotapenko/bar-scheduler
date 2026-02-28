@@ -93,8 +93,11 @@ TM_FACTOR: Final[float] = 0.90  # Training max as fraction of test max
 # WEEKLY SCHEDULE TEMPLATES
 # =============================================================================
 
+SCHEDULE_1_DAY: Final[list[str]] = ["S"]
+SCHEDULE_2_DAYS: Final[list[str]] = ["S", "H"]
 SCHEDULE_3_DAYS: Final[list[str]] = ["S", "H", "E"]
 SCHEDULE_4_DAYS: Final[list[str]] = ["S", "H", "T", "E"]
+SCHEDULE_5_DAYS: Final[list[str]] = ["S", "H", "T", "E", "S"]
 
 # Day spacing: minimum rest days after each session type
 DAY_SPACING: Final[dict[str, int]] = {

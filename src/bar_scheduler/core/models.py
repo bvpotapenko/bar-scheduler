@@ -298,13 +298,13 @@ class UserProfile:
                 "Must be 'short', 'normal', or 'long'."
             )
 
-        if self.preferred_days_per_week not in (3, 4):
-            raise ValueError("preferred_days_per_week must be 3 or 4")
+        if self.preferred_days_per_week not in (1, 2, 3, 4, 5):
+            raise ValueError("preferred_days_per_week must be 1–5")
 
         for ex_id, days in self.exercise_days.items():
-            if days not in (3, 4):
+            if days not in (1, 2, 3, 4, 5):
                 raise ValueError(
-                    f"exercise_days[{ex_id!r}] must be 3 or 4, got {days}"
+                    f"exercise_days[{ex_id!r}] must be 1–5, got {days}"
                 )
 
         for ex_id, tgt in self.exercise_targets.items():

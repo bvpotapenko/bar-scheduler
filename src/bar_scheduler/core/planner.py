@@ -26,8 +26,11 @@ from .config import (
     READINESS_VOLUME_REDUCTION,
     READINESS_Z_HIGH,
     READINESS_Z_LOW,
+    SCHEDULE_1_DAY,
+    SCHEDULE_2_DAYS,
     SCHEDULE_3_DAYS,
     SCHEDULE_4_DAYS,
+    SCHEDULE_5_DAYS,
     TM_FACTOR,
     WEEKLY_HARD_SETS_MIN,
     endurance_volume_multiplier,
@@ -113,19 +116,29 @@ class _SessionTrace:
     exercise: ExerciseDefinition
     ff_state: Any           # FitnessFatigueState
 
+    # Overtraining shift (0 = not shifted)
+    overtraining_shift_days: int = 0
+    overtraining_level: int = 0
+
 
 def get_schedule_template(days_per_week: int) -> list[str]:
     """
     Get the weekly session type schedule.
 
     Args:
-        days_per_week: 3 or 4 days per week
+        days_per_week: 1–5 days per week
 
     Returns:
         List of session types for the week
     """
+    if days_per_week == 1:
+        return SCHEDULE_1_DAY.copy()
+    if days_per_week == 2:
+        return SCHEDULE_2_DAYS.copy()
     if days_per_week == 4:
         return SCHEDULE_4_DAYS.copy()
+    if days_per_week == 5:
+        return SCHEDULE_5_DAYS.copy()
     return SCHEDULE_3_DAYS.copy()
 
 
@@ -186,10 +199,19 @@ def calculate_session_days(
     sessions: list[tuple[datetime, str]] = []
 
     # Fixed day offsets within each 7-day week:
+    #   1-day: Mon(0)
+    #   2-day: Mon(0), Thu(3) — evenly spaced
     #   3-day: Mon(0), Wed(2), Fri(4) — 1 rest day between sessions
     #   4-day: Mon(0), Tue(1), Thu(3), Sat(5) — compact with 1 rest before T
-    if days_per_week == 4:
+    #   5-day: Mon(0), Tue(1), Wed(2), Fri(4), Sat(5) — midweek rest Thu
+    if days_per_week == 1:
+        day_offsets = [0]
+    elif days_per_week == 2:
+        day_offsets = [0, 3]
+    elif days_per_week == 4:
         day_offsets = [0, 1, 3, 5]
+    elif days_per_week == 5:
+        day_offsets = [0, 1, 2, 4, 5]
     else:
         day_offsets = [0, 2, 4]
 
@@ -554,6 +576,8 @@ def _plan_core(
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
     exercise: ExerciseDefinition | None = None,
+    overtraining_level: int = 0,
+    overtraining_rest_days: int = 0,
 ) -> Generator[tuple[SessionPlan, _SessionTrace], None, None]:
     """
     Core plan generator — single source of truth for all plan logic.
@@ -561,6 +585,11 @@ def _plan_core(
     Yields (SessionPlan, _SessionTrace) for every planned session.
     Both generate_plan() and explain_plan_entry() delegate here so that
     the explanation is guaranteed to reflect the actual plan.
+
+    When overtraining_rest_days > 0 the training start is shifted forward
+    by that many days (without persisting to the store), so the next session
+    falls after adequate recovery.  The shift is reported in the trace so
+    explain_plan_entry() can explain it.
 
     Raises ValueError if there is no history and no baseline_max.
     """
@@ -607,6 +636,10 @@ def _plan_core(
         weeks_ahead = max(MIN_PLAN_WEEKS, min(MAX_PLAN_WEEKS, weeks_ahead))
 
     start = datetime.strptime(start_date, "%Y-%m-%d")
+    # Apply overtraining recovery shift: push training start forward without
+    # modifying plan_start_date in the store.
+    if overtraining_rest_days > 0:
+        start = start + timedelta(days=overtraining_rest_days)
     schedule = get_schedule_template(days_per_week)
     start_rotation_idx = get_next_session_type_index(history, schedule)
     session_dates = calculate_session_days(
@@ -625,6 +658,12 @@ def _plan_core(
         datetime.strptime(original_history[0].date, "%Y-%m-%d") if original_history else None
     )
     week_offset = (start - first_date).days // 7 if first_date is not None else 0
+    # Display weeks are anchored to the Monday of the week containing first_date
+    # so that Mon-Sun calendar weeks stay together (e.g. Mon 03.02 and Wed 03.04
+    # are both "week 3", not split across week 2 / week 3).
+    first_monday: datetime | None = (
+        first_date - timedelta(days=first_date.weekday()) if first_date is not None else None
+    )
 
     # Grip rotation: initialise from history so the plan continues seamlessly
     grip_counts = _init_grip_counts(history, exercise)
@@ -649,6 +688,8 @@ def _plan_core(
 
     current_plan_week_idx = 0
     weekly_log: list[tuple[int, float, float, float]] = []
+    # Overtraining protection: how many upcoming sessions still need adjustment
+    density_sessions_left = overtraining_level  # level = number of sessions to affect
 
     for date, session_type in session_dates:
         date_str = date.strftime("%Y-%m-%d")
@@ -673,7 +714,7 @@ def _plan_core(
         cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
 
         week_num = (
-            (date - first_date).days // 7 + 1 if first_date is not None
+            (date - first_monday).days // 7 + 1 if first_monday is not None
             else session_week_idx + 1
         )
 
@@ -708,6 +749,20 @@ def _plan_core(
             exercise=exercise,
             last_test_weight=last_test_weight,
         )
+
+        # Overtraining protection: adjust the first density_sessions_left sessions
+        if density_sessions_left > 0 and session_type not in ("TEST", "REST"):
+            rest_boost = 30 if overtraining_level == 1 else 60
+            from dataclasses import replace as _dc_replace
+            adjusted_sets = []
+            for ps in sets:
+                new_rest = min(params.rest_max, ps.rest_seconds_before + rest_boost)
+                new_reps = max(params.reps_min, ps.target_reps - (1 if overtraining_level >= 3 else 0))
+                adjusted_sets.append(_dc_replace(ps, rest_seconds_before=new_rest, target_reps=new_reps))
+            if overtraining_level >= 2 and len(adjusted_sets) > 2:
+                adjusted_sets = adjusted_sets[:-1]  # drop one set, floor at 2
+            sets = adjusted_sets
+            density_sessions_left -= 1
 
         plan = SessionPlan(
             date=date_str,
@@ -755,6 +810,8 @@ def _plan_core(
             params=params,
             exercise=exercise,
             ff_state=ff_state,
+            overtraining_shift_days=overtraining_rest_days,
+            overtraining_level=overtraining_level,
         )
 
         yield plan, trace
@@ -766,6 +823,8 @@ def generate_plan(
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
     exercise: ExerciseDefinition | None = None,
+    overtraining_level: int = 0,
+    overtraining_rest_days: int = 0,
 ) -> list[SessionPlan]:
     """
     Generate a deterministic training plan with progressive overload.
@@ -776,11 +835,17 @@ def generate_plan(
         weeks_ahead: Number of weeks to plan (None = estimate)
         baseline_max: Baseline max if no history
         exercise: ExerciseDefinition to parameterise the plan (default: PULL_UP)
+        overtraining_level: Graduated overtraining protection level (0=none, 1-3)
+        overtraining_rest_days: Days to shift training start forward for recovery
+                                (computed from overtraining severity; NOT saved to store)
 
     Returns:
         List of SessionPlan for the planning horizon
     """
-    return [plan for plan, _ in _plan_core(user_state, start_date, weeks_ahead, baseline_max, exercise)]
+    return [plan for plan, _ in _plan_core(
+        user_state, start_date, weeks_ahead, baseline_max, exercise,
+        overtraining_level, overtraining_rest_days,
+    )]
 
 
 def explain_plan_entry(
@@ -790,12 +855,18 @@ def explain_plan_entry(
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
     exercise: ExerciseDefinition | None = None,
+    overtraining_level: int = 0,
+    overtraining_rest_days: int = 0,
 ) -> str:
     """
     Generate a step-by-step Rich-markup explanation of a planned session.
 
     Delegates to _plan_core() so the explanation is guaranteed to match
     the plan produced by generate_plan() exactly.
+
+    For dates within the plan horizon that are not training sessions, returns
+    a rest-day explanation.  For past dates found in history, returns a brief
+    session summary.
 
     Args:
         user_state: Current user state
@@ -804,6 +875,8 @@ def explain_plan_entry(
         weeks_ahead: Plan horizon (None = estimate)
         baseline_max: Baseline max if no history
         exercise: ExerciseDefinition (default: PULL_UP)
+        overtraining_level: Level from overtraining_severity() (for shift notice)
+        overtraining_rest_days: Days the plan start was shifted forward
 
     Returns:
         Rich-markup string ready for console.print()
@@ -813,13 +886,49 @@ def explain_plan_entry(
     last_weeks_ahead: int | None = None
     try:
         for plan, trace in _plan_core(
-            user_state, plan_start_date, weeks_ahead, baseline_max, exercise
+            user_state, plan_start_date, weeks_ahead, baseline_max, exercise,
+            overtraining_level, overtraining_rest_days,
         ):
             last_weeks_ahead = trace.weeks_ahead
             if plan.date == target_date:
                 return _format_explain(trace, user_state.current_bodyweight_kg)
     except ValueError as exc:
         return f"[yellow]{exc}[/yellow]"
+
+    # Fallback 1: date is within the plan horizon → scheduled rest day
+    try:
+        start_dt  = datetime.strptime(plan_start_date, "%Y-%m-%d")
+        target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+        end_dt    = start_dt + timedelta(weeks=(last_weeks_ahead or 4))
+        if start_dt <= target_dt <= end_dt:
+            return (
+                f"[dim]Rest day  ·  {target_date}[/dim]\n"
+                "  No training session is scheduled for this date.\n"
+                "  This is a planned rest day within the training horizon."
+            )
+    except ValueError:
+        pass
+
+    # Fallback 2: past date found in history → brief session summary
+    ex_id = exercise.exercise_id if exercise else "pull_up"
+    past_sessions = [
+        s for s in user_state.history
+        if s.date == target_date and s.exercise_id == ex_id
+    ]
+    if past_sessions:
+        lines = [f"[dim]Historical sessions on {target_date}:[/dim]"]
+        for s in past_sessions:
+            total_reps = sum(st.actual_reps or 0 for st in s.completed_sets)
+            rir_str = ""
+            if s.completed_sets and s.completed_sets[-1].rir_reported is not None:
+                rir_str = f"  RIR≈{s.completed_sets[-1].rir_reported}"
+            lines.append(
+                f"  {s.session_type}  ·  {total_reps} total reps"
+                f"  ·  {s.bodyweight_kg} kg BW{rir_str}"
+            )
+        return "\n".join(lines)
+
+    # Fallback 3: outside plan horizon
     horizon = f"{last_weeks_ahead}-week " if last_weeks_ahead is not None else ""
     return (
         f"[yellow]No planned session found for {target_date}.[/yellow]\n"
@@ -856,6 +965,14 @@ def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
         f"  ·  Week {trace.week_num}[/bold cyan]"
     )
     L.append(rule)
+
+    # OVERTRAINING SHIFT NOTICE
+    if trace.overtraining_shift_days > 0:
+        L.append(
+            f"\n[yellow]⚠ Session shifted +{trace.overtraining_shift_days} day(s) "
+            f"(overtraining level {trace.overtraining_level}/3 detected). "
+            f"Original plan start was pushed forward to allow recovery.[/yellow]"
+        )
 
     # SESSION TYPE
     L.append("\n[bold]SESSION TYPE[/bold]")

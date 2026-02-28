@@ -25,6 +25,22 @@ uv sync
 uv sync --extra dev
 ```
 
+### Running the CLI
+
+**In-project (recommended for development):**
+```bash
+uv run bar-scheduler
+uv run bar-scheduler plan -w 4
+```
+
+**Global install** (makes `bar-scheduler` available from anywhere without `uv run`):
+```bash
+uv tool install -e .
+bar-scheduler plan -w 4
+```
+
+> Re-run `uv tool install -e .` after any dependency changes to keep the tool environment up to date.
+
 ### First Run
 
 ```bash
@@ -58,7 +74,7 @@ bar-scheduler plot-max
 | `plan` | Unified history + upcoming plan with progressive TM; `--weeks N`; `--json` |
 | `log-session` | Log a completed session |
 | `show-history` | Display training history; `--limit N` |
-| `plot-max` | ASCII chart of max reps progress; `--trajectory` overlays planned growth line |
+| `plot-max` | ASCII chart of max reps progress; `-t z/g/m` overlays trajectory lines (combine: `-t zmg`) |
 | `update-weight` | Update current bodyweight |
 | `delete-record N` | Delete history entry #N (shown in plan `#` column) |
 | `status` | Show current training status; `--json` |
@@ -371,22 +387,38 @@ Max Reps Progress (Strict Pull-ups)
     Feb 01   Feb 15   Mar 01   Mar 15   Apr 01   Apr 15
 ```
 
-Add `--trajectory` to overlay the projected growth curve:
+Add `-t` to overlay trajectory lines. Three types are available, and can be combined:
+
+| Flag | Marker | Meaning |
+|------|--------|---------|
+| `-t z` | `·` | Projected bodyweight max reps (left axis) |
+| `-t g` | `×` | Projected reps at goal weight (left axis) |
+| `-t m` | `○` | Projected 1RM added kg — blended multi-formula (independent right axis) |
+
+```bash
+bar-scheduler plot-max -t z        # BW reps trajectory
+bar-scheduler plot-max -t m        # 1RM added kg with right axis
+bar-scheduler plot-max -t zmg      # all three overlaid
+```
+
+Example with `-t zm` (BW reps + 1RM added kg):
 
 ```
 Max Reps Progress (Strict Pull-ups)
-──────────────────────────────────────────────────────────────
- 30 ┤                                         ········· (30)
- 22 ┤                                      ╭──●
- 20 ┤                                 ·····╯
- 16 ┤                     ····╭──● (16)
- 12 ┤         ····╭──● (12)
- 10 ┤     ╭───╯
-  8 ● (8)─╯
-──────────────────────────────────────────────────────────────
-    Feb 01   Feb 15   Mar 01
-● actual max reps   · projected trajectory
+──────────────────────────────────────────────────────────────────
+ 30 ┤                                    ·····●·   (30)  ┤ 33kg
+ 26 ┤                            ○   ╭──●           ┤ 27kg
+ 22 ┤                         ○     ╯               ┤ 22kg
+ 18 ┤                   ·····╭──● (18)              ┤ 17kg
+ 14 ┤         ○   ·····╯                            ┤ 12kg
+ 12 ┤   ·····╭──● (12)                              ┤  9kg
+  8 ● (8)───╯                                        ┤  3kg
+──────────────────────────────────────────────────────────────────
+    Feb 01           Mar 01           Apr 01
+● max reps   · BW reps (z)   ○ 1RM added kg (m)   right: added kg (m)
 ```
+
+The `m` trajectory uses a **rep-range–aware blended formula** (Brzycki + Lander at low reps, Lombardi + Epley at high reps) and is capped at 20 reps — it flattens where the z-curve keeps climbing, making the two curves visually distinct. See [docs/1rm_formulas.md](docs/1rm_formulas.md) for details.
 
 ## Running Tests
 
@@ -400,6 +432,7 @@ uv run pytest
 - [Formula Reference](docs/formulas_reference.md) — all mathematical formulas with config knobs
 - [JSON API](docs/api_info.md) — full JSON schemas for `--json` output
 - [Training Model](docs/training_model.md) — adaptation logic summary
+- [1RM Formulas](docs/1rm_formulas.md) — multi-formula 1RM estimation (Lombardi, Brzycki, Lander, Epley blend)
 - [Core Training Formulas](core_training_formulas_fatigue.md) — detailed mathematical model specification
 - [References](REFERENCES.md) — scientific sources and citations
 
@@ -537,12 +570,12 @@ bar-scheduler/
 │   ├── cli_examples.md
 │   ├── formulas_reference.md
 │   ├── api_info.md
-│   ├── exercises/                        # Per-exercise biomechanics docs
-│   │   ├── pull_up.md
-│   │   ├── dip.md
-│   │   └── bss.md
-│   └── references/
-│       └── max_estimation.md
+│   ├── 1rm_formulas.md                   # Multi-formula 1RM blend (Lombardi, Brzycki, Lander, Epley)
+│   ├── max_estimation.md                 # Track B max estimation (FI method, Nuzzo)
+│   └── exercises/                        # Per-exercise biomechanics docs
+│       ├── pull_up.md
+│       ├── dip.md
+│       └── bss.md
 ├── src/bar_scheduler/
 │   ├── exercises.yaml            # Model constants + exercise definitions (YAML, user-overridable)
 │   ├── core/

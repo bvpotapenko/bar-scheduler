@@ -9,7 +9,7 @@ This document lists all implemented features grouped by area. Intended for proje
 | # | Feature | CLI command |
 |---|---------|-------------|
 | 1.1 | Create / update user profile (height, sex, bodyweight, target reps, training days) | `init` |
-| 1.2 | Per-exercise training days (separate schedule for pull_up / dip / bss) | `init --exercise <id> --days-per-week N` |
+| 1.2 | Per-exercise training days 1–5 days/week (separate schedule for pull_up / dip / bss) | `init --exercise <id> --days-per-week N` |
 | 1.3 | Baseline max test logged on first init | `init --baseline-max N` |
 | 1.4 | Update bodyweight (auto-updates after every logged session too) | `update-weight` |
 | 1.5 | Profile fields: exercises_enabled, max_session_duration_minutes, rest_preference, injury_notes | stored in `profile.json` |
@@ -42,7 +42,7 @@ This document lists all implemented features grouped by area. Intended for proje
 | 3.1 | Unified plan/history timeline — past (actual) and future (planned) in one table | `plan` |
 | 3.2 | Immutable past prescriptions (frozen when logged; never regenerated) | automatic |
 | 3.3 | Multi-week plan with configurable horizon | `plan --weeks N` |
-| 3.4 | Session rotation: Strength → Hypertrophy → Endurance (3-day) or +Technique (4-day) | automatic |
+| 3.4 | Session rotation: S (1-day); S→H (2-day); S→H→E (3-day); S→H→T→E (4-day); S→H→T→E→S (5-day) | automatic |
 | 3.5 | Training max (TM) = 90% of latest TEST session | automatic |
 | 3.6 | Weekly TM progression — nonlinear curve, slows near target | automatic |
 | 3.7 | Autoregulation: sets/reps adjusted by readiness z-score (active after ≥10 sessions) | automatic |
@@ -53,22 +53,25 @@ This document lists all implemented features grouped by area. Intended for proje
 | 3.12 | Grip rotation across sessions (pronated → neutral → supinated for pull-ups) | automatic |
 | 3.13 | Deload detection: triggers on plateau + low readiness, underperformance, or low compliance | automatic |
 | 3.14 | Plan change notifications — diff printed when plan shifts between runs | `plan` |
-| 3.15 | Plan start date anchored in profile; use `skip` to advance without losing history | `skip` |
+| 3.15 | Plan start date anchored per-exercise in profile; only REST records (from `skip`) advance the anchor — training sessions do not | `skip` |
 | 3.16 | Cumulative week numbering from first session in history | automatic |
 | 3.17 | BSS band progression note when next band level is achievable | automatic |
+| 3.18 | Overtraining detection — graduated warning + volume/rest/rep reduction at levels 1–3; first future session shifted forward by extra_rest_days (level ≥2) without writing REST records | automatic, shown before plan |
+| 3.19 | RIR feedback: RIR=4+ sessions accumulate less fatigue than RIR=3 (sub-neutral multiplier); prevents false overtraining warnings for easy sessions | automatic |
 
 ## 4. Plan Explanation
 
 | # | Feature | CLI command |
 |---|---------|-------------|
-| 4.1 | Step-by-step explanation of any planned session | `explain YYYY-MM-DD` or `explain next` |
+| 4.1 | Step-by-step explanation of any date: planned session, rest day within horizon, or historical session | `explain YYYY-MM-DD` or `explain next` |
 | 4.2 | TM formula and weekly progression log | `explain` output |
 | 4.3 | Sets range explained: midpoint is target; autoregulation reduces (never exceeds) | `explain` output |
 | 4.4 | Adaptive rest explained: base midpoint ± adjustments from last same-type session | `explain` output |
 | 4.5 | Grip cycle and modular arithmetic shown | `explain` output |
 | 4.6 | Added weight formula step-by-step | `explain` output |
 | 4.7 | Endurance volume (kE) breakdown | `explain` output |
-| 4.8 | Interactive explain from menu | menu `[e]` |
+| 4.8 | Interactive explain from menu — uses the current exercise (no pull-up cross-contamination) | menu `[e]` |
+| 4.9 | Overtraining shift notice shown at top of explain when plan start was pushed forward | `explain` output |
 
 ## 5. Status & Analysis
 
@@ -77,8 +80,10 @@ This document lists all implemented features grouped by area. Intended for proje
 | 5.1 | Current status: TM, latest TEST, readiness z-score, plateau/deload flags | `status` |
 | 5.2 | Weekly volume chart (ASCII bar chart) | `volume` |
 | 5.3 | ASCII progress chart of max reps over time | `plot-max` |
-| 5.4 | Optional projected trajectory on the plot | `plot-max --trajectory` |
-| 5.5 | 1RM estimation via Epley formula (all exercises, with BW fraction) | `1rm` |
+| 5.4 | Trajectory overlays: z = BW reps (·), g = goal-weight reps (×), m = 1RM added kg (○) | `plot-max -t z/g/m` or combined `-t zmg` |
+| 5.4a | `m` trajectory uses rep-range–aware blended formula (Brzycki/Lander/Lombardi/Epley); capped at r=20 | automatic |
+| 5.4b | Independent right axis for `m` trajectory (kg scale, not tied to left-axis reps) | automatic |
+| 5.5 | 1RM estimation — all 5 formulas (Epley, Brzycki, Lander, Lombardi, Blended) with ★ best-formula marker | `1rm` |
 | 5.6 | Track B max estimators: FI method (Pekünlü 2013) + Nuzzo 2024 | automatic, shown in plan |
 | 5.7 | eMax column in plan: TEST → actual max; non-TEST → FI/Nuzzo estimate | `plan` output |
 | 5.8 | Show full session history as table | `show-history` |
@@ -134,9 +139,9 @@ This document lists all implemented features grouped by area. Intended for proje
 | 10.4 | Actual session shows rest times per-set or as single value when uniform | `plan` |
 | 10.5 | Interactive main menu with numbered/lettered shortcuts | `bar-scheduler` (no args) |
 | 10.6 | JSON output mode for scripting | `--json` on most commands |
-| 10.7 | Skip command to advance plan start date (rest days, travel) | `skip [N]` |
+| 10.7 | Skip command to shift the **plan** forward (N>0) or backward (N<0) by N **calendar days**. Forward: inserts N plan-REST records starting at `from_date`, pushing all future sessions later. Backward: removes plan-REST records in the gap `[from_date−N, from_date)` and sets plan anchor to `from_date−N`, pulling future sessions earlier. **Never modifies user-submitted training logs** — only plan-REST records created by `skip` are added/removed; use `delete-record` to modify training logs. Logged training sessions never auto-advance the plan anchor. | `skip` |
 | 10.8 | Plan cache for change detection between runs | automatic |
 
 ---
 
-*Last updated: 2026-02-24. Keep this file current: update after every feature addition, change, or removal.*
+*Last updated: 2026-02-28 (skip backward fix: plan anchor, REST gap cleanup, invariant docs; Monday-anchored week numbers; exercise_id in delete-record; overtraining cutoff for far-future explain). Keep this file current: update after every feature addition, change, or removal.*

@@ -37,17 +37,22 @@ def rir_effort_multiplier(rir: int) -> float:
     """
     Calculate effort multiplier based on RIR.
 
-    E_rir = 1 + a * max(0, 3 - rir)
+    E_rir = clip(1 + a * (3 - rir), 0.5, 1 + a*3)
+
+    RIR < 3 → above 1.0 (harder than neutral, more fatigue)
+    RIR = 3 → 1.0 (neutral baseline)
+    RIR > 3 → below 1.0 (easier than neutral, less fatigue), floor 0.5
 
     Lower RIR (closer to failure) = higher effort.
+    Higher RIR (lots of reps left) = less fatigue accumulated.
 
     Args:
         rir: Repetitions in reserve
 
     Returns:
-        Effort multiplier (1.0 to ~1.45)
+        Effort multiplier (0.5 to ~1.45)
     """
-    return 1.0 + A_RIR * max(0, 3 - rir)
+    return max(0.5, 1.0 + A_RIR * (3 - rir))
 
 
 def rest_stress_multiplier(rest_seconds: int) -> float:
