@@ -264,15 +264,19 @@ def plan(
     # Determine where the plan started (set by init; fall back to first history date)
     plan_start_date = _resolve_plan_start(store, user_state)
 
-    # Auto-advance plan_start_date only past the last REST record (written by the
-    # skip command).  Training sessions must NOT advance the anchor — doing so
-    # shifts every future session to a different day-of-week.
+    # Auto-advance plan_start_date to the day AFTER the last REST record.
+    # Setting plan_start = last_REST+1 (not last_REST itself) means:
+    #   - REST falls before plan_start → appears as unmatched history ("~")
+    #   - Slot 0 at plan_start+0 gets the correct session type (Str, not consumed by REST)
+    #   - Every future session shifts by exactly N calendar days (calendar-day shift)
+    # Training sessions must NOT advance the anchor — doing so shifts all future dates.
     if user_state.history:
         rest_dates = [s.date for s in user_state.history if s.session_type == "REST"]
         if rest_dates:
             last_rest = max(rest_dates)
-            if last_rest > plan_start_date:
-                plan_start_date = last_rest
+            if last_rest >= plan_start_date:
+                last_rest_dt = datetime.strptime(last_rest, "%Y-%m-%d")
+                plan_start_date = (last_rest_dt + timedelta(days=1)).strftime("%Y-%m-%d")
                 store.set_plan_start_date(plan_start_date)
 
     # Generate plan for enough weeks to cover history + ahead
