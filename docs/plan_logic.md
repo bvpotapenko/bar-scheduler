@@ -36,12 +36,6 @@ plan()  ←─ cli/commands/planning.py
   ├─ _resolve_plan_start(store, user_state)
   │    plan_start = stored OR (first_history + 1 day) OR (today + 1 day)
   │
-  ├─ auto-advance (forward skip only):
-  │    last_rest = max REST date in history
-  │    if last_rest >= plan_start:
-  │        plan_start = last_rest + 1 day          ← key: +1, not last_rest itself
-  │        store.set_plan_start_date(plan_start)
-  │
   ├─ overtraining_severity(history, days_per_week)
   │    → {level: 0-3, extra_rest_days: int, …}
   │
@@ -51,30 +45,51 @@ plan()  ←─ cli/commands/planning.py
   └─ build_timeline(plans, history) → list[TimelineEntry]
 ```
 
+### Prescription Stability Invariant
+
+> `prescription(slot at date D) = f(history where date < D, profile)`
+
+Logging a session at date D must NOT change prescriptions for D or any earlier slot.
+Logging at D MAY change prescriptions for slots strictly after D (future sessions adapt).
+
 ### generate_plan / _plan_core  ← core/planner.py
 
 ```
 _plan_core(user_state, start_date, …)   [generator]
   │
-  ├─ filter history: exercise_id + session_type != "REST"
-  ├─ status = get_training_status(history, bodyweight_kg, baseline_max)
+  ├─ history    = all sessions: exercise_id match + session_type != "REST"
+  ├─ history_for_init = history filtered to date < start_date   ← PRE-PLAN ONLY
+  │    effective_init = history_for_init if non-empty else history (fallback)
+  │
+  ├─ status = get_training_status(effective_init, bodyweight_kg, baseline_max)
   │    training_max = floor(0.9 × latest_test_max)        [core/metrics.py]
-  │    ff_state = build_fitness_fatigue_state(history, …)
+  │    ff_state = build_fitness_fatigue_state(effective_init, …)
   │
   ├─ if ot_rest_days > 0: start_date += ot_rest_days
   │
   ├─ schedule = get_schedule_template(days_per_week)       → e.g. ["S","H","E"]
-  ├─ rotation_idx = get_next_session_type_index(history, schedule)
+  ├─ rotation_idx = get_next_session_type_index(effective_init, schedule)
   │    filters: session_type not in ("TEST","REST")
+  │    Uses effective_init → rotation anchored to pre-plan history
   │
-  ├─ grip_counts = _init_grip_counts(history, exercise)    → {} if no rotation
+  ├─ grip_counts = _init_grip_counts(effective_init, exercise)   → {} if no rotation
+  │    Uses effective_init → grip sequence stable regardless of mid-plan logging
+  │
+  ├─ history_by_type = index of FULL history by session type (all dates)
   │
   └─ for each (date, session_type) in calculate_session_days(start_date, …):
         tm_float += expected_reps_per_week(TM, target)    [once per calendar week]
         week_number = (date - first_monday).days // 7 + 1
         grip = _next_grip(session_type, grip_counts, exercise)
-        sets = calculate_set_prescription(session_type, TM, ff_state, …)
+        recent_same_type = [s for s in history_by_type[session_type]
+                            if s.date < date_str][-5:]    ← date-filtered per slot
+        sets = calculate_set_prescription(session_type, TM, ff_state, …,
+                                          recent_same_type=recent_same_type)
         yield SessionPlan(date, session_type, sets, expected_tm, week_number, grip)
+
+Note: _insert_test_sessions uses full history (to schedule next TEST based on
+      actual test dates including mid-plan tests). Future TEST slot positions
+      may change after a TEST is logged — this is expected and correct.
 ```
 
 ---
@@ -239,22 +254,39 @@ Inputs:  from_date (str), shift_days (int, ±N)
 ─── Forward skip (shift_days > 0) ────────────────────────────────────────
   1. Write N REST records at from_date, from_date+1, …, from_date+N−1
      (session_type="REST", exercise_id=exercise_id)
-  2. Return. No plan_start_date change here.
+  2. Set plan_start_date = old_plan_start_date + N days
+     store.set_plan_start_date(new_plan_start)
+  3. Plan regenerates from new plan_start.
+     REST records at or after old_plan_start appear as status="rested" ("~")
+     in timeline; REST records before old_plan_start appear as "extra" ("·").
 
-  Next call to plan():
-  3. Auto-advance detects last REST ≥ plan_start:
-       plan_start = last_REST + 1 day
-       store.set_plan_start_date(plan_start)
-  4. Plan regenerates from new plan_start.
-     REST records appear as status="rested" ("~") in timeline.
+  Calendar-day invariant: plan_start shifts by exactly N days → all future
+  sessions shift by exactly N calendar days, regardless of where from_date
+  falls relative to old plan_start.
+
+  Note: there is no auto-advance in plan(). skip() is solely responsible for
+  advancing plan_start_date on forward skips.
 
 ─── Backward skip (shift_days < 0) ────────────────────────────────────────
-  1. target_date = from_date + shift_days   (shift_days < 0)
-  2. Remove plan-REST records in gap [target_date, from_date)
-  3. Clamp: if target_date < first_training_date:
-               target_date = first_training_date
-  4. store.set_plan_start_date(target_date)
-  5. Plan regenerates from target_date.
+  1. new_plan_start = plan_start_date + shift_days   (plan_start-relative)
+     Guarantees plan anchor shifts by exactly |shift_days| calendar days,
+     regardless of the gap between from_date and plan_start.
+  2. REST removal range = [from_date + shift_days, from_date)   (from_date-relative)
+     Removes only REST records that a matching forward skip from from_date
+     would have placed. Records before (from_date + shift_days) are ALWAYS
+     preserved — even if they fall between new_plan_start and from_date.
+  3. Clamp: if new_plan_start < first_training_date:
+               new_plan_start = first_training_date
+  4. store.set_plan_start_date(new_plan_start)
+  5. Plan regenerates from new_plan_start.
+
+  IMPORTANT — two separate formulas:
+  - Plan anchor uses plan_start + shift_days   (not from_date + shift_days)
+  - REST removal uses from_date + shift_days   (not plan_start + shift_days)
+  These differ when plan_start ≠ from_date. Using plan_start for both was the
+  root of the cyclic bug: when plan_start < from_date, the removal lower bound
+  fell before (from_date + shift_days), deleting REST records that should be
+  preserved.
 
 Invariant: skip NEVER modifies user-submitted training logs.
            Only session_type="REST" records added by skip are added/removed.
@@ -294,20 +326,21 @@ eMax column (_emax_cell()):
 
 ---
 
-## 9. Auto-Advance Rule
+## 9. Plan-Start Advance Rule
 
 ```
-Condition: last REST date >= current plan_start_date
-Action:    plan_start_date = last_REST_date + 1 day
+Forward skip  → skip() sets plan_start = old_plan_start + N (N = shift_days)
+Backward skip → skip() sets plan_start = old_plan_start + shift_days (plan_start-relative)
+               REST removal range = [from_date + shift_days, from_date) (from_date-relative)
 
-Why +1 (not last_REST):
-  If plan_start == REST_date, the REST record matches plan slot 0,
-  consuming that session-type slot and breaking rotation.
-  With plan_start = REST + 1, the REST falls before plan_start →
-  appears as unmatched history ("~"), slot 0 is the correct next type.
+plan() does NOT auto-advance plan_start based on REST records.
+skip() is the sole writer of plan_start for skip operations.
 
-Backward skip sets plan_start_date directly to target_date (no REST at target).
-The auto-advance does not trigger (no REST at or after target_date by construction).
+Why skip() (not plan()) owns plan_start advancement:
+  When plan_start < from_date (e.g., a "done" session exists before the first
+  missed session), the old auto-advance formula (last_REST + 1) over-jumped
+  plan_start by more than N days, scrambling session-type rotation.
+  Advancing by exactly N in skip() preserves the calendar-day invariant.
 ```
 
 ---

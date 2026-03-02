@@ -4,6 +4,157 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [Unreleased] — 2026-03-04
+
+### Fixed (plan prescription stability — retroactive prescription change on session log)
+
+**Bug:** Logging a session at date D retroactively changed the prescription for D and
+earlier dates. Concrete example: `03.01 Tec: 2x5/120s` before logging → `03.01 Tec: 4x3+1kg/295s`
+after logging. The session type for `03.03` also changed (End → Hpy).
+
+**Root cause:** `_plan_core()` used ALL history (no date filter) for three pieces of initial state:
+
+| Affected computation | Effect of logging session at D |
+|---|---|
+| `get_next_session_type_index(history, schedule)` | Rotation index shifts → ALL session types change |
+| `_init_grip_counts(history, exercise)` | Grip counts shift → ALL grips change |
+| `get_training_status(history, …)` + `ff_state` | TM + readiness change → sets/reps change |
+
+Per-slot `recent_same_type = history_by_type.get(type, [])[-5:]` also had no date filter,
+so logging at D changed adaptive rest for D itself.
+
+**Invariant:** `prescription(slot D) = f(history where date < D, profile)`
+
+**Fix:** Two targeted changes in `_plan_core()` (`core/planner.py`):
+
+1. **`history_for_init`** — filter to sessions with `date < start_date` for all initial state:
+   - `get_training_status(effective_init, …)` → TM + ff_state
+   - `get_next_session_type_index(effective_init, schedule)` → rotation
+   - `_init_grip_counts(effective_init, exercise)` → grip counts
+   - `len(effective_init)` → autoregulation gate and history_sessions count
+   - `last_test_weight` from `effective_init` (BSS)
+   - `effective_init = history_for_init if history_for_init else history` (brand-new user fallback)
+
+2. **Per-slot date filter** — `recent_same_type` now filtered to `date < slot_date`:
+   ```python
+   recent_same_type = [s for s in history_by_type[session_type] if s.date < date_str][-5:]
+   ```
+   Future slots (D2 > D1) still benefit from sessions logged at D1 — only current/past slots
+   are protected.
+
+**Tests:** `TestPlanStability` removed (tested obsolete auto-advance formula). Replaced with
+`TestPlanPrescriptionStability` (8 tests) covering: prescription stable after logging on plan_start,
+session type stable, past slot prescription stable, rotation anchored to pre-plan history,
+adaptive rest for current slot uses only pre-plan sessions, future slot adapts to logged session,
+grip rotation stable.
+
+| Change | Location |
+|--------|----------|
+| `history_for_init` + `effective_init` for all initial state | `core/planner.py` `_plan_core()` |
+| `recent_same_type` filtered per-slot by `date < date_str` | `core/planner.py` `_plan_core()` loop |
+| Remove `TestPlanStability`; add `TestPlanPrescriptionStability` (8 tests) | `tests/test_plan_integration.py` |
+| §2 updated with stability invariant + `effective_init` pipeline | `docs/plan_logic.md` |
+
+---
+
+## [Unreleased] — 2026-03-03
+
+### Fixed (backward-skip REST deletion when `plan_start < from_date`)
+
+**Bug:** When `plan_start < from_date` (e.g., a "done" session exists before
+the first missed session), backward skip deleted REST records that should be
+preserved.  Concrete example: REST at 02.28, plan_start=03.01, skip from
+03.02 by −1 → REST at 02.28 was deleted (wrong); plan shifted back but the
+pre-existing REST was lost.
+
+**Root cause:** The backward skip used a single variable (`target_dt = plan_start
++ shift_days`) for two distinct purposes:
+1. Computing the new `plan_start` (correct: `plan_start + shift_days`)
+2. Computing the REST removal lower bound (WRONG: should be `from_date + shift_days`)
+
+When `plan_start = 03.01` and `from_date = 03.02` and `shift = −1`:
+- `plan_start + shift = 02.28` → removal range `[02.28, 03.02)` → deletes REST at 02.28 (BUG)
+- `from_date + shift = 03.01` → removal range `[03.01, 03.02)` → nothing removed (CORRECT)
+
+**Fix:** Split into two separate computations (`planning.py` backward skip block):
+- `new_plan_start_dt = plan_start_dt + timedelta(days=shift_days)` (plan anchor)
+- `rest_lower_dt = from_dt + timedelta(days=shift_days)` (REST removal lower bound)
+
+| Scenario | REST range (old, buggy) | REST range (new, correct) |
+|---|---|---|
+| plan_start=03.01, from_date=03.02, shift=−1 | [02.28, 03.02) — deletes 02.28! | [03.01, 03.02) — nothing |
+| plan_start=03.06, from_date=03.06, shift=−6 | [02.28, 03.06) — same | [02.28, 03.06) — same |
+| plan_start=03.01, from_date=03.05, shift=−3 | [02.26, 03.05) | [03.02, 03.05) — undo fwd skip |
+
+**Tests:** All skip tests replaced with comprehensive expected-behavior tests
+(`TestSkipForwardExpected` + `TestSkipBackwardExpected`, 16 tests total).
+Old classes removed: TestSkipPlanShift, TestSkipBackward,
+TestSkipBackwardFromDateOffset, TestSkipForwardCalendarDays,
+TestSkipForwardPlanStartOffset.
+
+| Change | Location |
+|--------|----------|
+| `rest_lower_dt = from_dt + timedelta(days=shift_days)` | `cli/commands/planning.py` backward path |
+| 5 old skip test classes removed; 2 new comprehensive classes added | `tests/test_plan_integration.py` |
+| §7 updated with two-formula documentation | `docs/plan_logic.md` |
+
+---
+
+## [Unreleased] — 2026-03-02
+
+### Fixed (backward-skip no-op when `from_date ≠ plan_start`)
+
+**Bug:** When the user entered a `from_date` that was ahead of `plan_start`
+(e.g., `from_date = plan_start + 1`) and shift = −1, the old formula
+`target = from_date + shift_days` landed exactly at `plan_start` → no-op.
+The plan appeared unchanged after the backward skip.
+
+**Root cause:** Backward skip computed `target = from_date + shift_days`.
+When `from_date > plan_start`, the target could equal (or be above) `plan_start`,
+leaving the anchor unchanged.
+
+**Fix:** `target = plan_start_date + shift_days` — always shifts the anchor by
+exactly `|shift_days|` calendar days, symmetric with forward skip. The `from_date`
+is kept only as the upper bound for plan-REST removal.
+
+| Change | Location |
+|--------|----------|
+| `target_dt = plan_start_dt + timedelta(days=shift_days)` | `cli/commands/planning.py` backward path |
+| Existing `TestSkipBackward` tests updated to set `plan_start = from_date` | `tests/test_plan_integration.py` |
+
+**Tests added:** `TestSkipBackwardFromDateOffset` (3 tests) — covers:
+from_date 1 day ahead of plan_start; from_date 2 days ahead; regression guard
+for from_date = plan_start (both formulas agree).
+
+---
+
+## [Unreleased] — 2026-03-01
+
+### Fixed (forward-skip calendar-day invariant when `plan_start < from_date`)
+
+**Bug:** When the exercise had a "done" session at `plan_start` before the first
+missed session at `from_date` (i.e., `plan_start < from_date`), a forward skip +N
+scrambled session-type rotation and shifted sessions by more than N days.
+
+**Root cause:** `skip()` only added REST records and relied on `plan()`'s
+auto-advance (`plan_start = last_REST + 1`) to shift the anchor.
+When `plan_start < from_date`, this formula jumps `plan_start` by
+`(from_date − old_plan_start) + 1` days instead of exactly N days.
+
+**Fix:**
+
+| Change | Location | Detail |
+|--------|----------|--------|
+| `skip()` forward path now explicitly sets `plan_start = old_plan_start + N` | `cli/commands/planning.py` | Guarantees calendar-day invariant regardless of gap between plan_start and from_date |
+| Auto-advance block removed from `plan()` | `cli/commands/planning.py` | `skip()` is now sole owner of plan_start advancement; the old auto-advance would override the correct value set by skip |
+
+**Tests added:** `TestSkipForwardPlanStartOffset` (3 tests) in
+`tests/test_plan_integration.py` — covers: +1 from non-plan_start shifts all
+sessions by exactly 1 day; session types preserved; regression guard for the
+original pull_up scenario (plan_start == from_date still works).
+
+---
+
 ## [Unreleased] — 2026-02-27
 
 ### Fixed (explain accuracy — 6 bugs in `explain_plan_entry()`)

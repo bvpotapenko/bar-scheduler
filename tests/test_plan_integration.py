@@ -168,130 +168,549 @@ class TestInitialPlanSchema:
 
 
 # ===========================================================================
-# 2. Plan stability: logged session does not shift dates
+# 2. Plan prescription stability
 # ===========================================================================
 
-class TestPlanStability:
+class TestPlanPrescriptionStability:
     """
-    Logging a planned training session must not advance plan_start_date.
-    Only REST records (from the skip command) trigger plan anchoring.
+    Invariant: prescription(slot at date D) = f(history where date < D, profile)
 
-    Profile: pull_up, days=3, bw=80, baseline=10
-    Expected:
-      next_session_dates[before_logging] == next_session_dates[after_logging]
+    Logging a session at date D must not change:
+      - The session type for the slot at D
+      - The prescription (sets/reps/rest) for the slot at D
+      - Any prescription or type for slots at dates before D
+
+    Logging at D MAY change prescriptions for slots strictly after D.
+
+    Profile: pull_up, 3-day, bw=80, baseline=10
+    plan_start: 2026-04-07 (well after today, avoids date clamping edge cases)
+    Pre-plan TEST session: 2026-03-01 (before plan_start)
     """
 
-    def test_training_session_does_not_advance_anchor(self):
-        """
-        Auto-advance logic: only REST sessions advance plan_start_date.
+    PLAN_START = "2026-04-07"
+    # TEST_DATE must be recent enough that no TEST is auto-inserted at PLAN_START.
+    # pull_up test_frequency_weeks = 3 (21 days).
+    # 2026-03-25 → gap to 04.07 = 13 days < 21 → no TEST at plan_start. ✓
+    TEST_DATE = "2026-03-25"
 
-        Before fix: max(s.date for s in history) — advances for ANY session.
-        After fix: max(rest_dates) only — training sessions ignored.
+    def _base_history(self) -> list[SessionResult]:
+        """Minimal pre-plan history: one TEST session before plan_start."""
+        return [_make_test_session(self.TEST_DATE, 10)]
 
-        Hand-check:
-          history has S on 2026-02-05, plan_start = 2026-02-01
-          rest_dates = []  → new_start = "2026-02-01"  (unchanged)
-        """
-        plan_start = "2026-02-01"
-        user_state = _make_user_state(
-            days_per_week=3,
-            baseline_max=10,
-            history=[
-                _make_test_session("2026-01-01", 10),
-                # A training session on the first planned date
-                SessionResult(
-                    date="2026-02-05",
-                    bodyweight_kg=80.0,
-                    grip="pronated",
-                    session_type="S",
-                    exercise_id="pull_up",
-                    planned_sets=[],
-                    completed_sets=[
-                        SetResult(target_reps=8, actual_reps=8,
-                                  rest_seconds_before=180)
-                    ],
-                ),
+    def _base_user_state(self, history=None) -> UserState:
+        if history is None:
+            history = self._base_history()
+        return _make_user_state(days_per_week=3, baseline_max=10, history=history)
+
+    def _make_training_session(
+        self,
+        date: str,
+        session_type: str,
+        rir: int = 2,
+        grip: str = "pronated",
+    ) -> SessionResult:
+        return SessionResult(
+            date=date,
+            bodyweight_kg=80.0,
+            grip=grip,
+            session_type=session_type,
+            exercise_id="pull_up",
+            planned_sets=[],
+            completed_sets=[
+                SetResult(
+                    target_reps=8,
+                    actual_reps=8,
+                    rest_seconds_before=180,
+                    rir_reported=rir,
+                )
             ],
         )
 
-        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
-        future_before = [p.date for p in plans_before]
+    def test_logging_at_plan_start_does_not_change_prescription(self):
+        """
+        Prescription for the plan_start slot must be identical before and after
+        logging a session on that same date.
 
-        # Simulate auto-advance: only REST sessions trigger advancement
-        rest_dates = [s.date for s in user_state.history if s.session_type == "REST"]
-        new_plan_start = (
-            max(rest_dates) if rest_dates and max(rest_dates) > plan_start else plan_start
+        Before fix: _plan_core used ALL history → logging changed recent_same_type
+        for the plan_start slot → rest / sets / reps changed retroactively.
+        After fix: plan_start slot uses only history with date < plan_start.
+        """
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()
+
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        slot_0 = plans_before[0]
+        assert slot_0.date == plan_start, "First slot must be at plan_start"
+
+        # Log a training session at plan_start
+        logged = self._make_training_session(plan_start, slot_0.session_type, rir=1)
+        user_state_after = self._base_user_state(
+            history=self._base_history() + [logged]
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        slot_0_after = plans_after[0]
+
+        assert slot_0_after.date == plan_start
+        assert slot_0.session_type == slot_0_after.session_type, (
+            "Session type for plan_start slot must not change after logging"
+        )
+        assert len(slot_0.sets) == len(slot_0_after.sets), (
+            "Number of sets must not change"
+        )
+        assert slot_0.sets[0].target_reps == slot_0_after.sets[0].target_reps, (
+            "Target reps must not change"
+        )
+        assert slot_0.sets[0].rest_seconds_before == slot_0_after.sets[0].rest_seconds_before, (
+            "Rest prescription must not change"
         )
 
-        plans_after = generate_plan(user_state, new_plan_start, weeks_ahead=4)
-        future_after = [p.date for p in plans_after]
-
-        assert new_plan_start == plan_start, "Training session must not advance plan anchor"
-        assert future_before == future_after, "Plan dates must be identical after logging"
-
-    def test_rest_session_advances_anchor(self):
+    def test_logging_does_not_change_session_type_for_current_slot(self):
         """
-        A REST record (from skip command) DOES advance plan_start_date.
+        Session type for the slot at plan_start must be identical before and after
+        logging a session on that date.
 
-        Hand-check:
-          plan_start = "2026-02-01", REST on "2026-02-04"
-          rest_dates = ["2026-02-04"]
-          new_start = max("2026-02-04", "2026-02-01") = "2026-02-04"
+        Before fix: get_next_session_type_index used ALL history → rotation shifted.
+        After fix: rotation anchored to history with date < plan_start.
         """
-        plan_start = "2026-02-01"
-        history = [
-            _make_test_session("2026-01-01", 10),
-            SessionResult(
-                date="2026-02-04",
-                bodyweight_kg=80.0,
-                grip="pronated",
-                session_type="REST",
-                exercise_id="pull_up",
-                planned_sets=[],
-                completed_sets=[],
-            ),
-        ]
-        rest_dates = [s.date for s in history if s.session_type == "REST"]
-        new_start = max(rest_dates) if rest_dates and max(rest_dates) > plan_start else plan_start
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()
 
-        assert new_start == "2026-02-04", "REST record must advance plan anchor"
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        type_before = plans_before[0].session_type
+
+        # Log a session with the same type (as if user followed the plan)
+        logged = self._make_training_session(plan_start, type_before)
+        user_state_after = self._base_user_state(
+            history=self._base_history() + [logged]
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        type_after = plans_after[0].session_type
+
+        assert type_before == type_after, (
+            f"Session type changed from {type_before!r} to {type_after!r} "
+            "after logging — rotation must be anchored to pre-plan history"
+        )
+
+    def test_logging_does_not_change_session_type_for_past_slot(self):
+        """
+        After logging on slot 2 date, regenerate plan — slot 2 type must match original.
+
+        Hand-check (3-day schedule S/H/E, plan_start=04.07):
+          Slot 0: 04.07 S  Slot 1: 04.09 H  Slot 2: 04.11 E
+          Log session at 04.11 — slot 2 type must still be E.
+        """
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()
+
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        # Slot 2 is the third planned session
+        slot_2_before = plans_before[2]
+
+        logged = self._make_training_session(
+            slot_2_before.date, slot_2_before.session_type
+        )
+        user_state_after = self._base_user_state(
+            history=self._base_history() + [logged]
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        slot_2_after = plans_after[2]
+
+        assert slot_2_before.date == slot_2_after.date, "Slot 2 date must not change"
+        assert slot_2_before.session_type == slot_2_after.session_type, (
+            f"Slot 2 type changed from {slot_2_before.session_type!r} to "
+            f"{slot_2_after.session_type!r} after logging"
+        )
+
+    def test_logging_does_not_change_prescription_for_past_slot(self):
+        """
+        Prescription (sets/reps/rest) for a past slot must be stable after logging.
+
+        Logs session at slot 2 (the third planned session), then regenerates.
+        Verifies that slot 2's prescription is byte-for-byte identical.
+        """
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()
+
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        slot_2_before = plans_before[2]
+
+        logged = self._make_training_session(
+            slot_2_before.date, slot_2_before.session_type, rir=1
+        )
+        user_state_after = self._base_user_state(
+            history=self._base_history() + [logged]
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        slot_2_after = plans_after[2]
+
+        assert slot_2_before.date == slot_2_after.date
+        assert len(slot_2_before.sets) == len(slot_2_after.sets), (
+            "Number of sets changed for past slot after logging"
+        )
+        for i, (s_before, s_after) in enumerate(
+            zip(slot_2_before.sets, slot_2_after.sets)
+        ):
+            assert s_before.target_reps == s_after.target_reps, (
+                f"Set {i} reps changed for past slot"
+            )
+            assert s_before.rest_seconds_before == s_after.rest_seconds_before, (
+                f"Set {i} rest changed for past slot"
+            )
+
+    def test_rotation_anchored_to_pre_plan_history(self):
+        """
+        Session type sequence is entirely determined by pre-plan history.
+        Logging sessions within the plan period must not shift the rotation.
+
+        Hand-check: only TEST in pre-plan history → start_rotation_idx=0 → [S,H,E,S,H,E,...]
+        After logging S at 04.07: without fix, rotation would see S as last →
+        next=H → plan starts with H. With fix, rotation still starts with S.
+        """
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()
+
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        types_before = [p.session_type for p in plans_before[:6]]
+
+        # Log first 3 sessions (one full week)
+        logged_sessions = []
+        for p in plans_before[:3]:
+            logged_sessions.append(
+                self._make_training_session(p.date, p.session_type)
+            )
+        user_state_after = self._base_user_state(
+            history=self._base_history() + logged_sessions
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        types_after = [p.session_type for p in plans_after[:6]]
+
+        assert types_before == types_after, (
+            f"Type sequence changed after logging:\n"
+            f"  before: {types_before}\n"
+            f"  after:  {types_after}"
+        )
+
+    def test_adaptive_rest_for_current_slot_uses_only_pre_plan_sessions(self):
+        """
+        Adaptive rest for the plan_start slot must depend only on pre-plan sessions.
+
+        Setup: no pre-plan same-type sessions → recent_same_type=[] → base midpoint rest.
+        Log session at plan_start with RIR=1 (near failure → +30s for FUTURE slots).
+        Without fix: logged session enters recent_same_type for plan_start → rest changes.
+        With fix: recent_same_type for plan_start slot filtered to date < plan_start → [] → same rest.
+        """
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()  # Only TEST in history → no same-type pre-sessions
+
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        slot_0 = plans_before[0]
+        rest_before = slot_0.sets[0].rest_seconds_before
+
+        # Log session at plan_start with low RIR (hard session)
+        logged = self._make_training_session(plan_start, slot_0.session_type, rir=1)
+        user_state_after = self._base_user_state(
+            history=self._base_history() + [logged]
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        rest_after = plans_after[0].sets[0].rest_seconds_before
+
+        assert rest_before == rest_after, (
+            f"Adaptive rest for plan_start slot changed from {rest_before}s to {rest_after}s "
+            "after logging — must be anchored to pre-plan sessions only"
+        )
+
+    def test_future_slot_adaptive_rest_updates_after_logging(self):
+        """
+        Future slots SHOULD adapt to newly logged sessions.
+
+        Log session at plan_start with RIR=1 (near failure → +30s adaptive rest).
+        The NEXT same-type slot should see this session in recent_same_type → rest increases.
+
+        Hand-check (3-day S/H/E, plan_start=04.07):
+          Slot 0: 04.07 S   ← logged with RIR=1
+          Slot 3: 04.14 S   ← next S slot, should see logged session → +30s
+        """
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()
+
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        # Find next same-type slot after slot 0
+        slot_0_type = plans_before[0].session_type
+        next_same_type = next(
+            p for p in plans_before[1:] if p.session_type == slot_0_type
+        )
+        rest_future_before = next_same_type.sets[0].rest_seconds_before
+
+        # Log plan_start slot with RIR=1 (near-failure → should boost future slot's rest)
+        logged = self._make_training_session(plan_start, slot_0_type, rir=1)
+        user_state_after = self._base_user_state(
+            history=self._base_history() + [logged]
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        next_same_after = next(
+            p for p in plans_after[1:] if p.session_type == slot_0_type
+        )
+        rest_future_after = next_same_after.sets[0].rest_seconds_before
+
+        # Future slot should have equal or higher rest (adapts to hard session)
+        assert rest_future_after >= rest_future_before, (
+            f"Future slot rest should increase after logging hard session; "
+            f"before={rest_future_before}s after={rest_future_after}s"
+        )
+
+    def test_grip_rotation_stable_for_current_and_past_slots(self):
+        """
+        Grip sequence for all plan slots must be stable after logging.
+
+        Before fix: _init_grip_counts used ALL history → logging changed grip counts →
+        all subsequent grips shifted by one position.
+        After fix: grip counts anchored to pre-plan history.
+        """
+        plan_start = self.PLAN_START
+        user_state = self._base_user_state()
+
+        plans_before = generate_plan(user_state, plan_start, weeks_ahead=4)
+        grips_before = [(p.date, p.grip) for p in plans_before[:6]]
+
+        # Log first 2 sessions with specific grips
+        logged_sessions = []
+        for p in plans_before[:2]:
+            logged_sessions.append(
+                self._make_training_session(p.date, p.session_type, grip=p.grip)
+            )
+        user_state_after = self._base_user_state(
+            history=self._base_history() + logged_sessions
+        )
+        plans_after = generate_plan(user_state_after, plan_start, weeks_ahead=4)
+        grips_after = [(p.date, p.grip) for p in plans_after[:6]]
+
+        assert grips_before == grips_after, (
+            f"Grip sequence changed after logging:\n"
+            f"  before: {grips_before}\n"
+            f"  after:  {grips_after}"
+        )
 
 
 # ===========================================================================
-# 3. Skip shifts plan exactly +N days
+# 4. Skip — expected behavior (forward and backward)
 # ===========================================================================
 
-class TestSkipPlanShift:
+class TestSkipForwardExpected:
     """
-    Adding N consecutive REST days pushes the first future session +N days.
+    Forward skip (+N): all future plan sessions shift by exactly N calendar days.
 
-    Profile: pull_up, days=3, bw=80, baseline=10
-    Expected:
-      With plan_start="2026-02-01" and REST on 2026-02-02, 2026-02-03, 2026-02-04
-      (N=3 rest days), the effective plan start advances to 2026-02-04.
-      The first planned session date shifts from day_offsets[0] relative
-      to 2026-02-01 → day_offsets[0] relative to 2026-02-04 (+3 days).
+    Ground-truth behavior:
+    - Adds N REST records at [from_date, from_date+N-1]
+    - Sets plan_start = old_plan_start + N
+    - All plan slots shift uniformly by +N calendar days
+    - Training logs and REST records before from_date are untouched
+    - Session type and grip rotation sequence is preserved
     """
 
-    def test_skip_n_days_shifts_first_session(self):
-        user_state = _make_user_state(days_per_week=3, baseline_max=10)
-        plan_start_original = "2026-02-01"
+    def _setup_store(self, tmp_path, plan_start: str = "2026-03-10") -> "Path":
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
 
-        plans_original = generate_plan(user_state, plan_start_original, weeks_ahead=4)
-        first_date_original = datetime.strptime(plans_original[0].date, "%Y-%m-%d")
+        runner = CliRunner()
+        history_path = tmp_path / "pull_up_history.jsonl"
+        runner.invoke(app, [
+            "init", "--exercise", "pull_up",
+            "--history-path", str(history_path),
+            "--height-cm", "180", "--sex", "male",
+            "--days-per-week", "3", "--bodyweight-kg", "80",
+            "--baseline-max", "10",
+        ])
+        store = HistoryStore(history_path, exercise_id="pull_up")
+        store.set_plan_start_date(plan_start)
+        return history_path
 
-        # Simulate 3-day skip by advancing plan_start by 3 days
-        n_skip = 3
-        plan_start_shifted = (
-            datetime.strptime(plan_start_original, "%Y-%m-%d") + timedelta(days=n_skip)
-        ).strftime("%Y-%m-%d")
+    def _future_dates(self, history_path) -> list[str]:
+        import json as _json
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        r = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
+        assert r.exit_code == 0, f"plan --json failed: {r.output}"
+        data = _json.loads(r.output)
+        return [s["date"] for s in data["sessions"] if s["status"] in ("next", "planned")]
 
-        plans_shifted = generate_plan(user_state, plan_start_shifted, weeks_ahead=4)
-        first_date_shifted = datetime.strptime(plans_shifted[0].date, "%Y-%m-%d")
+    def _future_types(self, history_path) -> list[str]:
+        import json as _json
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        r = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
+        assert r.exit_code == 0, f"plan --json failed: {r.output}"
+        data = _json.loads(r.output)
+        return [s["type"] for s in data["sessions"] if s["status"] in ("next", "planned")]
 
-        shift = (first_date_shifted - first_date_original).days
-        assert shift == n_skip, (
-            f"First session should shift exactly +{n_skip} days; got shift={shift}"
+    def test_1_day_shifts_all_sessions_by_exactly_1(self, tmp_path):
+        """Skip +1 from plan_start: every future session date shifts by exactly 1."""
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, "2026-03-10")
+        dates_before = self._future_dates(history_path)
+        assert len(dates_before) >= 3
+        result = runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-10\n1\n",
+        )
+        assert result.exit_code == 0, f"skip failed: {result.output}"
+        dates_after = self._future_dates(history_path)
+        for b, a in zip(dates_before, dates_after):
+            shift = (datetime.strptime(a, "%Y-%m-%d") - datetime.strptime(b, "%Y-%m-%d")).days
+            assert shift == 1, f"Session {b} must shift +1 calendar day, got {a} ({shift:+d})"
+
+    def test_3_days_shifts_all_sessions_by_exactly_3(self, tmp_path):
+        """Skip +3 from plan_start: every future session date shifts by exactly 3."""
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, "2026-03-10")
+        dates_before = self._future_dates(history_path)
+        result = runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-10\n3\n",
+        )
+        assert result.exit_code == 0, f"skip failed: {result.output}"
+        dates_after = self._future_dates(history_path)
+        for b, a in zip(dates_before, dates_after):
+            shift = (datetime.strptime(a, "%Y-%m-%d") - datetime.strptime(b, "%Y-%m-%d")).days
+            assert shift == 3, f"Session {b} must shift +3 calendar days, got {a} ({shift:+d})"
+
+    def test_session_type_sequence_preserved(self, tmp_path):
+        """
+        After skip +1 the type sequence is unchanged.
+        E.g., [S, H, E, S, H, E, …] stays [S, H, E, S, H, E, …], just 1 day later.
+        """
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, "2026-03-10")
+        types_before = self._future_types(history_path)
+        runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-10\n1\n",
+        )
+        types_after = self._future_types(history_path)
+        assert types_before == types_after, (
+            f"Session type sequence must be unchanged after skip.\n"
+            f"Before: {types_before}\nAfter:  {types_after}"
+        )
+
+    def test_plan_start_lt_from_date_shifts_all_by_1(self, tmp_path):
+        """
+        Regression for dip bug: when plan_start < from_date (a 'done' session exists
+        before the first missed session), skip +1 must still shift all dates by exactly 1.
+        Old bug: auto-advance jumped plan_start by more than 1 (e.g., +3).
+        """
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        # plan_start = 03.09; from_date = 03.11 = slot 1 in 3-day [0,2,4]
+        history_path = self._setup_store(tmp_path, "2026-03-09")
+        dates_before = self._future_dates(history_path)
+        assert len(dates_before) >= 3
+        result = runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-11\n1\n",
+        )
+        assert result.exit_code == 0, f"skip failed: {result.output}"
+        dates_after = self._future_dates(history_path)
+        for b, a in zip(dates_before, dates_after):
+            shift = (datetime.strptime(a, "%Y-%m-%d") - datetime.strptime(b, "%Y-%m-%d")).days
+            assert shift == 1, (
+                f"Session {b} must shift +1 calendar day, got {a} ({shift:+d}).\n"
+                "Bug: when plan_start < from_date, auto-advance over-jumped plan_start."
+            )
+
+    def test_plan_start_lt_from_date_preserves_types(self, tmp_path):
+        """
+        Companion to test_plan_start_lt_from_date_shifts_all_by_1:
+        after skip +1 from a date beyond plan_start, type sequence must be unchanged.
+        """
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, "2026-03-09")
+        types_before = self._future_types(history_path)
+        runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-11\n1\n",
+        )
+        types_after = self._future_types(history_path)
+        assert types_before == types_after, (
+            f"Types changed after skip — rotation scrambled.\n"
+            f"Before: {types_before}\nAfter:  {types_after}"
+        )
+
+    def test_rest_records_added_at_from_date(self, tmp_path):
+        """Skip +3 must add REST records at from_date, from_date+1, from_date+2."""
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, "2026-03-10")
+        runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-10\n3\n",
+        )
+        store = HistoryStore(history_path, exercise_id="pull_up")
+        rest_dates = {s.date for s in store.load_history() if s.session_type == "REST"}
+        for d in ("2026-03-10", "2026-03-11", "2026-03-12"):
+            assert d in rest_dates, f"REST record expected at {d} after skip +3 from 03.10"
+
+    def test_training_logs_not_modified(self, tmp_path):
+        """Forward skip must never alter training log entries."""
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
+        from bar_scheduler.core.models import SessionResult, SetResult
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, "2026-03-10")
+        store = HistoryStore(history_path, exercise_id="pull_up")
+        # Add a training session before skip
+        store.append_session(SessionResult(
+            date="2026-03-05", bodyweight_kg=80.0, grip="pronated",
+            session_type="S", exercise_id="pull_up",
+            planned_sets=[],
+            completed_sets=[SetResult(target_reps=8, actual_reps=8, rest_seconds_before=180)],
+        ))
+        runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-10\n1\n",
+        )
+        store2 = HistoryStore(history_path, exercise_id="pull_up")
+        training = [s for s in store2.load_history() if s.session_type == "S"]
+        assert any(s.date == "2026-03-05" for s in training), (
+            "Training log entry at 2026-03-05 must survive forward skip"
+        )
+
+    def test_rest_records_before_from_date_preserved(self, tmp_path):
+        """REST records before from_date are untouched by forward skip."""
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
+        from bar_scheduler.core.models import SessionResult
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, "2026-03-10")
+        store = HistoryStore(history_path, exercise_id="pull_up")
+        # Add REST one day before from_date
+        store.append_session(SessionResult(
+            date="2026-03-09", bodyweight_kg=80.0, grip="pronated",
+            session_type="REST", exercise_id="pull_up",
+            planned_sets=[], completed_sets=[],
+        ))
+        runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-10\n1\n",
+        )
+        store2 = HistoryStore(history_path, exercise_id="pull_up")
+        rest_dates = {s.date for s in store2.load_history() if s.session_type == "REST"}
+        assert "2026-03-09" in rest_dates, (
+            "REST at 2026-03-09 (before from_date 03.10) must survive forward skip"
         )
 
 
@@ -940,36 +1359,35 @@ class TestExplainNoOvertrain:
 
 
 # ===========================================================================
-# 16. Skip-backward regression
+# 16. Skip-backward expected behavior
 # ===========================================================================
 
-class TestSkipBackward:
+class TestSkipBackwardExpected:
     """
-    Regression for Bug A (backward skip didn't move plan) and
-    Bug B (overtraining level increased after backward skip).
+    Backward skip (-N): plan_start shifts back by exactly N calendar days.
 
-    Tests use the CLI runner to invoke skip() with simulated input, then
-    inspect the HistoryStore directly.
+    Ground-truth behavior:
+    - new_plan_start = old_plan_start + shift_days  (plan_start-relative)
+    - REST removal range = [from_date + shift_days, from_date)  (from_date-relative)
+      → only REST records that a matching forward skip would have placed are removed
+      → REST records before (from_date + shift_days) are ALWAYS preserved
+    - Training logs are never modified
+    - Session type and grip rotation sequence is preserved
 
-    from_date=2026-03-06, N=-6 → target_date = 2026-02-28
+    Key invariant: when plan_start != from_date, REST records that pre-date
+    (from_date + shift_days) must survive. Bug that caused this test class:
+    old code used plan_start + shift_days as the removal lower bound, which
+    pulled pre-existing REST records into the removal range when plan_start < from_date.
     """
 
-    def _setup_store(self, tmp_path, extra_rest_dates: list[str] | None = None) -> "Path":
-        """
-        Create a minimal store with:
-          - profile + baseline TEST session on 2026-02-17
-          - optional plan-REST records
-          - plan_start_date = "2026-03-01"
-        Returns the history_path.
-        """
+    def _setup_store(self, tmp_path, plan_start: str, rest_dates: list[str] | None = None) -> "Path":
         from typer.testing import CliRunner
-
         from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
+        from bar_scheduler.core.models import SessionResult
 
         runner = CliRunner()
         history_path = tmp_path / "pull_up_history.jsonl"
-
-        # Init profile
         runner.invoke(app, [
             "init", "--exercise", "pull_up",
             "--history-path", str(history_path),
@@ -977,148 +1395,247 @@ class TestSkipBackward:
             "--days-per-week", "3", "--bodyweight-kg", "80",
             "--baseline-max", "10",
         ])
-
-        from bar_scheduler.io.history_store import HistoryStore
-        from bar_scheduler.core.models import SessionResult
-
         store = HistoryStore(history_path, exercise_id="pull_up")
-        store.set_plan_start_date("2026-03-01")
-
-        if extra_rest_dates:
-            for d in extra_rest_dates:
+        store.set_plan_start_date(plan_start)
+        if rest_dates:
+            for d in rest_dates:
                 store.append_session(SessionResult(
                     date=d, bodyweight_kg=80.0, grip="pronated",
                     session_type="REST", exercise_id="pull_up",
                     planned_sets=[], completed_sets=[],
                 ))
-
         return history_path
 
-    def test_backward_skip_sets_plan_start_to_target_date(self, tmp_path):
-        """
-        skip from_date=2026-03-10, N=-6 → plan_start_date = 2026-03-04
+    def _future_dates(self, history_path) -> list[str]:
+        import json as _json
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        r = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
+        assert r.exit_code == 0, f"plan --json failed: {r.output}"
+        data = _json.loads(r.output)
+        return [s["date"] for s in data["sessions"] if s["status"] in ("next", "planned")]
 
-        Setup:
-          plan_start_date = "2026-03-01" (no extra REST records)
-          Baseline TEST created by init on today (2026-03-01) — target_date must stay
-          above first_training to avoid the clamp. 03.10 − 6 = 03.04 > 03.01 ✓
-        Expected:
-          store.get_plan_start_date() == "2026-03-04"
+    def _future_types(self, history_path) -> list[str]:
+        import json as _json
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        r = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
+        assert r.exit_code == 0, f"plan --json failed: {r.output}"
+        data = _json.loads(r.output)
+        return [s["type"] for s in data["sessions"] if s["status"] in ("next", "planned")]
+
+    def test_1_day_shifts_all_sessions_back_by_1_common_case(self, tmp_path):
+        """
+        Simplest backward skip: plan_start == from_date == 03.11, shift -1.
+        new_plan_start = 03.10; all future plan dates shift by -1.
         """
         from typer.testing import CliRunner
         from bar_scheduler.cli.main import app
         from bar_scheduler.io.history_store import HistoryStore
-
-        history_path = self._setup_store(tmp_path)
         runner = CliRunner()
+        history_path = self._setup_store(tmp_path, plan_start="2026-03-11")
+        dates_before = self._future_dates(history_path)
+        assert len(dates_before) >= 3
+        result = runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-11\n-1\n",
+        )
+        assert result.exit_code == 0, f"skip failed: {result.output}"
+        store = HistoryStore(history_path, exercise_id="pull_up")
+        assert store.get_plan_start_date() == "2026-03-10", (
+            f"plan_start must be 2026-03-10 (03.11 + -1), got {store.get_plan_start_date()!r}"
+        )
+        dates_after = self._future_dates(history_path)
+        for b, a in zip(dates_before, dates_after):
+            shift = (datetime.strptime(a, "%Y-%m-%d") - datetime.strptime(b, "%Y-%m-%d")).days
+            assert shift == -1, f"Session {b} must shift -1 calendar day, got {a} ({shift:+d})"
 
+    def test_6_days_shifts_all_back_by_6(self, tmp_path):
+        """
+        Backward skip -6: plan_start = 03.10, from_date = 03.10, shift -6.
+        new_plan_start = 03.04; plan dates shift by -6.
+        """
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, plan_start="2026-03-10")
+        dates_before = self._future_dates(history_path)
         result = runner.invoke(
             app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
             input="2026-03-10\n-6\n",
         )
         assert result.exit_code == 0, f"skip failed: {result.output}"
-
         store = HistoryStore(history_path, exercise_id="pull_up")
-        new_start = store.get_plan_start_date()
-        assert new_start == "2026-03-04", (
-            f"plan_start_date must be 2026-03-04 (03.10 − 6), got {new_start!r}"
+        assert store.get_plan_start_date() == "2026-03-04", (
+            f"plan_start must be 2026-03-04 (03.10 + -6), got {store.get_plan_start_date()!r}"
         )
 
-    def test_backward_skip_removes_rest_records_in_gap(self, tmp_path):
-        """
-        REST records in [target_date, from_date) are removed.
+    def test_session_type_sequence_preserved(self, tmp_path):
+        """Backward skip -1 must not scramble session type rotation."""
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, plan_start="2026-03-11")
+        types_before = self._future_types(history_path)
+        runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-11\n-1\n",
+        )
+        types_after = self._future_types(history_path)
+        assert types_before == types_after, (
+            f"Session type sequence must be unchanged after backward skip.\n"
+            f"Before: {types_before}\nAfter:  {types_after}"
+        )
 
-        Setup:
-          REST on 2026-02-28, 2026-03-01, 2026-03-03  (all within gap [02.28, 03.06))
-          REST on 2026-02-25  (before gap — must NOT be removed)
-        from_date=2026-03-06, N=-6  (target=2026-02-28)
+    def test_plan_start_lt_from_date_shifts_back_by_1(self, tmp_path):
+        """
+        THE BUG THIS TEST GUARDS AGAINST:
+        When plan_start < from_date, the REST removal lower bound must be
+        from_date + shift_days (NOT plan_start + shift_days).
+
+        Setup: plan_start=04.01, REST at 03.31 (pre-existing, before removal range),
+               from_date=04.02, shift=-1.
+
         Expected:
-          2026-02-25 REST still in history
-          2026-02-28, 2026-03-01, 2026-03-03 REST removed
+          - new_plan_start = 04.01 + (-1) = 03.31
+          - REST at 03.31 PRESERVED (it is before the removal range [04.01, 04.02))
+
+        Bug (before fix): removal range = [plan_start + shift, from_date)
+          = [03.31, 04.02) → REST at 03.31 DELETED (wrong!).
+
+        Note: dates are in April so new_plan_start stays above first_training
+        (today's baseline TEST, 03.02) and is not clamped to first_training.
         """
         from typer.testing import CliRunner
         from bar_scheduler.cli.main import app
         from bar_scheduler.io.history_store import HistoryStore
-
-        history_path = self._setup_store(
-            tmp_path,
-            extra_rest_dates=["2026-02-25", "2026-02-28", "2026-03-01", "2026-03-03"],
-        )
         runner = CliRunner()
+        # REST at 03.31 is before the removal range [from_date + shift, from_date) = [04.01, 04.02)
+        history_path = self._setup_store(
+            tmp_path, plan_start="2026-04-01", rest_dates=["2026-03-31"]
+        )
+        result = runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-04-02\n-1\n",
+        )
+        assert result.exit_code == 0, f"skip failed: {result.output}"
+        store = HistoryStore(history_path, exercise_id="pull_up")
+        assert store.get_plan_start_date() == "2026-03-31", (
+            f"plan_start must be 2026-03-31 (04.01 + -1), got {store.get_plan_start_date()!r}"
+        )
+        rest_dates = {s.date for s in store.load_history() if s.session_type == "REST"}
+        assert "2026-03-31" in rest_dates, (
+            "REST at 2026-03-31 must be preserved: it is before the removal range "
+            "[from_date + shift, from_date) = [2026-04-01, 2026-04-02). "
+            "Bug: old code used [plan_start + shift, from_date) = [2026-03-31, 2026-04-02) "
+            "which incorrectly deleted the 03.31 REST record."
+        )
 
+    def test_rest_in_removal_range_is_removed(self, tmp_path):
+        """
+        REST records in [from_date + shift, from_date) are removed.
+        This is the "undo forward skip" scenario.
+
+        Setup: plan_start = from_date = 03.06, REST at 02.25, 02.28, 03.01, 03.03.
+               shift = -6 → removal range = [from_date - 6, from_date) = [02.28, 03.06).
+        Expected: REST at 02.25 preserved; 02.28, 03.01, 03.03 removed.
+        """
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
+        runner = CliRunner()
+        history_path = self._setup_store(
+            tmp_path, plan_start="2026-03-06",
+            rest_dates=["2026-02-25", "2026-02-28", "2026-03-01", "2026-03-03"],
+        )
         result = runner.invoke(
             app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
             input="2026-03-06\n-6\n",
         )
         assert result.exit_code == 0, f"skip failed: {result.output}"
-
         store = HistoryStore(history_path, exercise_id="pull_up")
-        rest_dates = {s.date for s in store.load_history() if s.session_type == "REST"}
-
-        assert "2026-02-25" in rest_dates, (
-            "REST record on 2026-02-25 (before gap) must be preserved"
+        rest_dates_after = {s.date for s in store.load_history() if s.session_type == "REST"}
+        assert "2026-02-25" in rest_dates_after, (
+            "REST at 2026-02-25 (before removal range [02.28, 03.06)) must be preserved"
         )
         for d in ("2026-02-28", "2026-03-01", "2026-03-03"):
-            assert d not in rest_dates, (
-                f"REST record on {d} (in gap) must be removed by backward skip"
+            assert d not in rest_dates_after, (
+                f"REST at {d} (inside removal range [02.28, 03.06)) must be removed"
             )
 
-    def test_backward_skip_preserves_rest_records_before_target(self, tmp_path):
+    def test_rest_before_removal_range_preserved(self, tmp_path):
         """
-        REST records before target_date are untouched.
+        REST at exactly (from_date + shift_days - 1) is one day outside the removal
+        range and must never be deleted.
 
-        Regression for Bug B: old code removed s.date <= from_date, which
-        included the pre-gap REST record and raised overtraining severity.
-
-        Setup:
-          REST on 2026-02-25 only (before target_date 2026-02-28)
-        from_date=2026-03-06, N=-6
-        Expected:
-          2026-02-25 REST still in history after skip
+        Setup: plan_start=04.01, from_date=04.02, shift=-1.
+               REST at 03.31 = from_date + shift - 1 day → before [04.01, 04.02).
         """
         from typer.testing import CliRunner
         from bar_scheduler.cli.main import app
         from bar_scheduler.io.history_store import HistoryStore
-
-        history_path = self._setup_store(tmp_path, extra_rest_dates=["2026-02-25"])
         runner = CliRunner()
-
-        result = runner.invoke(
+        history_path = self._setup_store(
+            tmp_path, plan_start="2026-04-01", rest_dates=["2026-03-31"]
+        )
+        runner.invoke(
             app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
-            input="2026-03-06\n-6\n",
+            input="2026-04-02\n-1\n",
         )
-        assert result.exit_code == 0, f"skip failed: {result.output}"
-
         store = HistoryStore(history_path, exercise_id="pull_up")
-        rest_dates = {s.date for s in store.load_history() if s.session_type == "REST"}
-        assert "2026-02-25" in rest_dates, (
-            "REST record on 2026-02-25 (before target) must survive backward skip"
+        rest_dates_after = {s.date for s in store.load_history() if s.session_type == "REST"}
+        assert "2026-03-31" in rest_dates_after, (
+            "REST at 2026-03-31 is before removal range [04.01, 04.02) and must be preserved"
         )
 
-    def test_backward_skip_does_not_increase_overtraining_level(self, tmp_path):
+    def test_training_logs_not_modified(self, tmp_path):
+        """Backward skip must never alter training log entries."""
+        from typer.testing import CliRunner
+        from bar_scheduler.cli.main import app
+        from bar_scheduler.io.history_store import HistoryStore
+        from bar_scheduler.core.models import SessionResult, SetResult
+        runner = CliRunner()
+        history_path = self._setup_store(tmp_path, plan_start="2026-03-11")
+        store = HistoryStore(history_path, exercise_id="pull_up")
+        store.append_session(SessionResult(
+            date="2026-03-05", bodyweight_kg=80.0, grip="pronated",
+            session_type="S", exercise_id="pull_up",
+            planned_sets=[],
+            completed_sets=[SetResult(target_reps=8, actual_reps=8, rest_seconds_before=180)],
+        ))
+        runner.invoke(
+            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
+            input="2026-03-11\n-1\n",
+        )
+        store2 = HistoryStore(history_path, exercise_id="pull_up")
+        training = [s for s in store2.load_history() if s.session_type == "S"]
+        assert any(s.date == "2026-03-05" for s in training), (
+            "Training log entry at 2026-03-05 must survive backward skip"
+        )
+
+    def test_does_not_increase_overtraining_level(self, tmp_path):
         """
-        Overtraining severity level must not increase after backward skip.
+        Backward skip must not increase overtraining severity level.
+        Regression for Bug B: old code deleted a pre-gap REST record, reducing
+        rest_in_span and bumping severity from level 1 → 2.
 
-        Regression for Bug B: old code removed the pre-gap 2026-02-25 REST record,
-        reducing rest_in_span and bumping severity from level 1 to level 2.
-
-        Setup:
-          Training sessions on 2026-02-22, 2026-02-24, 2026-02-26, 2026-02-27
-          REST on 2026-02-25 (between sessions → credits rest_in_span)
-          → 4 sessions, span=5, rest_in_span=1, actual=6, level-1 severity
-        After backward skip (doesn't touch 2026-02-25 REST):
-          → same severity level
+        Setup: 4 training sessions in 6 days; REST at 02.25 credits rest_in_span.
+        After backward skip from 03.06 by -6: REST at 02.25 must still be there
+        so overtraining level stays ≤ level before skip.
         """
         from typer.testing import CliRunner
         from bar_scheduler.cli.main import app
         from bar_scheduler.io.history_store import HistoryStore
         from bar_scheduler.core.adaptation import overtraining_severity
-
-        history_path = self._setup_store(tmp_path, extra_rest_dates=["2026-02-25"])
-
-        # Add 4 training sessions in 6 days
-        store = HistoryStore(history_path, exercise_id="pull_up")
         from bar_scheduler.core.models import SessionResult, SetResult
+        runner = CliRunner()
+        history_path = self._setup_store(
+            tmp_path, plan_start="2026-03-06", rest_dates=["2026-02-25"]
+        )
+        store = HistoryStore(history_path, exercise_id="pull_up")
         for d in ("2026-02-22", "2026-02-24", "2026-02-26", "2026-02-27"):
             store.append_session(SessionResult(
                 date=d, bodyweight_kg=80.0, grip="pronated",
@@ -1126,250 +1643,23 @@ class TestSkipBackward:
                 planned_sets=[],
                 completed_sets=[SetResult(target_reps=8, actual_reps=8, rest_seconds_before=180)],
             ))
-
-        # Compute severity BEFORE skip
         history_before = store.load_history()
         training_before = [s for s in history_before if s.session_type != "REST"]
-        severity_before = overtraining_severity(training_before, days_per_week=3,
-                                                full_history=history_before)
-        level_before = severity_before["level"]
-
-        # Run backward skip
-        runner = CliRunner()
+        level_before = overtraining_severity(
+            training_before, days_per_week=3, full_history=history_before
+        )["level"]
         result = runner.invoke(
             app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
             input="2026-03-06\n-6\n",
         )
         assert result.exit_code == 0, f"skip failed: {result.output}"
-
-        # Compute severity AFTER skip
         history_after = store.load_history()
         training_after = [s for s in history_after if s.session_type != "REST"]
-        severity_after = overtraining_severity(training_after, days_per_week=3,
-                                               full_history=history_after)
-        level_after = severity_after["level"]
-
+        level_after = overtraining_severity(
+            training_after, days_per_week=3, full_history=history_after
+        )["level"]
         assert level_after <= level_before, (
             f"Overtraining level must not increase after backward skip: "
             f"before={level_before}, after={level_after}"
         )
 
-
-# ===========================================================================
-# 17. Skip-forward: calendar-day shift and session-type preservation
-# ===========================================================================
-
-class TestSkipForwardCalendarDays:
-    """
-    Regression for two forward-skip bugs:
-
-    Bug 1 — REST consumes a session-type slot:
-      Skip +1 from plan_start caused REST to fill slot 0, skipping the Str
-      session type. Fixed by advancing plan_start to last_REST + 1 day.
-
-    Bug 2 — Sessions shift by training days, not calendar days:
-      Every future session must shift by exactly N calendar days.
-      Fixed as a consequence of Bug 1 fix (plan_start moves by N).
-
-    All tests verify dates via `plan --json` output.
-    """
-
-    def _setup_store(self, tmp_path) -> "Path":
-        """
-        Init a store with a baseline TEST on a past date.
-        Returns history_path with plan_start_date = tomorrow (a future anchor).
-        """
-        from typer.testing import CliRunner
-        from bar_scheduler.cli.main import app
-        from bar_scheduler.io.history_store import HistoryStore
-
-        runner = CliRunner()
-        history_path = tmp_path / "pull_up_history.jsonl"
-        runner.invoke(app, [
-            "init", "--exercise", "pull_up",
-            "--history-path", str(history_path),
-            "--height-cm", "180", "--sex", "male",
-            "--days-per-week", "3", "--bodyweight-kg", "80",
-            "--baseline-max", "10",
-        ])
-
-        # Set plan_start_date to a fixed future date so forward skip has a clean anchor
-        store = HistoryStore(history_path, exercise_id="pull_up")
-        store.set_plan_start_date("2026-03-10")
-        return history_path
-
-    def _future_dates(self, history_path) -> list[str]:
-        """Run plan --json and return all future session dates in order."""
-        import json as _json
-        from typer.testing import CliRunner
-        from bar_scheduler.cli.main import app
-
-        runner = CliRunner()
-        r = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
-        assert r.exit_code == 0, f"plan --json failed: {r.output}"
-        data = _json.loads(r.output)
-        return [
-            s["date"]
-            for s in data["sessions"]
-            if s["status"] in ("next", "planned")
-        ]
-
-    def _future_types(self, history_path) -> list[tuple[str, str]]:
-        """Run plan --json and return (date, session_type) for all future sessions."""
-        import json as _json
-        from typer.testing import CliRunner
-        from bar_scheduler.cli.main import app
-
-        runner = CliRunner()
-        r = runner.invoke(app, ["plan", "--json", "--history-path", str(history_path)])
-        assert r.exit_code == 0, f"plan --json failed: {r.output}"
-        data = _json.loads(r.output)
-        return [
-            (s["date"], s["type"])
-            for s in data["sessions"]
-            if s["status"] in ("next", "planned")
-        ]
-
-    def test_forward_skip_1_day_shifts_all_sessions_by_1(self, tmp_path):
-        """
-        Skip +1 from plan_start shifts every future session by exactly 1 calendar day.
-
-        Setup:
-          plan_start_date = "2026-03-10"
-          Future sessions before skip: 2026-03-10 (S), 2026-03-12 (H), 2026-03-14 (E), ...
-        After skip +1 from 2026-03-10:
-          Future sessions: 2026-03-11 (S), 2026-03-13 (H), 2026-03-15 (E), ...
-        Expected: each session date = original + 1 calendar day.
-        """
-        from typer.testing import CliRunner
-        from bar_scheduler.cli.main import app
-
-        runner = CliRunner()
-        history_path = self._setup_store(tmp_path)
-
-        dates_before = self._future_dates(history_path)
-        assert len(dates_before) >= 3, "Need at least 3 future sessions for this test"
-
-        result = runner.invoke(
-            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
-            input="2026-03-10\n1\n",
-        )
-        assert result.exit_code == 0, f"skip failed: {result.output}"
-
-        dates_after = self._future_dates(history_path)
-        assert len(dates_after) >= 3, "Need at least 3 future sessions after skip"
-
-        for before, after in zip(dates_before, dates_after):
-            from datetime import datetime
-            d_before = datetime.strptime(before, "%Y-%m-%d")
-            d_after  = datetime.strptime(after,  "%Y-%m-%d")
-            shift = (d_after - d_before).days
-            assert shift == 1, (
-                f"Session {before} must shift to {before}+1 calendar day, "
-                f"but shifted to {after} ({shift:+d} days)"
-            )
-
-    def test_forward_skip_3_days_shifts_all_sessions_by_3(self, tmp_path):
-        """
-        Skip +3 from plan_start shifts every future session by exactly 3 calendar days.
-        """
-        from typer.testing import CliRunner
-        from bar_scheduler.cli.main import app
-
-        runner = CliRunner()
-        history_path = self._setup_store(tmp_path)
-
-        dates_before = self._future_dates(history_path)
-
-        result = runner.invoke(
-            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
-            input="2026-03-10\n3\n",
-        )
-        assert result.exit_code == 0, f"skip failed: {result.output}"
-
-        dates_after = self._future_dates(history_path)
-
-        for before, after in zip(dates_before, dates_after):
-            from datetime import datetime
-            shift = (datetime.strptime(after, "%Y-%m-%d") - datetime.strptime(before, "%Y-%m-%d")).days
-            assert shift == 3, (
-                f"Session {before} must shift +3 calendar days, "
-                f"but shifted to {after} ({shift:+d} days)"
-            )
-
-    def test_forward_skip_preserves_session_type_rotation(self, tmp_path):
-        """
-        After skip, the session type at the new first date must equal the
-        session type that was originally planned for the old first date.
-
-        Regression for Bug 1: REST was consuming the Str slot, so after skip
-        from a Str date the next session appeared as Hpy, not Str.
-
-        Expected: type_at(new_first_date) == type_at(old_first_date)
-        """
-        from typer.testing import CliRunner
-        from bar_scheduler.cli.main import app
-
-        runner = CliRunner()
-        history_path = self._setup_store(tmp_path)
-
-        types_before = self._future_types(history_path)
-        assert types_before, "Need at least one future session before skip"
-        first_type_before = types_before[0][1]   # session type at plan_start
-
-        result = runner.invoke(
-            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
-            input="2026-03-10\n1\n",
-        )
-        assert result.exit_code == 0, f"skip failed: {result.output}"
-
-        types_after = self._future_types(history_path)
-        assert types_after, "Need at least one future session after skip"
-        first_type_after = types_after[0][1]
-
-        assert first_type_after == first_type_before, (
-            f"After skip, first future session must have same type as before.\n"
-            f"Before: {first_type_before} at {types_before[0][0]}\n"
-            f"After:  {first_type_after} at {types_after[0][0]}\n"
-            f"Regression: REST consumed the {first_type_before} slot"
-        )
-
-    def test_backward_skip_shifts_all_sessions_by_n_calendar_days(self, tmp_path):
-        """
-        Backward skip -3 from plan_start makes every future session appear
-        exactly 3 calendar days earlier than before the skip.
-
-        Setup:
-          plan_start_date = "2026-03-16" (no prior REST records)
-          from_date = "2026-03-16", N = -3
-          target_date = "2026-03-13" (> first training session 2026-03-01, no clamp)
-        Expected: each session date = original - 3 days.
-        """
-        from typer.testing import CliRunner
-        from bar_scheduler.cli.main import app
-        from bar_scheduler.io.history_store import HistoryStore
-
-        runner = CliRunner()
-        history_path = self._setup_store(tmp_path)
-
-        # Override plan_start to the from_date so target falls 3 days earlier
-        store = HistoryStore(history_path, exercise_id="pull_up")
-        store.set_plan_start_date("2026-03-16")
-
-        dates_before = self._future_dates(history_path)
-
-        result = runner.invoke(
-            app, ["skip", "--exercise", "pull_up", "--history-path", str(history_path)],
-            input="2026-03-16\n-3\n",
-        )
-        assert result.exit_code == 0, f"skip failed: {result.output}"
-
-        dates_after = self._future_dates(history_path)
-
-        for before, after in zip(dates_before, dates_after):
-            from datetime import datetime
-            shift = (datetime.strptime(after, "%Y-%m-%d") - datetime.strptime(before, "%Y-%m-%d")).days
-            assert shift == -3, (
-                f"Session {before} must shift -3 calendar days, "
-                f"but shifted to {after} ({shift:+d} days)"
-            )

@@ -264,21 +264,6 @@ def plan(
     # Determine where the plan started (set by init; fall back to first history date)
     plan_start_date = _resolve_plan_start(store, user_state)
 
-    # Auto-advance plan_start_date to the day AFTER the last REST record.
-    # Setting plan_start = last_REST+1 (not last_REST itself) means:
-    #   - REST falls before plan_start → appears as unmatched history ("~")
-    #   - Slot 0 at plan_start+0 gets the correct session type (Str, not consumed by REST)
-    #   - Every future session shifts by exactly N calendar days (calendar-day shift)
-    # Training sessions must NOT advance the anchor — doing so shifts all future dates.
-    if user_state.history:
-        rest_dates = [s.date for s in user_state.history if s.session_type == "REST"]
-        if rest_dates:
-            last_rest = max(rest_dates)
-            if last_rest >= plan_start_date:
-                last_rest_dt = datetime.strptime(last_rest, "%Y-%m-%d")
-                plan_start_date = (last_rest_dt + timedelta(days=1)).strftime("%Y-%m-%d")
-                store.set_plan_start_date(plan_start_date)
-
     # Generate plan for enough weeks to cover history + ahead
     if weeks is not None:
         weeks_ahead = weeks
@@ -623,32 +608,54 @@ def skip(
                 completed_sets=[],
             )
             store.append_session(rest_session)
+        # Shift plan anchor by exactly N calendar days.
+        # Do NOT rely on auto-advance (last_REST+1): when plan_start < from_date,
+        # auto-advance would jump plan_start by more than N days.
+        old_plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
+        store.set_plan_start_date(
+            (old_plan_start_dt + timedelta(days=shift_days)).strftime("%Y-%m-%d")
+        )
         sign = "+"
     else:
-        # Compute target date: from_date shifted back by |shift_days| calendar days
+        # Backward skip: two separate computations.
+        #
+        # 1. new_plan_start = plan_start + shift_days  (plan_start-relative)
+        #    Guarantees plan anchor shifts by exactly |shift_days| calendar days,
+        #    regardless of the gap between from_date and plan_start.
+        #
+        # 2. REST removal range = [from_date + shift_days, from_date)  (from_date-relative)
+        #    Removes only REST records that a matching forward skip from from_date
+        #    would have placed.  Records before (from_date + shift_days) are ALWAYS
+        #    preserved — even if they happen to be between new_plan_start and from_date.
+        #
+        # Bug history: using plan_start + shift_days as the removal lower bound caused
+        # pre-existing REST records (placed before from_date + shift_days) to be deleted
+        # whenever plan_start < from_date.
+        plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
         from_dt = datetime.strptime(from_date, "%Y-%m-%d")
-        target_dt = from_dt + timedelta(days=shift_days)  # shift_days < 0
-        target_date_str = target_dt.strftime("%Y-%m-%d")
+        new_plan_start_dt = plan_start_dt + timedelta(days=shift_days)   # plan anchor
+        new_plan_start_str = new_plan_start_dt.strftime("%Y-%m-%d")
+        rest_lower_dt = from_dt + timedelta(days=shift_days)             # REST removal lower bound
+        rest_lower_str = rest_lower_dt.strftime("%Y-%m-%d")
 
-        # Remove plan-REST records in the gap [target_date, from_date).
-        # These were added by a previous forward skip; removing them clears the gap.
+        # Remove plan-REST records in [from_date + shift_days, from_date).
         # Never touch training sessions the user explicitly logged (session_type != "REST").
         all_history = store.load_history()
         gap_rest = [
             (i, s) for i, s in enumerate(all_history)
             if s.session_type == "REST"
-            and target_date_str <= s.date < from_date
+            and rest_lower_str <= s.date < from_date
         ]
         for idx, _ in sorted(gap_rest, key=lambda x: x[0], reverse=True):
             store.delete_session_at(idx)
 
-        # Set plan anchor to target_date (clamp: not before first training session)
+        # Set plan anchor to new_plan_start (clamp: not before first training session)
         non_rest = [s for s in store.load_history() if s.session_type != "REST"]
         if non_rest:
             first_training = min(s.date for s in non_rest)
-            if target_date_str < first_training:
-                target_date_str = first_training
-        store.set_plan_start_date(target_date_str)
+            if new_plan_start_str < first_training:
+                new_plan_start_str = first_training
+        store.set_plan_start_date(new_plan_start_str)
         sign = ""
 
     day_word = "day" if abs(shift_days) == 1 else "days"

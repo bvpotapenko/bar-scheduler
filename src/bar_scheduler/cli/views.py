@@ -460,7 +460,7 @@ def print_unified_plan(
             prescribed_str = _fmt_prescribed_sets(
                 entry.actual.planned_sets, entry.actual.session_type
             )
-        elif entry.planned and entry.actual is None:
+        elif entry.planned:
             prescribed_str = _fmt_prescribed(entry.planned)
         else:
             prescribed_str = ""

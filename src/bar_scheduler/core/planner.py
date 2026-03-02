@@ -596,7 +596,7 @@ def _plan_core(
     if exercise is None:
         exercise = PULL_UP
 
-    # Filter history: this exercise only, REST records excluded
+    # Filter history: this exercise only, REST records excluded (full span of all dates)
     history = [
         s for s in user_state.history
         if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
@@ -617,7 +617,15 @@ def _plan_core(
         )
         history = [synthetic]
 
-    status = get_training_status(history, user_state.current_bodyweight_kg, baseline_max)
+    # Plan-stability invariant: prescription(slot D) = f(history where date < D, profile).
+    # Use only pre-plan sessions for initial state computation (TM, ff_state, rotation,
+    # grip counts). This ensures logging a session on or after plan_start does not
+    # retroactively change prescriptions for plan_start or earlier slots.
+    # Fall back to full history only when no pre-plan sessions exist (e.g., brand-new user).
+    history_for_init = [s for s in history if s.date < start_date]
+    effective_init = history_for_init if history_for_init else history
+
+    status = get_training_status(effective_init, user_state.current_bodyweight_kg, baseline_max)
     initial_tm = status.training_max
     if initial_tm <= 1 and baseline_max is not None:
         initial_tm = int(baseline_max * TM_FACTOR) or baseline_max
@@ -641,7 +649,7 @@ def _plan_core(
     if overtraining_rest_days > 0:
         start = start + timedelta(days=overtraining_rest_days)
     schedule = get_schedule_template(days_per_week)
-    start_rotation_idx = get_next_session_type_index(history, schedule)
+    start_rotation_idx = get_next_session_type_index(effective_init, schedule)
     session_dates = calculate_session_days(
         start, days_per_week, weeks_ahead, start_rotation_idx
     )
@@ -665,19 +673,23 @@ def _plan_core(
         first_date - timedelta(days=first_date.weekday()) if first_date is not None else None
     )
 
-    # Grip rotation: initialise from history so the plan continues seamlessly
-    grip_counts = _init_grip_counts(history, exercise)
+    # Grip rotation: initialise from pre-plan history (effective_init) so that
+    # logging sessions during the plan period does not shift grip assignments.
+    grip_counts = _init_grip_counts(effective_init, exercise)
     grip_history_counts = dict(grip_counts)   # snapshot of history-only counts
 
-    # Pre-index history by session type for O(1) lookup in the loop
+    # Pre-index FULL history by session type for per-slot date-filtered lookups.
+    # The filter (date < slot_date) is applied at read time in the loop below,
+    # allowing future slots to benefit from sessions logged mid-plan while
+    # keeping current/past slot prescriptions stable.
     history_by_type: dict[str, list] = {}
     for s in history:
         history_by_type.setdefault(s.session_type, []).append(s)
 
-    # BSS: carry dumbbell weight from the last TEST session
+    # BSS: carry dumbbell weight from the last TEST session before plan_start
     last_test_weight = 0.0
     if exercise.load_type == "external_only":
-        test_hist = [s for s in history if s.session_type == "TEST"]
+        test_hist = [s for s in effective_init if s.session_type == "TEST"]
         if test_hist and test_hist[-1].completed_sets:
             weights = [
                 s.added_weight_kg for s in test_hist[-1].completed_sets
@@ -724,14 +736,19 @@ def _plan_core(
         reps_high = min(params.reps_max, int(current_tm * params.reps_fraction_high))
         base_reps = max(params.reps_min, min(params.reps_max, (reps_low + reps_high) // 2))
         base_sets = (params.sets_min + params.sets_max) // 2
-        has_autoreg = len(history) >= MIN_SESSIONS_FOR_AUTOREG
+        has_autoreg = len(effective_init) >= MIN_SESSIONS_FOR_AUTOREG
 
         if has_autoreg:
             adj_sets, adj_reps = apply_autoregulation(base_sets, base_reps, ff_state)
         else:
             adj_sets, adj_reps = base_sets, base_reps
 
-        recent_same_type = history_by_type.get(session_type, [])[-5:]
+        # Only sessions strictly before this slot's date: logging at D must not
+        # change adaptive rest for D or any earlier slot.
+        recent_same_type = [
+            s for s in history_by_type.get(session_type, [])
+            if s.date < date_str
+        ][-5:]
         adj_rest = calculate_adaptive_rest(session_type, recent_same_type, ff_state, exercise)
         added_weight = _calculate_added_weight(
             exercise, current_tm, user_state.current_bodyweight_kg, last_test_weight
@@ -744,7 +761,7 @@ def _plan_core(
             current_tm,
             ff_state,
             user_state.current_bodyweight_kg,
-            history_sessions=len(history),
+            history_sessions=len(effective_init),
             recent_same_type=recent_same_type,
             exercise=exercise,
             last_test_weight=last_test_weight,

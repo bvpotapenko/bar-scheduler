@@ -53,7 +53,7 @@ This document lists all implemented features grouped by area. Intended for proje
 | 3.12 | Grip rotation across sessions (pronated → neutral → supinated for pull-ups) | automatic |
 | 3.13 | Deload detection: triggers on plateau + low readiness, underperformance, or low compliance | automatic |
 | 3.14 | Plan change notifications — diff printed when plan shifts between runs | `plan` |
-| 3.15 | Plan start date anchored per-exercise in profile; only REST records (from `skip`) advance the anchor — training sessions do not. Auto-advance sets `plan_start = last_REST_date + 1 day` (REST falls before plan_start → doesn't consume a session-type slot). Calendar-day shift: all future sessions shift uniformly by N calendar days because `calculate_session_days` offsets from `plan_start`. | `skip` |
+| 3.15 | Plan start date anchored per-exercise in profile. **Forward** `skip` sets `plan_start = old_plan_start + N` (preserves calendar-day invariant even when `plan_start < from_date`). **Backward** `skip` sets `plan_start = plan_start + shift_days` (NOT `from_date + shift_days`; prevents no-op when `from_date > plan_start`). `plan()` does NOT auto-advance plan_start. | `skip` |
 | 3.16 | Cumulative week numbering from first session in history | automatic |
 | 3.17 | BSS band progression note when next band level is achievable | automatic |
 | 3.18 | Overtraining detection — graduated warning + volume/rest/rep reduction at levels 1–3; first future session shifted forward by extra_rest_days (level ≥2) without writing REST records | automatic, shown before plan |
@@ -144,4 +144,4 @@ This document lists all implemented features grouped by area. Intended for proje
 
 ---
 
-*Last updated: 2026-03-01 (skip forward fix: auto-advance to last_REST+1 day prevents REST consuming session-type slot; calendar-day shift now correct; docs/plan_logic.md added). Keep this file current: update after every feature addition, change, or removal.*
+*Last updated: 2026-03-01 (skip forward fix 2: plan_start now set to old+N in skip(), not last_REST+1 in plan(); auto-advance removed from plan(). Fixes calendar-day invariant when plan_start < from_date). Keep this file current: update after every feature addition, change, or removal.*
