@@ -14,6 +14,7 @@ from ...core.planner import explain_plan_entry, generate_plan
 from ...io.serializers import ValidationError
 from .. import views
 from ..app import ExerciseOption, app, get_store
+from ...core.i18n import t
 
 
 def _resolve_plan_start(store, user_state, default_offset_days: int = 1) -> str:
@@ -53,14 +54,12 @@ def _prompt_baseline(store, bodyweight_kg: float, exercise=None) -> int | None:
     ex_name = exercise.display_name  # e.g. "Pull-Up", "Parallel Bar Dip"
 
     views.console.print()
-    views.print_warning(f"No {ex_name} training history yet.")
-    views.console.print(
-        f"\nTo generate a plan we need your current {ex_name} max.\n"
-        "  [1] I know my max reps — enter it now\n"
-        "  [2] I'm a beginner — use 1 rep as a starting point\n"
-        "  [3] Cancel"
-    )
-    choice = views.console.input("\nChoice [1]: ").strip() or "1"
+    views.print_warning(t("plan.no_history", exercise_name=ex_name))
+    views.console.print(t("plan.baseline_prompt_intro", exercise_name=ex_name))
+    views.console.print(t("plan.baseline_option_1"))
+    views.console.print(t("plan.baseline_option_2"))
+    views.console.print(t("plan.baseline_option_3"))
+    choice = views.console.input(t("plan.baseline_choice_prompt")).strip() or "1"
 
     if choice == "3":
         return None
@@ -70,7 +69,7 @@ def _prompt_baseline(store, bodyweight_kg: float, exercise=None) -> int | None:
     else:
         while True:
             raw = views.console.input(
-                f"Your current max {ex_name} reps (strict, full ROM): "
+                t("plan.max_reps_prompt", exercise_name=ex_name)
             ).strip()
             try:
                 max_reps = int(raw)
@@ -78,7 +77,7 @@ def _prompt_baseline(store, bodyweight_kg: float, exercise=None) -> int | None:
                     raise ValueError
                 break
             except ValueError:
-                views.print_error("Enter a whole number ≥ 1")
+                views.print_error(t("plan.max_reps_error"))
 
     today = datetime.now().strftime("%Y-%m-%d")
     test_set = SetResult(
@@ -101,7 +100,7 @@ def _prompt_baseline(store, bodyweight_kg: float, exercise=None) -> int | None:
     )
     store.append_session(session)
     tm = training_max_from_baseline(max_reps)
-    views.print_success(f"Logged baseline: {max_reps} reps. Training max (TM): {tm}.")
+    views.print_success(t("plan.logged_baseline", reps=max_reps, tm=tm))
     return max_reps
 
 
@@ -167,7 +166,7 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
     total_weeks = _total_weeks(plan_start_date)
 
     views.console.print()
-    date_input = views.console.input("Date to explain (YYYY-MM-DD) or 'next' [next]: ").strip() or "next"
+    date_input = views.console.input(t("plan.explain_date_prompt")).strip() or "next"
 
     # Compute overtraining severity — only applies near-term (see cutoff below)
     training_history = [s for s in user_state.history if s.session_type != "REST"]
@@ -190,7 +189,7 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
         today_str = today_dt.strftime("%Y-%m-%d")
         nxt = next((p for p in plans if p.date >= today_str), None)
         if nxt is None:
-            views.print_error("No upcoming sessions in plan.")
+            views.print_error(t("plan.no_upcoming"))
             return
         date_input = nxt.date
 
@@ -240,18 +239,18 @@ def plan(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     try:
         user_state = store.load_user_state()
     except FileNotFoundError as e:
         views.print_error(str(e))
-        views.print_info("Run 'init' first to create profile.")
+        views.print_info(t("error.run_init_profile"))
         raise typer.Exit(1)
     except ValidationError as e:
-        views.print_error(f"Invalid data: {e}")
+        views.print_error(t("error.invalid_data", error=e))
         raise typer.Exit(1)
 
     if not user_state.history and baseline_max is None:
@@ -350,7 +349,7 @@ def plan(
         return
 
     if plan_changes:
-        views.console.print("[yellow]Plan updated:[/yellow]")
+        views.console.print(t("plan.updated_header"))
         for c in plan_changes[:5]:
             views.console.print(f"  {c}")
         views.console.print()
@@ -359,31 +358,22 @@ def plan(
     if overtraining_level >= 3:
         extra = severity["extra_rest_days"]
         desc = severity["description"]
-        views.console.print(
-            f"[bold yellow]⚠  High training density: {desc} (level 3/3)[/bold yellow]\n"
-            f"   Estimated additional recovery needed: ~{extra} days\n"
-            f"   Plan adjusted: next {overtraining_level} sessions have reduced volume and extended rest.\n"
-            f"[dim]   To delay training until recovered: bar-scheduler skip (enter {extra} days when prompted)[/dim]"
-        )
+        views.console.print(t("overtraining.level3_header", desc=desc))
+        views.console.print(t("overtraining.level3_recovery", extra=extra))
+        views.console.print(t("overtraining.level3_adjusted", level=overtraining_level))
+        views.console.print(t("overtraining.level3_skip_hint", extra=extra))
         views.console.print()
     elif overtraining_level == 2:
         desc = severity["description"]
         extra = severity["extra_rest_days"]
-        views.console.print(
-            f"[yellow]⚠  Moderate training density: {desc} (level 2/3)[/yellow]\n"
-            f"   Plan adjusted: next 2 sessions have reduced volume and extended rest."
-        )
+        views.console.print(t("overtraining.level2_header", desc=desc))
+        views.console.print(t("overtraining.level2_adjusted"))
         if extra > 0:
-            views.console.print(
-                f"[dim]   Optional: bar-scheduler skip (enter {extra} days when prompted)[/dim]"
-            )
+            views.console.print(t("overtraining.level2_skip_hint", extra=extra))
         views.console.print()
     elif overtraining_level == 1:
         desc = severity["description"]
-        views.console.print(
-            f"[cyan]ℹ  Training density note: {desc}.[/cyan]\n"
-            f"   Next session rest extended by 30 s."
-        )
+        views.console.print(t("overtraining.level1", desc=desc))
         views.console.print()
 
     # Volume cap warnings — informational only, plan is still executed as-is
@@ -398,19 +388,14 @@ def plan(
     if overloaded:
         days_per_week = user_state.profile.preferred_days_per_week
         views.console.print(
-            f"[yellow]⚠  {len(overloaded)} upcoming session(s) exceed the science-backed"
-            f" per-session ceiling (>{MAX_DAILY_REPS} reps or >{MAX_DAILY_SETS} sets)."
-            " These sessions are still scheduled — the limit is informational.[/yellow]"
+            t("volume.ceiling_warning", count=len(overloaded), max_reps=MAX_DAILY_REPS, max_sets=MAX_DAILY_SETS)
         )
         if days_per_week < 6:
             views.console.print(
-                f"[dim]Tip: increasing training days from {days_per_week} → {days_per_week + 1}"
-                " per week would spread the load. Update via [i] Setup or 'init'.[/dim]"
+                t("volume.tip_increase_days", current=days_per_week, next=days_per_week + 1)
             )
         else:
-            views.console.print(
-                "[dim]Tip: the weekly volume goal is high — consider reducing total weekly reps.[/dim]"
-            )
+            views.console.print(t("volume.tip_reduce_weekly"))
         views.console.print()
 
     exercise_target = user_state.profile.target_for_exercise(exercise_id)
@@ -429,10 +414,7 @@ def plan(
                 )
                 goal_reached = best_weight >= exercise_target.weight_kg
     if goal_reached:
-        views.console.print(
-            f"[green]Goal reached![/green] Your test max meets your goal ({exercise_target}). "
-            "Update target via [i] Setup or --target-max."
-        )
+        views.console.print(t("plan.goal_reached", goal=exercise_target))
 
     # Load equipment state for display
     equipment_state = None
@@ -478,10 +460,10 @@ def explain(
         user_state = store.load_user_state()
     except FileNotFoundError as e:
         views.print_error(str(e))
-        views.print_info("Run 'init' first to create profile.")
+        views.print_info(t("error.run_init_profile"))
         raise typer.Exit(1)
     except ValidationError as e:
-        views.print_error(f"Invalid data: {e}")
+        views.print_error(t("error.invalid_data", error=e))
         raise typer.Exit(1)
 
     plan_start_date = _resolve_plan_start(store, user_state)
@@ -513,7 +495,7 @@ def explain(
         today_str = today_dt.strftime("%Y-%m-%d")
         nxt = next((p for p in plans if p.date >= today_str), None)
         if nxt is None:
-            views.print_error("No upcoming sessions in plan.")
+            views.print_error(t("plan.no_upcoming"))
             raise typer.Exit(1)
         date = nxt.date
 
@@ -545,13 +527,13 @@ def skip(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     plan_start_date = store.get_plan_start_date()
     if plan_start_date is None:
-        views.print_error("No plan start date found. Run 'init' first.")
+        views.print_error(t("plan.no_plan_start"))
         raise typer.Exit(1)
 
     user_state = store.load_user_state()
@@ -572,24 +554,24 @@ def skip(
 
     # Prompt for from-date
     views.console.print()
-    from_input = views.console.input(f"Shift from [{default_from}]: ").strip()
+    from_input = views.console.input(t("plan.shift_from_prompt", default=default_from)).strip()
     from_date = from_input if from_input else default_from
     try:
         datetime.strptime(from_date, "%Y-%m-%d")
     except ValueError:
-        views.print_error(f"Invalid date: {from_date!r}. Expected YYYY-MM-DD.")
+        views.print_error(t("error.invalid_date", date=from_date))
         raise typer.Exit(1)
 
     # Prompt for shift days (positive = forward, negative = backward)
-    days_input = views.console.input("Shift by N days [0]: ").strip()
+    days_input = views.console.input(t("plan.shift_days_prompt")).strip()
     try:
         shift_days = int(days_input) if days_input else 0
     except ValueError:
-        views.print_error(f"Invalid number: {days_input!r}. Enter an integer.")
+        views.print_error(t("error.invalid_number", value=days_input))
         raise typer.Exit(1)
 
     if shift_days == 0:
-        views.print_info("No change applied.")
+        views.print_info(t("plan.no_change"))
         raise typer.Exit(0)
 
     if shift_days > 0:
@@ -658,8 +640,7 @@ def skip(
         store.set_plan_start_date(new_plan_start_str)
         sign = ""
 
-    day_word = "day" if abs(shift_days) == 1 else "days"
+    day_word = t("plan.day") if abs(shift_days) == 1 else t("plan.days")
     views.print_success(
-        f"Plan shifted {sign}{shift_days} {day_word} from {from_date}. "
-        "Run 'plan' to see the updated schedule."
+        t("plan.shifted", sign=sign, days=abs(shift_days), day_word=day_word, from_date=from_date)
     )

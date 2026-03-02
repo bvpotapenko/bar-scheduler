@@ -289,6 +289,27 @@ bar-scheduler -e bss plan
 bar-scheduler -e bss status --json
 ```
 
+### Language flag (`--lang` / `-l`)
+
+Use `--lang` to override the display language for one session. The language is set per-session and does not persist.
+
+Supported languages are discovered automatically from `src/bar_scheduler/locales/*.yaml`:
+
+```bash
+# Open the interactive menu in Russian
+bar-scheduler --lang ru
+
+# Run a single command in Chinese
+bar-scheduler --lang zh plan
+
+# Override profile's saved language back to English
+bar-scheduler --lang en status
+```
+
+To set a persistent language, edit the profile via the interactive menu (`[i] Setup / edit profile`) and select your preferred language. The choice is saved in `profile.json` and used automatically on the next run.
+
+Available languages (discovered at runtime): **en** (English), **ru** (Russian), **zh** (Chinese Mandarin). Additional languages can be added by placing a new `<lang>.yaml` file in the `locales/` directory.
+
 ## Overperformance Detection
 
 If the best set in a session exceeds the current test max (bodyweight or weighted equivalent), a TEST session is auto-logged silently and a "New personal best!" message is shown. The plan's eMax updates on the next `plan` run.
@@ -450,9 +471,12 @@ uv run pytest
   "exercises_enabled": ["pull_up", "dip", "bss"],
   "max_session_duration_minutes": 60,
   "rest_preference": "normal",
-  "injury_notes": ""
+  "injury_notes": "",
+  "language": "ru"
 }
 ```
+
+The `"language"` key is omitted when set to `"en"` (the default) for backward compatibility with old profile files.
 
 | Field | Values | Description |
 |-------|--------|-------------|
@@ -460,6 +484,7 @@ uv run pytest
 | `max_session_duration_minutes` | integer | Used in plan display notes |
 | `rest_preference` | `"short"` / `"normal"` / `"long"` | Biases the adaptive-rest calculation |
 | `injury_notes` | free text | Your own record; not used by the engine |
+| `language` | `"en"` / `"ru"` / `"zh"` | Display language (omitted when `"en"`; override with `--lang`) |
 
 Edit this file directly, or re-run `bar-scheduler init` to update core fields while preserving custom values.
 

@@ -1,1 +1,1 @@
-"""CLI modules for the pull-up planner."""
+"""CLI modules for the bar-scheduler training planner."""

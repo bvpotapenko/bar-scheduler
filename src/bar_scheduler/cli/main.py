@@ -5,57 +5,99 @@ Imports all command modules (which registers their commands on `app`),
 then attaches the interactive main-menu callback.
 """
 
+import json
 import typer
 
 from . import views
-from .app import ExerciseOption, app
+from .app import ExerciseOption, LangOption, app
 from .commands import analysis, planning, profile, sessions  # noqa: F401 — side-effect: registers commands
+from ..core.exercises.registry import get_exercise
+from ..core.i18n import available_languages, set_language, t
+
+
+def _read_language_from_profile() -> str:
+    """
+    Read the language setting from profile.json without going through HistoryStore.
+
+    Returns "en" on any failure (missing file, parse error, no language key).
+    Intentionally lightweight: called early in main_callback before exercise
+    routing is established.
+    """
+    try:
+        from ..io.history_store import get_default_history_path
+        profile_path = get_default_history_path("pull_up").parent / "profile.json"
+        if profile_path.exists():
+            with open(profile_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            return str(data.get("language", "en"))
+    except Exception:
+        pass
+    return "en"
 
 
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
     exercise_id: ExerciseOption = "pull_up",
+    lang: LangOption = None,
 ) -> None:
     """
-    Pull-up training planner. Run without a command for interactive mode.
+    Strength training planner. Run without a command for interactive mode.
 
     Use -e/--exercise to set the default exercise for the whole session:
       bar-scheduler -e dip        opens menu with dip pre-selected
       bar-scheduler -e bss plan   runs the plan command for BSS
+
+    Use --lang to override the display language for this session:
+      bar-scheduler --lang ru     Russian interface
+      bar-scheduler --lang zh     Chinese interface
     """
+    # ── Resolve language: --lang > profile.json > "en" ───────────────────────
+    # Must happen before any output (including the early-return path for subcommands)
+    resolved_lang = lang if lang else _read_language_from_profile()
+    set_language(resolved_lang)
+
     if ctx.invoked_subcommand is not None:
         return  # A sub-command was given — let it handle things
 
-    # ── Interactive main menu ────────────────────────────────────────────────
+    # ── Interactive main menu ─────────────────────────────────────────────────
     views.console.print()
-    ex_hint = f" [dim]({exercise_id})[/dim]" if exercise_id != "pull_up" else ""
-    views.console.print(f"[bold cyan]bar-scheduler[/bold cyan] — pull-up training planner{ex_hint}")
+    try:
+        ex_name = get_exercise(exercise_id).display_name
+        header = t("app.tagline_exercise", exercise_name=ex_name) if exercise_id != "pull_up" else t("app.tagline")
+    except Exception:
+        header = t("app.tagline")
+    views.console.print(header)
     views.console.print()
 
+    langs = available_languages()
     menu = {
-        "1": ("plan",          "Show training log & plan"),
-        "2": ("log-session",   "Log today's session"),
-        "3": ("show-history",  "Show full history"),
-        "4": ("plot-max",      "Progress chart"),
-        "5": ("status",        "Current status"),
-        "6": ("update-weight", "Update bodyweight"),
-        "7": ("volume",        "Weekly volume chart"),
-        "e": ("explain",          "Explain how a session was planned"),
-        "r": ("1rm",              "Estimate 1-rep max"),
-        "s": ("skip",             "Rest day — shift plan forward or back"),
-        "u": ("update-equipment", "Update training equipment"),
-        "i": ("init",             "Setup / edit profile & training days"),
-        "d": ("delete-record",    "Delete a session by ID"),
-        "a": ("help-adaptation",  "How the planner adapts over time"),
-        "0": ("quit",             "Quit"),
+        "1": ("plan",             t("menu.show_plan")),
+        "2": ("log-session",      t("menu.log_session")),
+        "3": ("show-history",     t("menu.show_history")),
+        "4": ("plot-max",         t("menu.plot_max")),
+        "5": ("status",           t("menu.status")),
+        "6": ("update-weight",    t("menu.update_weight")),
+        "7": ("volume",           t("menu.volume")),
+        "e": ("explain",          t("menu.explain")),
+        "r": ("1rm",              t("menu.onerepmax")),
+        "s": ("skip",             t("menu.skip")),
+        "u": ("update-equipment", t("menu.update_equipment")),
+        "i": ("init",             t("menu.init")),
+        "d": ("delete-record",    t("menu.delete_record")),
+        "a": ("help-adaptation",  t("menu.help_adaptation")),
+        "0": ("quit",             t("menu.quit")),
     }
 
     for key, (_, desc) in menu.items():
         views.console.print(f"  \\[{key}] {desc}")
 
+    # Show available languages as a hint
+    if len(langs) > 1:
+        views.console.print(f"\n  [dim]--lang {'/'.join(langs)}[/dim]")
+
     views.console.print()
-    choice = views.console.input("Choose [1]: ").strip() or "1"
+    choice = views.console.input(t("menu.prompt")).strip() or "1"
 
     if choice == "0":
         raise typer.Exit(0)
@@ -64,7 +106,7 @@ def main_callback(
     chosen = cmd_map.get(choice)
 
     if chosen is None:
-        views.print_error(f"Unknown choice: {choice}")
+        views.print_error(t("menu.unknown_choice", choice=choice))
         raise typer.Exit(1)
 
     if chosen == "plan":

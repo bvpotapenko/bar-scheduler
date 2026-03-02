@@ -785,6 +785,43 @@ When equipment is configured, the plan shows an equipment summary line:
 Equipment: Resistance band – Medium  (Leff ≈ 45 kg @ 80 kg BW)
 ```
 
+## Language / i18n
+
+bar-scheduler supports multiple display languages. The active language is determined by this priority chain:
+
+1. `--lang` CLI flag (highest priority, single-session override)
+2. `language` field in `profile.json` (persistent setting)
+3. `"en"` fallback
+
+### Per-session override
+
+```bash
+# Russian menu
+bar-scheduler --lang ru
+
+# Chinese plan display
+bar-scheduler --lang zh plan
+
+# English output even if profile is set to Russian
+bar-scheduler --lang en status
+```
+
+### Persistent language setting
+
+The language is saved during profile setup (`[i] Setup / edit profile` in the interactive menu). It can also be set directly in `~/.bar-scheduler/profile.json`:
+
+```json
+{ "language": "ru" }
+```
+
+Omitting the key (or setting it to `"en"`) keeps English. Old profile files without a `language` key continue to work as English.
+
+### Available languages
+
+Languages are discovered automatically from `src/bar_scheduler/locales/*.yaml`. Built-in: `en`, `ru`, `zh`.
+
+To add a new language, create `src/bar_scheduler/locales/<lang_code>.yaml` with translated keys. Any keys not present fall back to English automatically.
+
 ## Model Documentation
 
 - Full mathematical model: [core_training_formulas_fatigue.md](../core_training_formulas_fatigue.md)

@@ -141,7 +141,8 @@ This document lists all implemented features grouped by area. Intended for proje
 | 10.6 | JSON output mode for scripting | `--json` on most commands |
 | 10.7 | Skip command to shift the **plan** forward (N>0) or backward (N<0) by N **calendar days**. Forward: inserts N plan-REST records starting at `from_date`, pushing all future sessions later. Backward: removes plan-REST records in the gap `[from_date−N, from_date)` and sets plan anchor to `from_date−N`, pulling future sessions earlier. **Never modifies user-submitted training logs** — only plan-REST records created by `skip` are added/removed; use `delete-record` to modify training logs. Logged training sessions never auto-advance the plan anchor. | `skip` |
 | 10.8 | Plan cache for change detection between runs | automatic |
+| 10.9 | Multilingual UI (i18n): all user-facing strings in YAML locale files; `--lang` flag for per-session override; `language` field in profile for persistent setting; fallback chain: `--lang` → profile → `"en"` | `--lang` flag / `[i]` menu |
 
 ---
 
-*Last updated: 2026-03-01 (skip forward fix 2: plan_start now set to old+N in skip(), not last_REST+1 in plan(); auto-advance removed from plan(). Fixes calendar-day invariant when plan_start < from_date). Keep this file current: update after every feature addition, change, or removal.*
+*Last updated: 2026-03-02 (skip forward fix 2: plan_start now set to old+N in skip(), not last_REST+1 in plan(); auto-advance removed from plan(). Fixes calendar-day invariant when plan_start < from_date). Keep this file current: update after every feature addition, change, or removal.*

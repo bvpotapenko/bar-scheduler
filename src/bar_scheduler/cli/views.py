@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ..core.adaptation import get_training_status
+from ..core.i18n import t
 from ..core.ascii_plot import create_max_reps_plot, create_weekly_volume_chart
 from ..core.equipment import bss_is_degraded, check_band_progression, compute_leff, get_assistance_kg, get_catalog, get_next_band_step
 from ..core.exercises.registry import get_exercise
@@ -268,15 +269,11 @@ def _print_equipment_header(exercise, equipment_state: EquipmentState, bodyweigh
     )
     if bodyweight_kg and bodyweight_kg > 0:
         leff = compute_leff(exercise.bw_fraction, bodyweight_kg, 0.0, a_kg)
-        console.print(
-            f"[dim]Equipment: {item_label}  (Leff ≈ {leff:.0f} kg @ {bodyweight_kg:.0f} kg BW)[/dim]"
-        )
+        console.print(t("equipment.status_leff", item=item_label, leff=leff, bw=bodyweight_kg))
     else:
-        console.print(f"[dim]Equipment: {item_label}[/dim]")
+        console.print(t("equipment.status_item", item=item_label))
     if exercise_id == "bss" and bss_is_degraded(equipment_state):
-        console.print(
-            "[yellow]⚠ Split Squat mode — add an elevation surface to unlock BSS.[/yellow]"
-        )
+        console.print(t("equipment.bss_degraded"))
 
 
 def _emax_cell(
@@ -351,10 +348,7 @@ def _print_band_progression(exercise_id: str, history: list[SessionResult], equi
                 current_label = catalog.get(equipment_state.active_item, {}).get("label", equipment_state.active_item)
                 next_label = catalog.get(next_band, {}).get("label", next_band)
                 console.print()
-                console.print(
-                    f"[yellow]Ready to progress: you've consistently hit the rep ceiling. "
-                    f"Consider stepping from {current_label} → {next_label}.[/yellow]"
-                )
+                console.print(t("equipment.band_progression", current=current_label, next=next_label))
     except Exception:
         pass
 
@@ -362,7 +356,7 @@ def _print_band_progression(exercise_id: str, history: list[SessionResult], equi
 def print_unified_plan(
     entries: list[TimelineEntry],
     status: TrainingStatus,
-    title: str = "Training Log",
+    title: str | None = None,
     exercise_target: ExerciseTarget | None = None,
     equipment_state: EquipmentState | None = None,
     history: list[SessionResult] | None = None,
@@ -382,6 +376,9 @@ def print_unified_plan(
         exercise_id: Exercise being displayed
         bodyweight_kg: Current bodyweight (for Leff calculation in header)
     """
+    if title is None:
+        title = t("table.training_log_title")
+
     exercise = get_exercise(exercise_id)
     show_grip = exercise.has_variant_rotation
 
@@ -395,7 +392,7 @@ def print_unified_plan(
         _print_equipment_header(exercise, equipment_state, bodyweight_kg, exercise_id)
 
     if not entries:
-        console.print("[yellow]No sessions yet. Run 'init' to get started.[/yellow]")
+        console.print(t("table.no_sessions_yet"))
         return
 
     table = Table(title=title, show_lines=False)
@@ -486,15 +483,8 @@ def print_unified_plan(
     console.print(table)
 
     grip_legend = _grip_legend_str(entries, show_grip)
-    console.print(
-        "[dim]Type: Str=Strength  Hpy=Hypertrophy  End=Endurance  Tec=Technique  TST=Max-test"
-        + grip_legend + "[/dim]"
-    )
-    console.print(
-        "[dim]Prescribed: 5x4 = 5 reps × 4 sets  |  4, 3×8 / 60s = 1 set of 4 + 8 sets of 3  |  "
-        "/ Ns = N seconds rest before the set  |  "
-        "eMax: past TEST = actual max  |  past session = FI-est/Nuzzo-est  |  future = plan projection[/dim]"
-    )
+    console.print(f"[dim]{t('table.type_legend')}{grip_legend}[/dim]")
+    console.print(f"[dim]{t('table.prescribed_legend')}[/dim]")
 
     # Band progression suggestion
     if equipment_state is not None and history is not None:
@@ -511,7 +501,7 @@ def format_session_table(sessions: list[SessionResult]) -> Table:
     Returns:
         Rich Table object
     """
-    table = Table(title="Training History")
+    table = Table(title=t("table.training_history_title"))
 
     table.add_column("#", justify="right", style="dim", width=3)
     table.add_column("Date", style="cyan")
@@ -555,31 +545,27 @@ def format_status_display(
     Returns:
         Formatted string
     """
-    lines = ["Current status"]
+    lines = [t("status.current_status")]
 
     if status.latest_test_max is not None:
-        lines.append(f"- Cur.Max: {status.latest_test_max} reps  (last test result)")
-        lines.append(
-            f"- Tr.Max:  {status.training_max} reps"
-            "  (= 90% × Cur.Max, used for prescriptions)"
-        )
+        lines.append(t("status.cur_max", max_reps=status.latest_test_max))
+        lines.append(t("status.tr_max", tm=status.training_max))
     else:
-        lines.append(f"- Tr.Max:  {status.training_max} reps")
+        lines.append(t("status.tr_max_only", tm=status.training_max))
 
     if exercise_target is not None:
-        lines.append(f"- My Goal: {exercise_target}")
-
-    lines.extend(
-        [
-            f"- Trend (reps/week): {status.trend_slope:+.2f}",
-            f"- Plateau: {'yes' if status.is_plateau else 'no'}",
-            f"- Deload recommended: {'yes' if status.deload_recommended else 'no'}",
-        ]
-    )
+        lines.append(t("status.my_goal", goal=exercise_target))
 
     ff = status.fitness_fatigue_state
     z = ff.readiness_z_score()
-    lines.append(f"- Readiness z-score: {z:+.2f}")
+    lines.extend(
+        [
+            t("status.trend", slope=status.trend_slope),
+            t("status.plateau_yes") if status.is_plateau else t("status.plateau_no"),
+            t("status.deload_yes") if status.deload_recommended else t("status.deload_no"),
+            t("status.readiness_z", z=z),
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -645,7 +631,7 @@ def print_max_plot(
     trajectory_m: list[tuple[datetime, float]] | None = None,
     bw_load_kg: float = 0.0,
     target_weight_kg: float = 0.0,
-    exercise_name: str = "Pull-Up",
+    exercise_name: str = "Exercise",
     target: int = 30,
     traj_types: frozenset[str] = frozenset(),
 ) -> None:

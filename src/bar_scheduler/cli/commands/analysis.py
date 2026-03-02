@@ -14,6 +14,7 @@ from ...core.metrics import blended_1rm_added, estimate_1rm, session_max_reps as
 from ...io.serializers import ValidationError
 from .. import views
 from ..app import ExerciseOption, app, get_store
+from ...core.i18n import t
 
 
 def _build_trajectory(
@@ -59,8 +60,8 @@ def status(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     try:
@@ -115,8 +116,8 @@ def volume(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     try:
@@ -181,8 +182,8 @@ def plot_max(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     try:
@@ -324,8 +325,8 @@ def onerepmax(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     try:
@@ -337,7 +338,7 @@ def onerepmax(
     result = estimate_1rm(exercise, user_state.current_bodyweight_kg, user_state.history)
 
     if result is None:
-        views.print_error("Not enough data to estimate 1RM. Log some sessions first.")
+        views.print_error(t("error.no_1rm_data"))
         raise typer.Exit(1)
 
     if json_out:

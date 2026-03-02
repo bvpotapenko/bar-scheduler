@@ -1,3 +1,3 @@
-"""Bar Scheduler - Evidence-informed pull-up training planner."""
+"""Bar Scheduler - Evidence-informed strength training planner."""
 
 __version__ = "0.1.0"

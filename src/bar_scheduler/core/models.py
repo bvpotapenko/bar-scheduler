@@ -257,6 +257,7 @@ class UserProfile:
     max_session_duration_minutes: int = 60
     rest_preference: str = "normal"  # "short" | "normal" | "long"
     injury_notes: str = ""
+    language: str = "en"  # ISO 639-1 code; "en" = English (default)
 
     # Per-exercise default goals used when the user hasn't set an explicit target.
     _TARGET_DEFAULTS: ClassVar[dict[str, tuple[int, float]]] = {
@@ -312,6 +313,9 @@ class UserProfile:
                 raise ValueError(
                     f"exercise_targets[{ex_id!r}] must be an ExerciseTarget, got {type(tgt)}"
                 )
+
+        if not self.language or not isinstance(self.language, str):
+            raise ValueError("language must be a non-empty string, e.g. 'en'")
 
 
 @dataclass

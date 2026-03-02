@@ -420,6 +420,8 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
             ex_id: exercise_target_to_dict(tgt)
             for ex_id, tgt in profile.exercise_targets.items()
         }
+    if profile.language != "en":
+        d["language"] = profile.language
     return d
 
 
@@ -474,6 +476,7 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
         max_session_duration_minutes=int(data.get("max_session_duration_minutes", 60)),
         rest_preference=rest_pref,
         injury_notes=str(data.get("injury_notes", "")),
+        language=str(data.get("language", "en")),
     )
 
 

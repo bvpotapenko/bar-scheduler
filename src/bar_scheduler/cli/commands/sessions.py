@@ -15,6 +15,7 @@ from ...core.models import SessionResult, SetResult
 from ...io.serializers import ValidationError, parse_compact_sets, parse_sets_string
 from .. import views
 from ..app import OVERPERFORMANCE_REP_THRESHOLD, ExerciseOption, app, get_store
+from ...core.i18n import t
 
 
 def _interactive_sets() -> str:
@@ -31,31 +32,23 @@ def _interactive_sets() -> str:
         8         bare reps, bodyweight, 180 s rest
     """
     views.console.print()
-    views.console.print("[bold]Enter sets one per line.[/bold]")
-    views.console.print(
-        "  Compact: [cyan]NxM +Wkg / Rs[/cyan]"
-        "  e.g. [green]5x4 +0.5kg / 240s[/green]  [green]6x5 / 120s[/green]"
-    )
-    views.console.print(
-        "  Per-set: [cyan]reps\\[@weight\\[/rest]][/cyan]  or  [cyan]reps \\[weight \\[rest]][/cyan]"
-        "  e.g. [green]8@0/180[/green]  [green]8 0 180[/green]  [green]8[/green]"
-    )
-    views.console.print(
-        "  [dim]rest = seconds you rested BEFORE this set (0 or omit for the first set)[/dim]"
-    )
-    views.console.print("  Press [bold]Enter[/bold] on an empty line when done.\n")
+    views.console.print(t("sets.enter_header"))
+    views.console.print(t("sets.compact_hint"))
+    views.console.print(t("sets.per_set_hint"))
+    views.console.print(t("sets.rest_hint"))
+    views.console.print(t("sets.done_hint"))
 
     parts: list[str] = []
     set_num = 1
     while True:
-        raw = views.console.input(f"  Set {set_num}: ").strip()
+        raw = views.console.input(t("sets.set_prompt", num=set_num)).strip()
         if not raw:
             if parts:
                 break
-            views.print_warning("Enter at least one set.")
+            views.print_warning(t("sets.at_least_one"))
             continue
         if not raw[0].isdigit():
-            views.print_error("Invalid format. Start with a number, e.g. 4x5 / 240s or 8@0/180")
+            views.print_error(t("sets.invalid_format"))
             continue
 
         # When no sets have been entered yet, check for compact plan format.
@@ -66,15 +59,15 @@ def _interactive_sets() -> str:
                 r = compact[0][2]
                 w_str = f" +{w:.1f} kg" if w > 0 else " (bodyweight)"
                 views.console.print(
-                    f"\n  [dim]Compact format — {len(compact)} sets{w_str}, {r}s rest:[/dim]"
+                    t("sets.compact_preview", count=len(compact), weight_str=w_str, rest=r)
                 )
                 for i, entry in enumerate(compact, 1):
-                    views.console.print(f"    Set {i}: {entry[0]} reps")
-                confirm = views.console.input("\n  Accept? [Y/n]: ").strip().lower()
+                    views.console.print(t("sets.compact_set_line", num=i, reps=entry[0]))
+                confirm = views.console.input(t("sets.compact_accept")).strip().lower()
                 if confirm in ("", "y", "yes"):
                     return raw  # parse_sets_string will expand it
                 views.console.print()
-                views.print_info("Enter sets individually:")
+                views.print_info(t("sets.enter_individually"))
                 continue
 
         # Per-set validation — re-prompt on error instead of crashing later
@@ -99,34 +92,34 @@ def _menu_delete_record(exercise_id: str = "pull_up") -> None:
         return
 
     if not sessions:
-        views.print_info("No sessions to delete.")
+        views.print_info(t("error.no_sessions_in_history"))
         return
 
     views.print_history(sessions)
 
     while True:
-        raw = views.console.input("Delete session # (Enter to cancel): ").strip()
+        raw = views.console.input(t("log.delete_prompt")).strip()
         if not raw:
-            views.print_info("Cancelled.")
+            views.print_info(t("log.cancelled"))
             return
         try:
             record_id = int(raw)
         except ValueError:
-            views.print_error("Enter a number")
+            views.print_error(t("error.enter_number"))
             continue
 
         if record_id < 1 or record_id > len(sessions):
-            views.print_error(f"Enter a number between 1 and {len(sessions)}")
+            views.print_error(t("error.record_id_range", max_id=len(sessions)))
             continue
 
         target = sessions[record_id - 1]
-        if views.confirm_action(f"Delete {target.date} ({target.session_type})?"):
+        if views.confirm_action(t("log.delete_confirm", date=target.date, session_type=target.session_type)):
             store.delete_session_at(record_id - 1)
             views.print_success(
-                f"Deleted session #{record_id}: {target.date} ({target.session_type})"
+                t("log.deleted_session", record_id=record_id, date=target.date, session_type=target.session_type)
             )
         else:
-            views.print_info("Cancelled.")
+            views.print_info(t("log.cancelled"))
         return
 
 
@@ -193,17 +186,17 @@ def log_session(
         ]
         if len(active_ex) > 1:
             ex_options = "  ".join(f"[{i+1}] {ex.display_name}" for i, (_, ex) in enumerate(active_ex))
-            views.console.print(f"Exercise: {ex_options}")
+            views.console.print(t("log.exercise_prompt", options=ex_options))
             ex_map: dict[str, str] = {}
             for i, (eid, _) in enumerate(active_ex, 1):
                 ex_map[str(i)] = eid
                 ex_map[eid] = eid
             while True:
-                raw_ex = views.console.input("Exercise [1]: ").strip() or "1"
+                raw_ex = views.console.input(t("log.exercise_input")).strip() or "1"
                 if raw_ex in ex_map:
                     exercise_id = ex_map[raw_ex]
                     break
-                views.print_error(f"Choose 1–{len(active_ex)} or type the exercise ID")
+                views.print_error(t("log.exercise_input_error", count=len(active_ex)))
         elif len(active_ex) == 1:
             exercise_id = active_ex[0][0]  # only one exercise initialised — use it silently
 
@@ -211,8 +204,8 @@ def log_session(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     # ── Interactive prompts for missing values ──────────────────────────────
@@ -220,7 +213,7 @@ def log_session(
     # Date
     if date is None:
         default_date = datetime.now().strftime("%Y-%m-%d")
-        raw = views.console.input(f"Date [{default_date}]: ").strip()
+        raw = views.console.input(t("log.date_prompt", default=default_date)).strip()
         date = raw if raw else default_date
 
     # Bodyweight
@@ -228,7 +221,7 @@ def log_session(
         saved_bw = store.load_bodyweight()
         bw_hint = f" [{saved_bw:.1f}]" if saved_bw else ""
         while True:
-            raw = views.console.input(f"Bodyweight kg{bw_hint}: ").strip()
+            raw = views.console.input(t("log.bodyweight_prompt", hint=bw_hint)).strip()
             if not raw and saved_bw:
                 bodyweight_kg = saved_bw
                 break
@@ -238,7 +231,7 @@ def log_session(
                     raise ValueError
                 break
             except ValueError:
-                views.print_error("Enter a positive number, e.g. 82.5")
+                views.print_error(t("error.positive_number"))
 
     # Grip / variant — show exercise-specific options (skipped for dip: always standard)
     if grip is None:
@@ -247,29 +240,29 @@ def log_session(
         else:
             variants = exercise.variants
             hint = "  ".join(f"[{i+1}] {v}" for i, v in enumerate(variants))
-            views.console.print(f"Variant: {hint}")
+            views.console.print(t("log.variant_header", hint=hint))
             grip_map: dict[str, str] = {}
             for i, v in enumerate(variants, 1):
                 grip_map[str(i)] = v
                 grip_map[v] = v
             while True:
-                raw = views.console.input("Variant [1]: ").strip() or "1"
+                raw = views.console.input(t("log.variant_prompt")).strip() or "1"
                 grip = grip_map.get(raw.lower())
                 if grip:
                     break
-                views.print_error(f"Choose 1–{len(variants)} or type the variant name")
+                views.print_error(t("log.variant_error", count=len(variants)))
 
     # Session type
     if session_type is None:
-        views.console.print("Session type: [S] Strength  [H] Hypertrophy  [E] Endurance  [T] Technique  [M] Max test")
+        views.console.print(t("log.session_type_header"))
         valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "m": "TEST",
                        "S": "S", "H": "H", "E": "E", "T": "T", "M": "TEST", "TEST": "TEST"}
         while True:
-            raw = views.console.input("Type [S]: ").strip() or "S"
+            raw = views.console.input(t("log.session_type_prompt")).strip() or "S"
             session_type = valid_types.get(raw.upper(), valid_types.get(raw))
             if session_type:
                 break
-            views.print_error("Choose S, H, E, T, or TEST")
+            views.print_error(t("log.session_type_error"))
 
     # Sets
     if sets is None:
@@ -279,9 +272,7 @@ def log_session(
     rir_value: int | None = rir
     if rir is None and was_interactive:
         views.console.print()
-        raw_rir = views.console.input(
-            "[dim]Reps left in tank on last set? (0=failure…5=easy, Enter to skip): [/dim]"
-        ).strip()
+        raw_rir = views.console.input(t("log.rir_prompt")).strip()
         if raw_rir:
             try:
                 rir_value = max(0, min(10, int(raw_rir)))
@@ -291,21 +282,21 @@ def log_session(
     # Notes
     if notes is None and was_interactive:
         views.console.print()
-        raw_notes = views.console.input("[dim]Notes (optional, Enter to skip): [/dim]").strip()
+        raw_notes = views.console.input(t("log.notes_prompt")).strip()
         notes = raw_notes if raw_notes else None
 
     # ── Validate all inputs ─────────────────────────────────────────────────
 
     if grip not in exercise.variants:
-        views.print_error(f"Variant must be one of: {', '.join(exercise.variants)}")
+        views.print_error(t("log.variant_must_be", variants=", ".join(exercise.variants)))
         raise typer.Exit(1)
 
     if session_type not in ("S", "H", "E", "T", "TEST"):
-        views.print_error("Session type must be S, H, E, T, or M (max test)")
+        views.print_error(t("log.session_type_must_be"))
         raise typer.Exit(1)
 
     if bodyweight_kg <= 0:
-        views.print_error("Bodyweight must be positive")
+        views.print_error(t("error.bodyweight_positive"))
         raise typer.Exit(1)
 
     try:
@@ -421,19 +412,17 @@ def log_session(
                 new_tm = training_max_from_baseline(max_reps)
                 new_personal_best = True
                 if not json_out:
-                    est_note = " (BW-equivalent from weighted set)" if max_reps_weighted > max_reps_bw else ""
+                    est_note = t("log.bw_equivalent_note") if max_reps_weighted > max_reps_bw else ""
                     views.console.print()
                     views.print_success(
-                        f"New personal best! Auto-logged TEST ({max_reps} reps{est_note}) — TM updated to {new_tm}."
+                        t("log.new_personal_best", max_reps=max_reps, note=est_note, new_tm=new_tm)
                     )
             elif max_reps >= tm + OVERPERFORMANCE_REP_THRESHOLD and not json_out:
                 views.console.print()
                 views.print_warning(
-                    f"Great performance! Your max ({max_reps}) exceeds TM ({tm}) by {max_reps - tm} reps."
+                    t("log.overperformance_warning", max_reps=max_reps, tm=tm, delta=max_reps - tm)
                 )
-                views.print_info(
-                    "The plan won't update automatically — log a TEST session to set a new baseline."
-                )
+                views.print_info(t("log.overperformance_hint"))
         except Exception:
             pass
 
@@ -456,12 +445,12 @@ def log_session(
         return
 
     views.console.print()
-    views.print_success(f"Logged {session_type} session for {date}")
-    views.print_info(f"Total reps: {total_reps}")
+    views.print_success(t("log.logged_session", session_type=session_type, date=date))
+    views.print_info(t("log.total_reps", total=total_reps))
     if max_reps_bw > 0:
-        views.print_info(f"Max (bodyweight): {max_reps_bw}")
+        views.print_info(t("log.max_bodyweight", max_reps=max_reps_bw))
     if max_reps_weighted > max_reps_bw:
-        views.print_info(f"Max (BW-equivalent from weighted): {max_reps_weighted}")
+        views.print_info(t("log.max_bw_equivalent", max_reps=max_reps_weighted))
 
 
 @app.command("show-history")
@@ -488,8 +477,8 @@ def show_history(
     store = get_store(history_path, exercise_id)
 
     if not store.exists():
-        views.print_error(f"History file not found: {store.history_path}")
-        views.print_info("Run 'init' first to create profile and history.")
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
     try:
@@ -558,18 +547,18 @@ def delete_record(
         raise typer.Exit(1)
 
     if not sessions:
-        views.print_error("No sessions in history.")
+        views.print_error(t("error.no_sessions_in_history"))
         raise typer.Exit(1)
 
     if record_id < 1 or record_id > len(sessions):
-        views.print_error(f"Record ID must be between 1 and {len(sessions)}")
+        views.print_error(t("error.record_id_range", max_id=len(sessions)))
         raise typer.Exit(1)
 
     target = sessions[record_id - 1]
     views.console.print(f"Session to delete: [bold]{target.date}[/bold] ({target.session_type})")
 
-    if not force and not views.confirm_action("Delete this session?"):
-        views.print_info("Cancelled.")
+    if not force and not views.confirm_action(t("log.delete_confirm_bare")):
+        views.print_info(t("log.cancelled"))
         raise typer.Exit(0)
 
     try:
@@ -578,4 +567,4 @@ def delete_record(
         views.print_error(str(e))
         raise typer.Exit(1)
 
-    views.print_success(f"Deleted session #{record_id}: {target.date} ({target.session_type})")
+    views.print_success(t("log.deleted_session", record_id=record_id, date=target.date, session_type=target.session_type))

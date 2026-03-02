@@ -1,7 +1,7 @@
 """Shared Typer app object, shared option types, and store utility."""
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 
@@ -16,9 +16,15 @@ ExerciseOption = Annotated[
     typer.Option("--exercise", "-e", help="Exercise ID: pull_up (default), dip, bss"),
 ]
 
+# Shared --lang option type: optional language override
+LangOption = Annotated[
+    Optional[str],
+    typer.Option("--lang", "-l", help="Language override (en, ru, zh). Overrides profile setting."),
+]
+
 app = typer.Typer(
     name="bar-scheduler",
-    help="Evidence-informed pull-up training planner to reach 30 strict pull-ups.",
+    help="Evidence-informed strength training planner.",
     no_args_is_help=False,
     invoke_without_command=True,
 )

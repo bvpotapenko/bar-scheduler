@@ -1,1 +1,1 @@
-"""Core computation modules for the pull-up planner."""
+"""Core computation modules for the bar-scheduler training planner."""

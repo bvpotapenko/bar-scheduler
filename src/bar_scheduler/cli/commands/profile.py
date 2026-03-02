@@ -21,6 +21,7 @@ from ...core.metrics import training_max_from_baseline
 from ...core.models import EquipmentState, ExerciseTarget, SessionResult, SetResult, UserProfile
 from .. import views
 from ..app import ExerciseOption, app, get_store
+from ...core.i18n import available_languages, t
 
 
 @app.command()
@@ -81,15 +82,15 @@ def init(
 
     # Validate inputs
     if sex not in ("male", "female"):
-        views.print_error("Sex must be 'male' or 'female'")
+        views.print_error(t("error.sex_must_be"))
         raise typer.Exit(1)
 
     if days_per_week not in (1, 2, 3, 4, 5):
-        views.print_error("Days per week must be 1–5")
+        views.print_error(t("error.days_must_be"))
         raise typer.Exit(1)
 
     if bodyweight_kg <= 0:
-        views.print_error("Bodyweight must be positive")
+        views.print_error(t("error.bodyweight_positive"))
         raise typer.Exit(1)
 
     # Always load the existing profile — it may exist from another exercise's init
@@ -113,16 +114,16 @@ def init(
             existing_sessions = 0
 
         if existing_sessions > 0 and not force:
-            views.print_warning(f"Found existing history with {existing_sessions} sessions.")
-            views.console.print("\nOptions:")
-            views.console.print("  [1] Keep existing history (update profile only)")
-            views.console.print("  [2] Backup existing as 'history_old.jsonl' and start fresh")
-            views.console.print("  [3] Cancel")
+            views.print_warning(t("profile.found_existing", count=existing_sessions))
+            views.console.print(t("profile.options_title"))
+            views.console.print(t("profile.keep_history_option"))
+            views.console.print(t("profile.backup_option"))
+            views.console.print(t("profile.cancel_option"))
 
-            choice = views.console.input("\nChoice [1/2/3]: ").strip()
+            choice = views.console.input(t("profile.choice_prompt")).strip()
 
             if choice == "3" or choice == "":
-                views.print_info("Cancelled.")
+                views.print_info(t("log.cancelled"))
                 raise typer.Exit(0)
             elif choice == "2":
                 # Backup existing history
@@ -132,7 +133,7 @@ def init(
                     backup_path = store.history_path.parent / f"history_old_{counter}.jsonl"
                     counter += 1
                 store.history_path.rename(backup_path)
-                views.print_success(f"Backed up existing history to {backup_path}")
+                views.print_success(t("profile.backed_up", path=backup_path))
                 existing_sessions = 0
                 old_profile = None  # fresh start — don't inherit old profile fields
 
@@ -181,11 +182,11 @@ def init(
     store.save_profile(profile, bodyweight_kg)
 
     if existing_sessions > 0:
-        views.print_success(f"Updated profile at {store.profile_path}")
-        views.print_info(f"Kept existing history with {existing_sessions} sessions")
+        views.print_success(t("profile.updated", path=store.profile_path))
+        views.print_info(t("profile.kept_history", count=existing_sessions))
         if old_profile is not None:
             views.console.print()
-            views.console.print("[bold]Profile changes:[/bold]")
+            views.console.print(t("profile.changes_title"))
 
             def _chg(label: str, old: object, new: object) -> None:
                 marker = " [green](changed)[/green]" if old != new else ""
@@ -198,9 +199,9 @@ def init(
             old_bw_str = f"{old_bw:.1f} kg" if old_bw is not None else "?"
             _chg("Bodyweight", old_bw_str, f"{bodyweight_kg:.1f} kg")
     else:
-        views.print_success(f"Initialized profile at {store.profile_path}")
-        views.print_success(f"History file: {store.history_path}")
-        views.print_info(f"Training days/week ({exercise_id}): {days_per_week}")
+        views.print_success(t("profile.initialized", path=store.profile_path))
+        views.print_success(t("profile.history_file", path=store.history_path))
+        views.print_info(t("profile.training_days", exercise_id=exercise_id, days=days_per_week))
 
     # Set plan start date (2 days from today, the first training day)
     today = datetime.now()
@@ -228,10 +229,9 @@ def init(
             notes="Baseline max test",
         )
         store.append_session(session)
-        views.print_success(f"Logged baseline test: {baseline_max} reps")
-
+        views.print_success(t("profile.logged_baseline", reps=baseline_max))
         tm = training_max_from_baseline(baseline_max)
-        views.print_info(f"Training max: {tm}")
+        views.print_info(t("profile.training_max", tm=tm))
 
 
 @app.command("update-weight")
@@ -251,12 +251,12 @@ def update_weight(
     store = get_store(history_path)
 
     if not store.profile_path.exists():
-        views.print_error(f"Profile not found: {store.profile_path}")
-        views.print_info("Run 'init' first to create profile.")
+        views.print_error(t("error.profile_not_found", path=store.profile_path))
+        views.print_info(t("error.run_init_profile"))
         raise typer.Exit(1)
 
     if bodyweight_kg <= 0:
-        views.print_error("Bodyweight must be positive")
+        views.print_error(t("error.bodyweight_positive"))
         raise typer.Exit(1)
 
     try:
@@ -265,7 +265,7 @@ def update_weight(
         views.print_error(str(e))
         raise typer.Exit(1)
 
-    views.print_success(f"Updated bodyweight to {bodyweight_kg:.1f} kg")
+    views.print_success(t("profile.updated_bodyweight", value=bodyweight_kg))
 
 
 @app.command("update-equipment")
@@ -284,8 +284,8 @@ def update_equipment_cmd(
     """
     store = get_store(None)
     if not store.profile_path.exists():
-        views.print_error(f"Profile not found: {store.profile_path}")
-        views.print_info("Run 'init' first.")
+        views.print_error(t("error.profile_not_found", path=store.profile_path))
+        views.print_info(t("error.run_init_profile"))
         raise typer.Exit(1)
 
     existing = store.load_current_equipment(exercise_id)
@@ -296,12 +296,12 @@ def update_equipment_cmd(
         a_kg = get_assistance_kg(existing.active_item, exercise_id, existing.machine_assistance_kg)
         catalog = get_catalog(exercise_id)
         item_label = catalog.get(existing.active_item, {}).get("label", existing.active_item)
-        views.console.print(f"Current equipment — {exercise.display_name}:")
-        views.console.print(f"  Active: {item_label}")
+        views.console.print(t("equipment.current_header", exercise_name=exercise.display_name))
+        views.console.print(t("equipment.active_item", item=item_label))
         if a_kg > 0:
-            views.console.print(f"  Assistance: {a_kg:.1f} kg")
+            views.console.print(t("equipment.assistance_kg", kg=a_kg))
         if existing.elevation_height_cm:
-            views.console.print(f"  Elevation: {existing.elevation_height_cm} cm")
+            views.console.print(t("equipment.elevation_cm", cm=existing.elevation_height_cm))
 
     new_state = _ask_equipment(exercise_id, existing)
 
@@ -317,13 +317,11 @@ def update_equipment_cmd(
         adj = compute_equipment_adjustment(old_leff, new_leff)
         if adj["reps_factor"] != 1.0:
             views.console.print()
-            views.print_warning(f"Equipment change detected: {adj['description']}")
-            views.print_info(
-                "Consider adjusting your target reps by this factor for the next session."
-            )
+            views.print_warning(t("equipment.change_detected", description=adj["description"]))
+            views.print_info(t("equipment.change_hint"))
 
     store.update_equipment(new_state)
-    views.print_success(f"Equipment updated for {exercise.display_name}.")
+    views.print_success(t("equipment.updated", exercise_name=exercise.display_name))
 
 
 def _detect_active_exercises() -> list[str]:
@@ -342,7 +340,7 @@ def _detect_active_exercises() -> list[str]:
 def _ask_days(label: str, default: int) -> int:
     """Prompt for training days/week (1–5) with a given label and default."""
     while True:
-        raw = views.console.input(f"{label} (1–5) [{default}]: ").strip()
+        raw = views.console.input(t("profile.days_prompt", label=label, default=default)).strip()
         if not raw:
             return default
         try:
@@ -351,7 +349,7 @@ def _ask_days(label: str, default: int) -> int:
                 return d
         except ValueError:
             pass
-        views.print_error("Enter 1–5")
+        views.print_error(t("error.enter_1_to_5"))
 
 
 def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> EquipmentState:
@@ -372,8 +370,8 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
     exercise = get_exercise(exercise_id)
 
     views.console.print()
-    views.console.print(f"[bold]Equipment — {exercise.display_name}[/bold]")
-    views.console.print("[dim]Which items do you have available? (comma-separated numbers)[/dim]")
+    views.console.print(f"[bold]{t('equipment.title', exercise_name=exercise.display_name)}[/bold]")
+    views.console.print(t("equipment.available_hint"))
 
     # Show numbered list
     for i, (item_id, info) in enumerate(items, 1):
@@ -390,7 +388,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
         default_avail_str = "1"
 
     while True:
-        raw = views.console.input(f"  Available [{default_avail_str}]: ").strip()
+        raw = views.console.input(t("equipment.available_prompt", default=default_avail_str)).strip()
         selection_str = raw if raw else default_avail_str
         try:
             indices = [int(x.strip()) for x in selection_str.split(",")]
@@ -399,7 +397,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
                 break
         except ValueError:
             pass
-        views.print_error(f"Enter comma-separated numbers between 1 and {len(items)}")
+        views.print_error(t("equipment.available_error", count=len(items)))
 
     # Select active item from available subset.
     # Only ask when items have different effective assistance — otherwise the
@@ -413,10 +411,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
 
     if need_active_prompt:
         views.console.print()
-        views.console.print(
-            "[dim]Which one are you currently training WITH? "
-            "This determines how much assistance is applied to your lift.[/dim]"
-        )
+        views.console.print(t("equipment.active_hint"))
         for i, item_id in enumerate(available_items, 1):
             info = catalog[item_id]
             views.console.print(f"  [{i}] {info['label']}")
@@ -427,7 +422,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
             default_active_idx = 1
 
         while True:
-            raw = views.console.input(f"  Active item [{default_active_idx}]: ").strip()
+            raw = views.console.input(t("equipment.active_prompt", default=default_active_idx)).strip()
             try:
                 idx = int(raw) if raw else default_active_idx
                 if 1 <= idx <= len(available_items):
@@ -435,7 +430,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
                     break
             except ValueError:
                 pass
-            views.print_error(f"Enter a number between 1 and {len(available_items)}")
+            views.print_error(t("equipment.active_error", count=len(available_items)))
     else:
         # All selected items have the same effective load — no prompt needed.
         if existing is not None and existing.active_item in available_items:
@@ -448,7 +443,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
     if active_item == "MACHINE_ASSISTED":
         default_machine = existing.machine_assistance_kg if existing else 40.0
         while True:
-            raw = views.console.input(f"  Machine assistance kg [{default_machine}]: ").strip()
+            raw = views.console.input(t("equipment.machine_kg_prompt", default=default_machine)).strip()
             try:
                 val = float(raw) if raw else default_machine
                 if val >= 0:
@@ -456,7 +451,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
                     break
             except (TypeError, ValueError):
                 pass
-            views.print_error("Enter a non-negative number, e.g. 40")
+            views.print_error(t("equipment.machine_kg_error"))
 
     # BSS elevation height
     elevation_height_cm: int | None = None
@@ -465,7 +460,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
         heights_str = "/".join(str(h) for h in BSS_ELEVATION_HEIGHTS)
         while True:
             raw = views.console.input(
-                f"  Elevation height cm ({heights_str}) [{default_elev}]: "
+                t("equipment.elevation_prompt", options=heights_str, default=default_elev)
             ).strip()
             try:
                 val = int(raw) if raw else default_elev
@@ -474,7 +469,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
                     break
             except ValueError:
                 pass
-            views.print_error(f"Enter one of: {heights_str}")
+            views.print_error(t("equipment.elevation_error", options=heights_str))
 
     # BSS degraded warning
     tmp_state = EquipmentState(
@@ -487,10 +482,7 @@ def _ask_equipment(exercise_id: str, existing: EquipmentState | None = None) -> 
     )
     if exercise_id == "bss" and bss_is_degraded(tmp_state):
         views.console.print()
-        views.print_warning(
-            "No elevation surface selected. The planner will programme Split Squats "
-            "(rear foot flat) instead of Bulgarian Split Squats until you add a surface."
-        )
+        views.print_warning(t("equipment.bss_no_elevation"))
 
     return tmp_state
 
@@ -508,18 +500,15 @@ def _menu_init() -> None:
     old_bw = store.load_bodyweight()
 
     views.console.print()
-    views.console.print("[bold]Setup / Edit Profile[/bold]")
-    views.console.print(
-        "[dim]Covers: height, sex, bodyweight, target reps, "
-        "training days/week per exercise, and equipment.[/dim]"
-    )
-    views.console.print("[dim]Press Enter to keep the current value.[/dim]")
+    views.console.print(t("profile.setup_title"))
+    views.console.print(f"[dim]{t('profile.setup_hint')}[/dim]")
+    views.console.print(f"[dim]{t('profile.keep_value_hint')}[/dim]")
     views.console.print()
 
     # Height
     default_h = old_profile.height_cm if old_profile else 175
     while True:
-        raw = views.console.input(f"Height cm [{default_h}]: ").strip()
+        raw = views.console.input(t("profile.height_prompt", default=default_h)).strip()
         if not raw:
             height_cm = default_h
             break
@@ -529,19 +518,19 @@ def _menu_init() -> None:
                 break
         except ValueError:
             pass
-        views.print_error("Enter a positive integer, e.g. 180")
+        views.print_error(t("error.positive_integer"))
 
     # Sex
     default_sex = old_profile.sex if old_profile else "male"
     while True:
-        raw = views.console.input(f"Sex (male/female) [{default_sex}]: ").strip().lower()
+        raw = views.console.input(t("profile.sex_prompt", default=default_sex)).strip().lower()
         if not raw:
             sex = default_sex
             break
         if raw in ("male", "female"):
             sex = raw
             break
-        views.print_error("Enter 'male' or 'female'")
+        views.print_error(t("error.sex_invalid"))
 
     # Days per week — asked per active exercise; start from existing exercise_days
     exercise_days_new: dict[str, int] = dict(old_profile.exercise_days) if old_profile else {}
@@ -558,10 +547,7 @@ def _menu_init() -> None:
         exercise_days_new[ex_id] = days
         global_days = days
     else:
-        views.console.print(
-            f"[dim]You have data for {len(active_exercises)} exercises"
-            " — configure days/week for each:[/dim]"
-        )
+        views.console.print(t("profile.multi_exercise_days_hint", count=len(active_exercises)))
         for ex_id in active_exercises:
             ex_name = EXERCISE_REGISTRY[ex_id].display_name
             default_days = old_profile.days_for_exercise(ex_id) if old_profile else 3
@@ -581,7 +567,7 @@ def _menu_init() -> None:
         old_tgt = old_profile.target_for_exercise(ex_id) if old_profile else ExerciseTarget(reps=30)
 
         while True:
-            raw = views.console.input(f"Target reps — {ex_name} [{old_tgt.reps}]: ").strip()
+            raw = views.console.input(t("profile.target_reps_prompt", exercise_name=ex_name, default=old_tgt.reps)).strip()
             if not raw:
                 target_reps = old_tgt.reps
                 break
@@ -591,12 +577,12 @@ def _menu_init() -> None:
                     break
             except ValueError:
                 pass
-            views.print_error("Enter a positive integer, e.g. 30")
+            views.print_error(t("error.positive_integer"))
 
         default_wt = old_tgt.weight_kg
         while True:
             raw = views.console.input(
-                f"Target added weight kg — {ex_name} [{default_wt:.1f}]: "
+                t("profile.target_weight_prompt", exercise_name=ex_name, default=f"{default_wt:.1f}")
             ).strip()
             if not raw:
                 target_wt = default_wt
@@ -607,14 +593,14 @@ def _menu_init() -> None:
                     break
             except ValueError:
                 pass
-            views.print_error("Enter 0 or a positive number, e.g. 40")
+            views.print_error(t("error.positive_number"))
 
         exercise_targets_new[ex_id] = ExerciseTarget(reps=target_reps, weight_kg=target_wt)
 
     # Bodyweight
     default_bw = old_bw if old_bw is not None else 80.0
     while True:
-        raw = views.console.input(f"Bodyweight kg [{default_bw:.1f}]: ").strip()
+        raw = views.console.input(t("profile.bodyweight_prompt", default=f"{default_bw:.1f}")).strip()
         if not raw:
             bodyweight_kg = default_bw
             break
@@ -624,7 +610,24 @@ def _menu_init() -> None:
                 break
         except ValueError:
             pass
-        views.print_error("Enter a positive number, e.g. 82.5")
+        views.print_error(t("error.positive_number"))
+
+    # Language
+    langs = available_languages()
+    if len(langs) > 1:
+        options_str = "/".join(langs)
+        default_lang = old_profile.language if old_profile else "en"
+        while True:
+            raw = views.console.input(t("profile.language_prompt", options=options_str, default=default_lang)).strip().lower()
+            if not raw:
+                language = default_lang
+                break
+            if raw in langs:
+                language = raw
+                break
+            views.print_error(t("profile.language_error", options=options_str))
+    else:
+        language = "en"
 
     profile = UserProfile(
         height_cm=height_cm,
@@ -632,6 +635,20 @@ def _menu_init() -> None:
         preferred_days_per_week=global_days,
         exercise_days=exercise_days_new,
         exercise_targets=exercise_targets_new,
+        exercises_enabled=(
+            old_profile.exercises_enabled if old_profile is not None
+            else ["pull_up", "dip", "bss"]
+        ),
+        max_session_duration_minutes=(
+            old_profile.max_session_duration_minutes if old_profile is not None else 60
+        ),
+        rest_preference=(
+            old_profile.rest_preference if old_profile is not None else "normal"
+        ),
+        injury_notes=(
+            old_profile.injury_notes if old_profile is not None else ""
+        ),
+        language=language,
     )
     store.init()
     store.save_profile(profile, bodyweight_kg)
@@ -643,8 +660,8 @@ def _menu_init() -> None:
         exercises_to_configure = ["pull_up"]
 
     views.console.print()
-    views.console.print("[bold]Equipment Setup[/bold]")
-    views.console.print("[dim]Configure equipment for each exercise.[/dim]")
+    views.console.print(f"[bold]{t('profile.equipment_setup_title')}[/bold]")
+    views.console.print(f"[dim]{t('profile.equipment_setup_hint')}[/dim]")
 
     for ex_id in exercises_to_configure:
         existing_eq = store.load_current_equipment(ex_id)
@@ -653,7 +670,7 @@ def _menu_init() -> None:
 
     views.console.print()
     if old_profile is not None:
-        views.console.print("[bold]Profile changes:[/bold]")
+        views.console.print(t("profile.changes_title"))
 
         def _chg(label: str, old: object, new: object) -> None:
             marker = " [green](changed)[/green]" if old != new else ""
@@ -675,20 +692,20 @@ def _menu_init() -> None:
         old_bw_str = f"{old_bw:.1f} kg" if old_bw is not None else "?"
         _chg("Bodyweight", old_bw_str, f"{bodyweight_kg:.1f} kg")
     else:
-        views.print_success(f"Profile saved at {store.profile_path}")
+        views.print_success(t("profile.profile_saved", path=store.profile_path))
 
 
 def _menu_update_weight() -> None:
     """Interactive bodyweight update helper called from the main menu."""
     store = get_store(None)
     current_bw = store.load_bodyweight()
-    hint = f" [{current_bw:.1f}]" if current_bw is not None else ""
+    default_str = f"{current_bw:.1f}" if current_bw is not None else ""
 
     views.console.print()
     while True:
-        raw = views.console.input(f"New bodyweight kg{hint}: ").strip()
+        raw = views.console.input(t("profile.bodyweight_prompt", default=default_str)).strip()
         if not raw and current_bw is not None:
-            views.print_info("No change.")
+            views.print_info(t("profile.no_change"))
             return
         try:
             bodyweight_kg = float(raw)
@@ -696,10 +713,10 @@ def _menu_update_weight() -> None:
                 break
         except ValueError:
             pass
-        views.print_error("Enter a positive number, e.g. 82.5")
+        views.print_error(t("error.positive_number"))
 
     try:
         store.update_bodyweight(bodyweight_kg)
-        views.print_success(f"Updated bodyweight to {bodyweight_kg:.1f} kg")
+        views.print_success(t("profile.updated_bodyweight", value=bodyweight_kg))
     except Exception as e:
         views.print_error(str(e))
