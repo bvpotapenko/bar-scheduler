@@ -8,12 +8,12 @@ This document lists all implemented features grouped by area. Intended for proje
 
 | # | Feature | CLI command |
 |---|---------|-------------|
-| 1.1 | Create / update user profile (height, sex, bodyweight, target reps, training days) | `init` |
-| 1.2 | Per-exercise training days 1–5 days/week (separate schedule for pull_up / dip / bss) | `init --exercise <id> --days-per-week N` |
-| 1.3 | Baseline max test logged on first init | `init --baseline-max N` |
-| 1.4 | Update bodyweight (auto-updates after every logged session too) | `update-weight` |
+| 1.1 | Create / update user profile (height, sex, bodyweight, target reps, training days) | `profile init` |
+| 1.2 | Per-exercise training days 1–5 days/week (separate schedule for pull_up / dip / bss) | `profile init --exercise <id> --days-per-week N` |
+| 1.3 | Baseline max test logged on first init | `profile init --baseline-max N` |
+| 1.4 | Update bodyweight (auto-updates after every logged session too) | `profile update-weight 85.5` |
 | 1.5 | Profile fields: exercises_enabled, max_session_duration_minutes, rest_preference, injury_notes | stored in `profile.json` |
-| 1.6 | Profile changes shown as diff when re-running init | `init` |
+| 1.6 | Profile changes shown as diff when re-running init | `profile init` |
 | 1.7 | Interactive setup wizard (menu option `[i]`) | interactive menu |
 
 ## 2. Training Log (Session Logging)
@@ -113,13 +113,13 @@ This document lists all implemented features grouped by area. Intended for proje
 
 | # | Feature | CLI command |
 |---|---------|-------------|
-| 8.1 | Equipment catalog per exercise (bands, machine, elevation for BSS) | `update-equipment` |
+| 8.1 | Equipment catalog per exercise (bands, machine, elevation for BSS) | `profile update-equipment` |
 | 8.2 | Equipment history with valid-from / valid-until timestamps | automatic |
 | 8.3 | Leff change notification when active equipment changes ≥10% | automatic |
 | 8.4 | Band progression suggestion when consecutive sessions at current band | automatic |
 | 8.5 | BSS degraded warning when no elevation surface is configured | automatic |
 | 8.6 | Equipment snapshot attached to each logged session | automatic |
-| 8.7 | Available items multi-select; active item single-select with clear prompt | `update-equipment` |
+| 8.7 | Available items multi-select; active item single-select with clear prompt | `profile update-equipment` |
 
 ## 9. Configuration & Customisation
 
@@ -141,8 +141,9 @@ This document lists all implemented features grouped by area. Intended for proje
 | 10.6 | JSON output mode for scripting | `--json` on most commands |
 | 10.7 | Skip command to shift the **plan** forward (N>0) or backward (N<0) by N **calendar days**. Forward: inserts N plan-REST records starting at `from_date`, pushing all future sessions later. Backward: removes plan-REST records in the gap `[from_date−N, from_date)` and sets plan anchor to `from_date−N`, pulling future sessions earlier. **Never modifies user-submitted training logs** — only plan-REST records created by `skip` are added/removed; use `delete-record` to modify training logs. Logged training sessions never auto-advance the plan anchor. | `skip` |
 | 10.8 | Plan cache for change detection between runs | automatic |
-| 10.9 | Multilingual UI (i18n): all user-facing strings in YAML locale files; `--lang` flag for per-session override; `language` field in profile for persistent setting; fallback chain: `--lang` → profile → `"en"` | `--lang` flag / `[i]` menu |
+| 10.9 | Multilingual UI (i18n): all user-facing strings in YAML locale files; `--lang` flag for per-session override; `language` field in profile for persistent setting; fallback chain: `--lang` → profile → `"en"` | `--lang` flag / `[l]` menu / `profile update-language` |
+| 10.10 | Profile subcommand group: init, update-weight, update-equipment, update-language all under `bar-scheduler profile` | `profile <subcommand>` |
 
 ---
 
-*Last updated: 2026-03-02 (skip forward fix 2: plan_start now set to old+N in skip(), not last_REST+1 in plan(); auto-advance removed from plan(). Fixes calendar-day invariant when plan_start < from_date). Keep this file current: update after every feature addition, change, or removal.*
+*Last updated: 2026-03-04 (0.3.0: i18n system, profile subcommand group, plan prescription stability, skip fixes). Keep this file current: update after every feature addition, change, or removal.*

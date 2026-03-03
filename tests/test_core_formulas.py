@@ -1350,8 +1350,8 @@ class TestPlanStartDatePerExercise:
         store = HistoryStore(tmp_path / "history.jsonl", exercise_id="pull_up")
         assert store.get_plan_start_date() == "2026-02-15"
 
-    def test_legacy_key_not_written_on_update(self, tmp_path):
-        """After set_plan_start_date(), new per-exercise key is used; old key untouched."""
+    def test_legacy_key_pruned_on_update(self, tmp_path):
+        """After set_plan_start_date(), legacy flat key is removed (migration)."""
         import json
         from bar_scheduler.io.history_store import HistoryStore
 
@@ -1363,8 +1363,8 @@ class TestPlanStartDatePerExercise:
 
         data = json.loads((tmp_path / "profile.json").read_text())
         assert data["plan_start_dates"]["pull_up"] == "2026-02-20"
-        assert data["plan_start_date"] == "2026-02-15"   # legacy key untouched
-        assert store.get_plan_start_date() == "2026-02-20"  # new key takes precedence
+        assert "plan_start_date" not in data            # legacy flat key pruned
+        assert store.get_plan_start_date() == "2026-02-20"
 
 
 # ===========================================================================

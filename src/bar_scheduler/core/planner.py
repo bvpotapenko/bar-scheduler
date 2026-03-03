@@ -578,6 +578,7 @@ def _plan_core(
     exercise: ExerciseDefinition | None = None,
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
+    history_init_cutoff: str | None = None,
 ) -> Generator[tuple[SessionPlan, _SessionTrace], None, None]:
     """
     Core plan generator — single source of truth for all plan logic.
@@ -621,8 +622,14 @@ def _plan_core(
     # Use only pre-plan sessions for initial state computation (TM, ff_state, rotation,
     # grip counts). This ensures logging a session on or after plan_start does not
     # retroactively change prescriptions for plan_start or earlier slots.
+    #
+    # history_init_cutoff separates the "history cutoff" from the "plan calendar anchor":
+    # - On backward skip, plan_start retreats but the cutoff stays at the old plan_start
+    #   so the initial state (TM, rotation, grip) does not change.
+    # - When None (unit tests, direct calls), falls back to start_date.
     # Fall back to full history only when no pre-plan sessions exist (e.g., brand-new user).
-    history_for_init = [s for s in history if s.date < start_date]
+    cutoff = history_init_cutoff or start_date
+    history_for_init = [s for s in history if s.date < cutoff]
     effective_init = history_for_init if history_for_init else history
 
     status = get_training_status(effective_init, user_state.current_bodyweight_kg, baseline_max)
@@ -842,6 +849,7 @@ def generate_plan(
     exercise: ExerciseDefinition | None = None,
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
+    history_init_cutoff: str | None = None,
 ) -> list[SessionPlan]:
     """
     Generate a deterministic training plan with progressive overload.
@@ -862,6 +870,7 @@ def generate_plan(
     return [plan for plan, _ in _plan_core(
         user_state, start_date, weeks_ahead, baseline_max, exercise,
         overtraining_level, overtraining_rest_days,
+        history_init_cutoff=history_init_cutoff,
     )]
 
 
@@ -874,6 +883,7 @@ def explain_plan_entry(
     exercise: ExerciseDefinition | None = None,
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
+    history_init_cutoff: str | None = None,
 ) -> str:
     """
     Generate a step-by-step Rich-markup explanation of a planned session.
@@ -894,6 +904,7 @@ def explain_plan_entry(
         exercise: ExerciseDefinition (default: PULL_UP)
         overtraining_level: Level from overtraining_severity() (for shift notice)
         overtraining_rest_days: Days the plan start was shifted forward
+        history_init_cutoff: Cutoff date for effective_init (stable across backward skips)
 
     Returns:
         Rich-markup string ready for console.print()
@@ -905,6 +916,7 @@ def explain_plan_entry(
         for plan, trace in _plan_core(
             user_state, plan_start_date, weeks_ahead, baseline_max, exercise,
             overtraining_level, overtraining_rest_days,
+            history_init_cutoff=history_init_cutoff,
         ):
             last_weeks_ahead = trace.weeks_ahead
             if plan.date == target_date:

@@ -18,6 +18,7 @@ Running `bar-scheduler` without arguments opens the interactive menu — the eas
 [r] Estimate 1-rep max
 [s] Rest day — shift plan forward
 [u] Update training equipment
+[l] Change display language
 [i] Setup / edit profile & training days
 [d] Delete a session by ID
 [a] How the planner adapts over time
@@ -27,11 +28,12 @@ Running `bar-scheduler` without arguments opens the interactive menu — the eas
 All options work interactively — no flags needed.
 
 - `[i]` — prompts for height, sex, bodyweight, target reps, and **training days per exercise** (when you have multiple exercises set up). Press Enter to keep any current value.
-- `[2]` — when more than one exercise is initialised, asks which exercise to log first. Only shows exercises you have already set up with `init`.
+- `[2]` — when more than one exercise is initialised, asks which exercise to log first. Only shows exercises you have already set up with `profile init`.
 - `[e]` — asks for a date or accepts `next`.
 - `[r]` — estimates your 1-rep max from recent sessions.
 - `[s]` — shifts the plan forward by one day.
 - `[u]` — updates equipment and shows a rep-adjustment recommendation when effective load changes by ≥10%.
+- `[l]` — interactively sets the display language; saved to `profile.json`.
 - `[a]` — displays the adaptation timeline (what to expect at each stage of training).
 
 ### Setting a default exercise for the whole session
@@ -50,7 +52,7 @@ bar-scheduler -e bss status
 ## Initialize a New User
 
 ```bash
-$ bar-scheduler init --height-cm 180 --sex male --days-per-week 3 --bodyweight-kg 82 --baseline-max 10
+$ bar-scheduler profile init --height-cm 180 --sex male --days-per-week 3 --bodyweight-kg 82 --baseline-max 10
 
 Initialized profile at /Users/you/.bar-scheduler/profile.json
 History file: /Users/you/.bar-scheduler/pull_up_history.jsonl
@@ -71,10 +73,10 @@ Use `--exercise` / `-e` to initialize a specific exercise. Each exercise stores 
 
 ```bash
 # Initialize dip tracking at 4 days/week
-bar-scheduler init --exercise dip --days-per-week 4 --baseline-max 8
+bar-scheduler profile init --exercise dip --days-per-week 4 --baseline-max 8
 
 # Initialize BSS tracking
-bar-scheduler init --exercise bss --days-per-week 3 --baseline-max 12
+bar-scheduler profile init --exercise bss --days-per-week 3 --baseline-max 12
 ```
 
 ## Show Training History
@@ -195,7 +197,7 @@ BSS prescribed sets display a `(per leg)` suffix in the plan.
 
 ### Interactive exercise selection
 
-When you run `log-session` without `--sets` and without `--exercise`, the first prompt asks which exercise to log. Only exercises you have already initialised with `init` are shown:
+When you run `log-session` without `--sets` and without `--exercise`, the first prompt asks which exercise to log. Only exercises you have already initialised with `profile init` are shown:
 
 ```
 Exercise: [1] Pull-Up  [2] Parallel Bar Dip
@@ -472,7 +474,7 @@ $ bar-scheduler plot-max -t zg --json
 ## Update Bodyweight
 
 ```bash
-$ bar-scheduler update-weight --bodyweight-kg 80.5
+$ bar-scheduler profile update-weight 80.5
 
 Updated bodyweight to 80.5 kg
 ```
@@ -658,9 +660,9 @@ $ bar-scheduler plan --history-path ./my_training/history.jsonl
 
 ## Typical Workflow
 
-1. **init** — set up profile with your baseline max:
+1. **profile init** — set up profile with your baseline max:
    ```bash
-   bar-scheduler init --bodyweight-kg 82 --baseline-max 10
+   bar-scheduler profile init --bodyweight-kg 82 --baseline-max 10
    ```
 
 2. **plan** — review the 4–12 week schedule:
@@ -680,9 +682,9 @@ $ bar-scheduler plan --history-path ./my_training/history.jsonl
    bar-scheduler status
    ```
 
-5. **update-weight** — update bodyweight when it changes:
+5. **profile update-weight** — update bodyweight when it changes:
    ```bash
-   bar-scheduler update-weight --bodyweight-kg 81
+   bar-scheduler profile update-weight 81
    ```
 
 6. **skip** — push the plan forward on rest days:
@@ -695,9 +697,9 @@ $ bar-scheduler plan --history-path ./my_training/history.jsonl
    bar-scheduler plan -w 8
    ```
 
-8. **update-equipment** — record a band change or switch from machine to bar:
+8. **profile update-equipment** — record a band change or switch from machine to bar:
    ```bash
-   bar-scheduler update-equipment --exercise pull_up
+   bar-scheduler profile update-equipment --exercise pull_up
    ```
 
 ## Equipment Tracking
@@ -745,7 +747,7 @@ Equipment for Pull-Up
 
 ```bash
 # Step down from BAND_MEDIUM to BAND_LIGHT (or BAR_ONLY)
-bar-scheduler update-equipment --exercise pull_up
+bar-scheduler profile update-equipment --exercise pull_up
 ```
 
 The command shows current equipment, prompts for changes, and if effective load
@@ -775,7 +777,7 @@ If you do not have a bench or box to elevate the rear foot, the planner shows:
 ⚠ Split Squat mode — add an elevation surface to unlock BSS.
 ```
 
-Progress as a flat split squat until ELEVATION_SURFACE is added via `update-equipment`.
+Progress as a flat split squat until ELEVATION_SURFACE is added via `profile update-equipment`.
 
 ### Plan header
 
@@ -808,7 +810,17 @@ bar-scheduler --lang en status
 
 ### Persistent language setting
 
-The language is saved during profile setup (`[i] Setup / edit profile` in the interactive menu). It can also be set directly in `~/.bar-scheduler/profile.json`:
+Use the dedicated command or the interactive menu:
+
+```bash
+# Save Russian as the default language
+bar-scheduler profile update-language ru
+
+# Reset to English
+bar-scheduler profile update-language en
+```
+
+You can also use `[l]` in the interactive menu, or edit `~/.bar-scheduler/profile.json` directly:
 
 ```json
 { "language": "ru" }

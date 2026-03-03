@@ -43,7 +43,7 @@ class TestCLISmoke:
         history_path = temp_history_dir / "history.jsonl"
 
         result = runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--height-cm", "180",
             "--sex", "male",
@@ -62,7 +62,7 @@ class TestCLISmoke:
 
         # First init
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -92,7 +92,7 @@ class TestCLISmoke:
 
         # Init with baseline
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -115,7 +115,7 @@ class TestCLISmoke:
 
         # Init and log
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -137,7 +137,7 @@ class TestCLISmoke:
 
         # Init with baseline
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -160,16 +160,16 @@ class TestCLISmoke:
 
         # Init
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
         ])
 
         # Update weight
         result = runner.invoke(app, [
-            "update-weight",
+            "profile", "update-weight",
+            "80.5",
             "--history-path", str(history_path),
-            "--bodyweight-kg", "80.5",
         ])
 
         assert result.exit_code == 0
@@ -185,7 +185,7 @@ class TestCLISmoke:
 
         # Init with baseline 10
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -242,7 +242,7 @@ class TestNewFeatures:
 
         # Init
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -285,7 +285,7 @@ class TestNewFeatures:
         profile_path = temp_history_dir / "profile.json"
 
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
         ])
@@ -308,7 +308,7 @@ class TestNewFeatures:
         history_path = temp_history_dir / "history.jsonl"
 
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -350,7 +350,7 @@ class TestNewFeatures:
 
         # Init with a modest baseline
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -392,7 +392,7 @@ class TestNewFeatures:
         history_path = temp_history_dir / "history.jsonl"
 
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -422,7 +422,7 @@ class TestNewFeatures:
         history_path = temp_history_dir / "history.jsonl"
 
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -451,7 +451,7 @@ class TestNewFeatures:
         history_path = temp_history_dir / "history.jsonl"
 
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -487,7 +487,7 @@ class TestNewFeatures:
         history_path = temp_history_dir / "history.jsonl"
 
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -515,7 +515,7 @@ class TestNewFeatures:
         history_path = temp_history_dir / "history.jsonl"
 
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -549,7 +549,7 @@ class TestJSONAndTrajectory:
 
     def _init(self, history_path):
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--bodyweight-kg", "82",
             "--baseline-max", "10",
@@ -1061,7 +1061,7 @@ class TestExerciseTarget:
         import json as _json
         history_path = tmp_path / "history.jsonl"
         result = runner.invoke(app, [
-            "init", "--history-path", str(history_path),
+            "profile", "init", "--history-path", str(history_path),
             "--target-max", "20", "--target-weight", "10.0",
             "--exercise", "bss",
         ])
@@ -1079,12 +1079,12 @@ class TestExerciseTarget:
         bss_path = tmp_path / "bss_history.jsonl"
         # init pull_up
         runner.invoke(app, [
-            "init", "--history-path", str(pull_up_path),
+            "profile", "init", "--history-path", str(pull_up_path),
             "--target-max", "30", "--exercise", "pull_up",
         ])
         # init bss with a weight goal
         runner.invoke(app, [
-            "init", "--history-path", str(bss_path),
+            "profile", "init", "--history-path", str(bss_path),
             "--target-max", "15", "--target-weight", "40.0", "--exercise", "bss",
         ])
         profile_path = pull_up_path.parent / "profile.json"
@@ -1190,7 +1190,7 @@ class TestProfileFields:
 
         # Initial init
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--height-cm", "175",
             "--sex", "male",
@@ -1208,7 +1208,7 @@ class TestProfileFields:
 
         # Re-run init (keep existing history)
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--history-path", str(history_path),
             "--height-cm", "178",  # changed
             "--sex", "male",
@@ -1348,7 +1348,7 @@ class TestInteractiveLogSession:
     def _init_with_baseline(self, history_path: Path, exercise_id: str = "pull_up") -> None:
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--exercise", exercise_id,
             "--history-path", str(history_path),
             "--height-cm", "180",
@@ -1515,7 +1515,7 @@ class TestAllCommandsAllExercises:
         history_path = tmp_path / f"{exercise_id}_history.jsonl"
         grip = "pronated" if exercise_id == "pull_up" else "standard"
         runner.invoke(app, [
-            "init",
+            "profile", "init",
             "--exercise", exercise_id,
             "--history-path", str(history_path),
             "--height-cm", "180", "--sex", "male",
@@ -1615,7 +1615,7 @@ class TestAllCommandsAllExercises:
         history_path = tmp_path / f"{exercise_id}_history.jsonl"
         grip = "pronated" if exercise_id == "pull_up" else "standard"
         runner.invoke(app, [
-            "init", "--exercise", exercise_id,
+            "profile", "init", "--exercise", exercise_id,
             "--history-path", str(history_path),
             "--height-cm", "180", "--sex", "male",
             "--days-per-week", "3", "--bodyweight-kg", "82",
@@ -1657,7 +1657,7 @@ class TestAllCommandsAllExercises:
         # Only init pull_up — bss and dip should NOT appear
         pu_path = tmp_path / "pull_up_history.jsonl"
         runner.invoke(app, [
-            "init", "--exercise", "pull_up",
+            "profile", "init", "--exercise", "pull_up",
             "--history-path", str(pu_path),
             "--height-cm", "180", "--sex", "male",
             "--days-per-week", "3", "--bodyweight-kg", "82",
@@ -1806,3 +1806,213 @@ class TestTimelineBugFixes:
 
         # With the fix: past session with empty planned_sets → empty prescribed
         assert _prescribed(entry) == ""
+
+
+class TestSkipCommand:
+    """Tests for non-interactive skip command flags (--date-from, --days, --json)."""
+
+    def _init(self, temp_history_dir):
+        history_path = temp_history_dir / "history.jsonl"
+        runner.invoke(app, [
+            "profile", "init",
+            "--history-path", str(history_path),
+            "--height-cm", "180",
+            "--sex", "male",
+            "--days-per-week", "3",
+            "--bodyweight-kg", "82",
+            "--baseline-max", "10",
+        ])
+        return history_path
+
+    def test_skip_missing_one_flag_errors(self, temp_history_dir):
+        """Providing only --date-from without --days (or vice versa) must exit 1."""
+        history_path = self._init(temp_history_dir)
+        result = runner.invoke(app, [
+            "skip",
+            "--history-path", str(history_path),
+            "--date-from", "2026-02-10",
+            # --days intentionally omitted
+        ])
+        assert result.exit_code == 1
+
+    def test_skip_noninteractive_forward(self, temp_history_dir):
+        """--date-from + --days N>0 inserts REST records and advances plan_start."""
+        import json as _json
+        history_path = self._init(temp_history_dir)
+
+        result = runner.invoke(app, [
+            "skip",
+            "--history-path", str(history_path),
+            "--date-from", "2026-02-10",
+            "--days", "3",
+            "--json",
+        ])
+        assert result.exit_code == 0
+        data = _json.loads(result.output)
+        assert data["from_date"] == "2026-02-10"
+        assert data["shift_days"] == 3
+        assert data["rest_records_added"] == 3
+        assert data["rest_records_removed"] == 0
+        # plan_start must have advanced by 3 days
+        from bar_scheduler.io.history_store import HistoryStore
+        store = HistoryStore(history_path)
+        new_start = store.get_plan_start_date()
+        assert data["new_plan_start"] == new_start
+
+    def test_skip_noninteractive_backward(self, temp_history_dir):
+        """--days N<0 removes previously inserted REST records.
+
+        The backward from_date is the day AFTER the last REST record
+        placed by the forward skip (exclusive upper bound of the REST block).
+        E.g. forward +3 from 2026-02-10 inserts REST at 10, 11, 12.
+        Backward -2 from 2026-02-12 removes REST in [2026-02-10, 2026-02-12) = 10, 11.
+        """
+        import json as _json
+        history_path = self._init(temp_history_dir)
+
+        # First shift forward by 3: REST at 2026-02-10, 2026-02-11, 2026-02-12
+        runner.invoke(app, [
+            "skip",
+            "--history-path", str(history_path),
+            "--date-from", "2026-02-10",
+            "--days", "3",
+        ])
+
+        # Undo 2 days: from_date=2026-02-12 (day after the 2 records we want to remove),
+        # shift=-2 → removal range [2026-02-10, 2026-02-12) → removes REST at 10 and 11.
+        result = runner.invoke(app, [
+            "skip",
+            "--history-path", str(history_path),
+            "--date-from", "2026-02-12",
+            "--days", "-2",
+            "--json",
+        ])
+        assert result.exit_code == 0
+        data = _json.loads(result.output)
+        assert data["shift_days"] == -2
+        assert data["rest_records_removed"] == 2
+        assert data["rest_records_added"] == 0
+
+    def test_skip_json_output_fields(self, temp_history_dir):
+        """JSON output contains all required fields with correct types."""
+        import json as _json
+        history_path = self._init(temp_history_dir)
+
+        result = runner.invoke(app, [
+            "skip",
+            "--history-path", str(history_path),
+            "--date-from", "2026-02-15",
+            "--days", "1",
+            "--json",
+        ])
+        assert result.exit_code == 0
+        data = _json.loads(result.output)
+        assert set(data.keys()) == {
+            "from_date", "shift_days", "new_plan_start",
+            "rest_records_added", "rest_records_removed",
+        }
+        assert isinstance(data["from_date"], str)
+        assert isinstance(data["shift_days"], int)
+        assert isinstance(data["new_plan_start"], str)
+        assert isinstance(data["rest_records_added"], int)
+        assert isinstance(data["rest_records_removed"], int)
+
+
+class TestSkipDipBackwardShift:
+    """
+    Regression: backward skip (-1 day from 2026-03-03) on dip plan must
+    preserve the 2026-03-01 T-session prescription and correctly shift
+    the 2026-03-02 and 2026-03-03 prescriptions.
+    """
+
+    PROFILE = {
+        "height_cm": 175,
+        "sex": "male",
+        "preferred_days_per_week": 4,
+        "exercises_enabled": ["pull_up", "dip", "bss"],
+        "max_session_duration_minutes": 60,
+        "rest_preference": "normal",
+        "injury_notes": "",
+        "exercise_days": {"dip": 4, "pull_up": 4},
+        "exercise_targets": {
+            "pull_up": {"reps": 30},
+            "dip": {"reps": 12, "weight_kg": 25.0},
+        },
+        "current_bodyweight_kg": 81.2,
+        "equipment": {
+            "pull_up": [{"exercise_id": "pull_up", "available_items": ["BAR_ONLY", "WEIGHT_BELT"], "active_item": "BAR_ONLY", "valid_from": "2026-02-25", "valid_until": None}],
+            "dip": [{"exercise_id": "dip", "available_items": ["PARALLEL_BARS", "WEIGHT_BELT"], "active_item": "PARALLEL_BARS", "valid_from": "2026-02-25", "valid_until": None}],
+        },
+        "plan_start_dates": {"pull_up": "2026-03-01", "dip": "2026-02-27"},
+    }
+
+    DIP_HISTORY = "\n".join([
+        '{"date":"2026-02-24","bodyweight_kg":80.0,"grip":"standard","session_type":"TEST","exercise_id":"dip","completed_sets":[{"actual_reps":7,"rest_seconds_before":180,"added_weight_kg":0.0,"rir_reported":0}],"notes":"Baseline max test (Parallel Bar Dip, entered during plan setup)","planned_sets":[{"target_reps":7,"rest_seconds_before":180,"added_weight_kg":0.0}]}',
+        '{"date":"2026-02-24","bodyweight_kg":80.0,"grip":"standard","session_type":"S","exercise_id":"dip","completed_sets":[{"actual_reps":3,"rest_seconds_before":60,"added_weight_kg":0.0,"rir_reported":4},{"actual_reps":3,"rest_seconds_before":60,"added_weight_kg":0.0,"rir_reported":4},{"actual_reps":3,"rest_seconds_before":60,"added_weight_kg":0.0,"rir_reported":4},{"actual_reps":3,"rest_seconds_before":60,"added_weight_kg":0.0,"rir_reported":4},{"actual_reps":3,"rest_seconds_before":60,"added_weight_kg":0.0,"rir_reported":4},{"actual_reps":3,"rest_seconds_before":60,"added_weight_kg":0.0,"rir_reported":4}],"notes":null}',
+        '{"date":"2026-02-25","bodyweight_kg":81.2,"grip":"standard","session_type":"REST","exercise_id":"dip","completed_sets":[],"notes":null}',
+        '{"date":"2026-02-26","bodyweight_kg":81.2,"grip":"standard","session_type":"T","exercise_id":"dip","completed_sets":[{"actual_reps":2,"rest_seconds_before":1,"added_weight_kg":0.0,"rir_reported":3},{"actual_reps":2,"rest_seconds_before":1,"added_weight_kg":0.0,"rir_reported":3},{"actual_reps":2,"rest_seconds_before":1,"added_weight_kg":0.0,"rir_reported":3},{"actual_reps":2,"rest_seconds_before":1,"added_weight_kg":0.0,"rir_reported":3},{"actual_reps":2,"rest_seconds_before":1,"added_weight_kg":0.0,"rir_reported":3},{"actual_reps":2,"rest_seconds_before":1,"added_weight_kg":0.0,"rir_reported":3}],"notes":"All 12 in one set","planned_sets":[{"target_reps":2,"rest_seconds_before":90,"added_weight_kg":0.0},{"target_reps":2,"rest_seconds_before":90,"added_weight_kg":0.0},{"target_reps":2,"rest_seconds_before":90,"added_weight_kg":0.0},{"target_reps":2,"rest_seconds_before":90,"added_weight_kg":0.0},{"target_reps":2,"rest_seconds_before":90,"added_weight_kg":0.0},{"target_reps":2,"rest_seconds_before":90,"added_weight_kg":0.0}],"equipment_snapshot":{"active_item":"PARALLEL_BARS","assistance_kg":0.0}}',
+        '{"date":"2026-02-26","bodyweight_kg":81.2,"grip":"standard","session_type":"TEST","exercise_id":"dip","completed_sets":[{"actual_reps":15,"rest_seconds_before":180,"added_weight_kg":0.0,"rir_reported":1}],"notes":null,"equipment_snapshot":{"active_item":"PARALLEL_BARS","assistance_kg":0.0}}',
+        '{"date":"2026-02-27","bodyweight_kg":81.2,"grip":"standard","session_type":"S","exercise_id":"dip","completed_sets":[{"actual_reps":12,"rest_seconds_before":75,"added_weight_kg":1.0,"rir_reported":4},{"actual_reps":12,"rest_seconds_before":75,"added_weight_kg":1.0,"rir_reported":4},{"actual_reps":12,"rest_seconds_before":75,"added_weight_kg":1.0,"rir_reported":4}],"notes":null,"planned_sets":[{"target_reps":4,"rest_seconds_before":295,"added_weight_kg":1.0},{"target_reps":4,"rest_seconds_before":295,"added_weight_kg":1.0},{"target_reps":4,"rest_seconds_before":295,"added_weight_kg":1.0}],"equipment_snapshot":{"active_item":"PARALLEL_BARS","assistance_kg":0.0}}',
+        '{"date":"2026-02-28","bodyweight_kg":81.2,"grip":"standard","session_type":"REST","exercise_id":"dip","completed_sets":[],"notes":null}',
+        '{"date":"2026-03-01","bodyweight_kg":81.2,"grip":"standard","session_type":"T","exercise_id":"dip","completed_sets":[{"actual_reps":10,"rest_seconds_before":60,"added_weight_kg":1.5,"rir_reported":3}],"notes":null,"equipment_snapshot":{"active_item":"PARALLEL_BARS","assistance_kg":0.0}}',
+    ]) + "\n"
+
+    def _setup(self, tmp_path):
+        import json as _json
+        history_path = tmp_path / "dip_history.jsonl"
+        history_path.write_text(self.DIP_HISTORY)
+        (tmp_path / "profile.json").write_text(_json.dumps(self.PROFILE, indent=2))
+        return history_path
+
+    def _plan_sessions(self, history_path):
+        import json as _json
+        result = runner.invoke(app, [
+            "plan", "--json",
+            "--exercise", "dip",
+            "--history-path", str(history_path),
+        ])
+        assert result.exit_code == 0, result.output
+        data = _json.loads(result.output)
+        return {s["date"]: s for s in data["sessions"]}
+
+    def _prescribed(self, session):
+        from bar_scheduler.cli.views import _fmt_prescribed_sets
+        from types import SimpleNamespace
+        sets = [
+            SimpleNamespace(target_reps=ps["reps"], added_weight_kg=ps["weight_kg"], rest_seconds_before=ps["rest_s"])
+            for ps in session["prescribed_sets"]
+        ]
+        return _fmt_prescribed_sets(sets, session["session_type"])
+
+    def test_skip_backward_1_day_from_20260303(self, tmp_path):
+        import json as _json
+        history_path = self._setup(tmp_path)
+
+        # Capture plan BEFORE skip
+        before = self._plan_sessions(history_path)
+
+        # Backward skip: shift plan -1 day from 2026-03-03
+        result = runner.invoke(app, [
+            "skip",
+            "--history-path", str(history_path),
+            "--exercise", "dip",
+            "--date-from", "2026-03-03",
+            "--days", "-1",
+            "--json",
+        ])
+        assert result.exit_code == 0, result.output
+
+        # Capture plan AFTER skip
+        after = self._plan_sessions(history_path)
+
+        # 2026-03-01 (T session, already logged) — prescription must not change
+        assert after["2026-03-01"]["type"] == before["2026-03-01"]["type"]
+        assert self._prescribed(after["2026-03-01"]) == self._prescribed(before["2026-03-01"])
+
+        # 2026-03-02 — End session: "4, 3×6 / 90s"
+        assert after["2026-03-02"]["type"] == before["2026-03-03"]["type"]
+        assert self._prescribed(after["2026-03-02"]) == self._prescribed(before["2026-03-03"])
+
+        # 2026-03-03 — Str session: "5x4 +1.0kg / 235s"
+        assert after["2026-03-03"]["type"] == before["2026-03-04"]["type"]
+        assert self._prescribed(after["2026-03-03"]) == self._prescribed(before["2026-03-04"])

@@ -515,7 +515,7 @@ class TestSkipForwardExpected:
         runner = CliRunner()
         history_path = tmp_path / "pull_up_history.jsonl"
         runner.invoke(app, [
-            "init", "--exercise", "pull_up",
+            "profile", "init", "--exercise", "pull_up",
             "--history-path", str(history_path),
             "--height-cm", "180", "--sex", "male",
             "--days-per-week", "3", "--bodyweight-kg", "80",
@@ -1389,7 +1389,7 @@ class TestSkipBackwardExpected:
         runner = CliRunner()
         history_path = tmp_path / "pull_up_history.jsonl"
         runner.invoke(app, [
-            "init", "--exercise", "pull_up",
+            "profile", "init", "--exercise", "pull_up",
             "--history-path", str(history_path),
             "--height-cm", "180", "--sex", "male",
             "--days-per-week", "3", "--bodyweight-kg", "80",

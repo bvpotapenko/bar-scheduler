@@ -23,8 +23,14 @@ from .. import views
 from ..app import ExerciseOption, app, get_store
 from ...core.i18n import available_languages, t
 
+profile_app = typer.Typer(
+    name="profile",
+    help="Profile management: init, language, bodyweight, equipment.",
+    no_args_is_help=True,
+)
 
-@app.command()
+
+@profile_app.command("init")
 def init(
     history_path: Annotated[
         Optional[Path],
@@ -234,11 +240,11 @@ def init(
         views.print_info(t("profile.training_max", tm=tm))
 
 
-@app.command("update-weight")
+@profile_app.command("update-weight")
 def update_weight(
     bodyweight_kg: Annotated[
         float,
-        typer.Option("--bodyweight-kg", "-w", help="New bodyweight in kg"),
+        typer.Argument(help="New bodyweight in kg"),
     ],
     history_path: Annotated[
         Optional[Path],
@@ -268,25 +274,13 @@ def update_weight(
     views.print_success(t("profile.updated_bodyweight", value=bodyweight_kg))
 
 
-@app.command("update-equipment")
-def update_equipment_cmd(
-    exercise_id: ExerciseOption = "pull_up",
-) -> None:
-    """
-    Update equipment for an exercise.
-
-    Shows current equipment, asks what changed, and records a new entry in
-    the equipment history. If effective load changes ≥ 10%, shows an
-    adjustment recommendation for your next session.
-
-    Example:
-        bar-scheduler update-equipment --exercise pull_up
-    """
+def _menu_update_equipment(exercise_id: str = "pull_up") -> None:
+    """Interactive equipment update helper — called from the menu and CLI command."""
     store = get_store(None)
     if not store.profile_path.exists():
         views.print_error(t("error.profile_not_found", path=store.profile_path))
         views.print_info(t("error.run_init_profile"))
-        raise typer.Exit(1)
+        return
 
     existing = store.load_current_equipment(exercise_id)
     exercise = get_exercise(exercise_id)
@@ -322,6 +316,23 @@ def update_equipment_cmd(
 
     store.update_equipment(new_state)
     views.print_success(t("equipment.updated", exercise_name=exercise.display_name))
+
+
+@profile_app.command("update-equipment")
+def update_equipment_cmd(
+    exercise_id: ExerciseOption = "pull_up",
+) -> None:
+    """
+    Update equipment for an exercise.
+
+    Shows current equipment, asks what changed, and records a new entry in
+    the equipment history. If effective load changes ≥ 10%, shows an
+    adjustment recommendation for your next session.
+
+    Example:
+        bar-scheduler profile update-equipment --exercise pull_up
+    """
+    _menu_update_equipment(exercise_id)
 
 
 def _detect_active_exercises() -> list[str]:
@@ -718,5 +729,54 @@ def _menu_update_weight() -> None:
     try:
         store.update_bodyweight(bodyweight_kg)
         views.print_success(t("profile.updated_bodyweight", value=bodyweight_kg))
+    except Exception as e:
+        views.print_error(str(e))
+
+
+@profile_app.command("update-language")
+def update_language_cmd(
+    lang: Annotated[str, typer.Argument(help="Language code: en, ru, zh")],
+) -> None:
+    """Change the display language saved in your profile."""
+    langs = available_languages()
+    if lang not in langs:
+        views.print_error(t("profile.language_error", options="/".join(langs)))
+        raise typer.Exit(1)
+    store = get_store(None)
+    if not store.profile_path.exists():
+        views.print_error(t("error.profile_not_found", path=store.profile_path))
+        views.print_info(t("error.run_init_profile"))
+        raise typer.Exit(1)
+    try:
+        store.update_language(lang)
+        views.print_success(t("profile.updated_language", lang=lang))
+    except Exception as e:
+        views.print_error(str(e))
+        raise typer.Exit(1)
+
+
+def _menu_update_language() -> None:
+    """Interactive language update helper called from the main menu."""
+    store = get_store(None)
+    current_profile = store.load_profile()
+    current_lang = current_profile.language if current_profile else "en"
+    langs = available_languages()
+    options_str = "/".join(langs)
+
+    views.console.print()
+    while True:
+        raw = views.console.input(
+            t("profile.language_prompt", options=options_str, default=current_lang)
+        ).strip().lower()
+        if not raw:
+            views.print_info(t("profile.no_change"))
+            return
+        if raw in langs:
+            break
+        views.print_error(t("profile.language_error", options=options_str))
+
+    try:
+        store.update_language(raw)
+        views.print_success(t("profile.updated_language", lang=raw))
     except Exception as e:
         views.print_error(str(e))

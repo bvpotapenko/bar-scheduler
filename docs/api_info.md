@@ -245,6 +245,60 @@ bar-scheduler plot-max --trajectory --json
 
 ---
 
+## `skip`
+
+Shift the training plan forward or backward by inserting or removing rest days.
+
+```bash
+# Non-interactive (all values as flags):
+bar-scheduler skip --date-from 2026-02-10 --days 3
+bar-scheduler skip --date-from 2026-02-10 --days -2 --exercise dip --json
+
+# Interactive (prompts for from-date and shift amount):
+bar-scheduler skip
+bar-scheduler skip --exercise dip
+```
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--date-from` | `-d` | Start date of shift `YYYY-MM-DD`. Required for non-interactive mode. |
+| `--days` | `-n` | Integer days to shift (positive = forward, negative = backward). Required for non-interactive mode. |
+| `--json` | `-j` | Output result as JSON instead of plain text. Works in both modes. |
+| `--exercise` | `-e` | Exercise ID: `pull_up` (default), `dip`, `bss`. |
+| `--history-path` | `-p` | Path to a non-default history JSONL file. |
+
+When both `--date-from` and `--days` are provided, all interactive prompts are skipped. Providing only one of the two is an error (exit code 1).
+
+### Semantics
+
+- **`--days N` (N > 0)**: inserts N consecutive `REST` records starting at `--date-from` and advances `plan_start_date` by exactly N calendar days. All future sessions shift forward by N days.
+- **`--days N` (N < 0)**: removes REST records in the half-open range `[date_from + N, date_from)` (only records a matching forward skip would have placed) and decreases `plan_start_date` by |N| days. Training logs are never modified.
+- **`--days 0`**: no-op, exits 0.
+
+**Note on backward `from_date`**: to undo a forward skip, set `--date-from` to the day *after* the last REST record you want to remove (the exclusive upper bound of the REST block). Example: a `+3` forward skip from `2026-02-10` inserts REST at 10, 11, 12; `--date-from 2026-02-12 --days -2` removes REST at 10 and 11 (range `[2026-02-10, 2026-02-12)`).
+
+### JSON output (`--json`)
+
+```json
+{
+  "from_date": "2026-02-10",
+  "shift_days": 3,
+  "new_plan_start": "2026-02-13",
+  "rest_records_added": 3,
+  "rest_records_removed": 0
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `from_date` | string | The date the shift was applied from |
+| `shift_days` | int | Days shifted (positive = forward, negative = backward) |
+| `new_plan_start` | string | `plan_start_date` after the operation |
+| `rest_records_added` | int | REST records inserted (`N > 0` only; 0 otherwise) |
+| `rest_records_removed` | int | REST records deleted (`N < 0` only; 0 otherwise) |
+
+---
+
 ## `log-session --json`
 
 Log a session and receive a JSON summary. All interactive prompts still run normally when options are omitted — only the final output is JSON.
@@ -338,8 +392,9 @@ The profile is stored at `~/.bar-scheduler/profile.json`. Key fields:
   "preferred_days_per_week": 3,
   "target_max_reps": 30,
   "current_bodyweight_kg": 82.0,
-  "plan_start_date": "2026-02-20",
-  "exercise_days": { "pull_up": 3, "dip": 4 }
+  "plan_start_dates": { "pull_up": "2026-02-20", "dip": "2026-02-18" },
+  "exercise_days": { "pull_up": 3, "dip": 4 },
+  "language": "ru"
 }
 ```
 
@@ -350,10 +405,13 @@ The profile is stored at `~/.bar-scheduler/profile.json`. Key fields:
 | `preferred_days_per_week` | int | Default training frequency (fallback for exercises not in `exercise_days`) |
 | `target_max_reps` | int | Long-term goal; used by progression formula |
 | `current_bodyweight_kg` | float | Auto-updated after each logged session |
-| `plan_start_date` | string | ISO date when the plan starts; updated by `init` and `skip` |
+| `plan_start_dates` | dict | Per-exercise ISO plan-start dates; updated by `profile init` and `skip` |
 | `exercise_days` | dict | Per-exercise days-per-week overrides; e.g. `{"pull_up": 3, "dip": 4}` |
+| `language` | string | Display language: `"en"` / `"ru"` / `"zh"`; omitted when English (backward compat) |
 
 `exercise_days` is optional. If an exercise is not listed, `preferred_days_per_week` is used as the fallback via `profile.days_for_exercise(exercise_id)`.
+
+The `language` key is omitted when set to `"en"` for backward compatibility. Set it via `bar-scheduler profile update-language <lang>` or the `[l]` menu option.
 
 ---
 

@@ -11,6 +11,7 @@ import typer
 from . import views
 from .app import ExerciseOption, LangOption, app
 from .commands import analysis, planning, profile, sessions  # noqa: F401 — side-effect: registers commands
+app.add_typer(profile.profile_app)
 from ..core.exercises.registry import get_exercise
 from ..core.i18n import available_languages, set_language, t
 
@@ -83,6 +84,7 @@ def main_callback(
         "r": ("1rm",              t("menu.onerepmax")),
         "s": ("skip",             t("menu.skip")),
         "u": ("update-equipment", t("menu.update_equipment")),
+        "l": ("update-language",  t("menu.update_language")),
         "i": ("init",             t("menu.init")),
         "d": ("delete-record",    t("menu.delete_record")),
         "a": ("help-adaptation",  t("menu.help_adaptation")),
@@ -130,7 +132,9 @@ def main_callback(
     elif chosen == "skip":
         ctx.invoke(planning.skip, exercise_id=exercise_id)
     elif chosen == "update-equipment":
-        ctx.invoke(profile.update_equipment_cmd, exercise_id=exercise_id)
+        profile._menu_update_equipment(exercise_id)
+    elif chosen == "update-language":
+        profile._menu_update_language()
     elif chosen == "init":
         profile._menu_init()
     elif chosen == "delete-record":

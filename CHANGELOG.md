@@ -4,7 +4,31 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
-## [Unreleased] — 2026-03-04
+## [0.3.0] — 2026-03-04
+
+### Added (i18n — multilingual interface)
+
+- `core/i18n.py` — `t(key, **kwargs)`, `set_language()`, `available_languages()`; YAML locale files in `src/bar_scheduler/locales/`
+- Three bundled locales: **en** (English), **ru** (Russian), **zh** (Chinese Mandarin)
+- `--lang` / `-l` flag on the root command for per-session language override (does not persist)
+- Language stored in `profile.json` under `"language"` key; omitted when English (backward compat with old profiles)
+- Fallback chain: `--lang` → `profile.json` → `"en"`
+
+### Added (`profile` subcommand group)
+
+All profile-management commands are now grouped under `bar-scheduler profile`:
+
+- `profile init` — create / update user profile
+- `profile update-weight <kg>` — update bodyweight (positional argument, not a flag)
+- `profile update-equipment` — manage training equipment per exercise
+- `profile update-language <lang>` — save display language to `profile.json`
+
+Interactive menu: `[l]` shortcut calls `_menu_update_language()` helper directly.
+`HistoryStore.update_language()` writes / removes the `"language"` key in `profile.json`.
+
+**Breaking change:** `bar-scheduler init`, `bar-scheduler update-weight`, and `bar-scheduler update-equipment` no longer exist as top-level commands. Use `bar-scheduler profile <subcommand>`.
+
+---
 
 ### Fixed (plan prescription stability — retroactive prescription change on session log)
 
@@ -57,7 +81,7 @@ grip rotation stable.
 
 ---
 
-## [Unreleased] — 2026-03-03
+### — 2026-03-03
 
 ### Fixed (backward-skip REST deletion when `plan_start < from_date`)
 
@@ -100,7 +124,7 @@ TestSkipForwardPlanStartOffset.
 
 ---
 
-## [Unreleased] — 2026-03-02
+### — 2026-03-02
 
 ### Fixed (backward-skip no-op when `from_date ≠ plan_start`)
 
@@ -128,7 +152,7 @@ for from_date = plan_start (both formulas agree).
 
 ---
 
-## [Unreleased] — 2026-03-01
+### — 2026-03-01
 
 ### Fixed (forward-skip calendar-day invariant when `plan_start < from_date`)
 
@@ -155,7 +179,7 @@ original pull_up scenario (plan_start == from_date still works).
 
 ---
 
-## [Unreleased] — 2026-02-27
+### — 2026-02-27
 
 ### Fixed (explain accuracy — 6 bugs in `explain_plan_entry()`)
 
@@ -210,7 +234,7 @@ original pull_up scenario (plan_start == from_date still works).
 
 ---
 
-## [Unreleased] — 2026-02-26
+### — 2026-02-26
 
 ### Refactored (codebase cleanup)
 
@@ -245,7 +269,7 @@ original pull_up scenario (plan_start == from_date still works).
 
 ---
 
-## [Unreleased] — 2026-02-24
+### — 2026-02-24
 
 ### Added (task.md completion batch)
 
