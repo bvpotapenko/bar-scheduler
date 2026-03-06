@@ -233,6 +233,43 @@ def log_session(
             except ValueError:
                 views.print_error(t("error.positive_number"))
 
+    # Session type
+    if session_type is None:
+        views.console.print(t("log.session_type_header"))
+        valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "m": "TEST", "r": "REST",
+                       "S": "S", "H": "H", "E": "E", "T": "T", "M": "TEST", "R": "REST",
+                       "TEST": "TEST", "REST": "REST"}
+        while True:
+            raw = views.console.input(t("log.session_type_prompt")).strip() or "S"
+            session_type = valid_types.get(raw.upper(), valid_types.get(raw))
+            if session_type:
+                break
+            views.print_error(t("log.session_type_error"))
+
+    # REST day — save immediately with no sets, no grip prompt
+    if session_type == "REST":
+        grip = grip or exercise.primary_variant
+        session = SessionResult(
+            date=date,
+            bodyweight_kg=bodyweight_kg,
+            grip=grip,  # type: ignore
+            session_type="REST",
+            exercise_id=exercise_id,
+            planned_sets=[],
+            completed_sets=[],
+            notes=notes,
+        )
+        try:
+            store.append_session(session)
+        except ValidationError as e:
+            views.print_error(f"Invalid session data: {e}")
+            raise typer.Exit(1)
+        if json_out:
+            print(json.dumps({"date": date, "session_type": "REST"}))
+        else:
+            views.print_success(t("log.rest_logged", date=date))
+        return
+
     # Grip / variant — show exercise-specific options (skipped for dip: always standard)
     if grip is None:
         if exercise.exercise_id == "dip":
@@ -251,18 +288,6 @@ def log_session(
                 if grip:
                     break
                 views.print_error(t("log.variant_error", count=len(variants)))
-
-    # Session type
-    if session_type is None:
-        views.console.print(t("log.session_type_header"))
-        valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "m": "TEST",
-                       "S": "S", "H": "H", "E": "E", "T": "T", "M": "TEST", "TEST": "TEST"}
-        while True:
-            raw = views.console.input(t("log.session_type_prompt")).strip() or "S"
-            session_type = valid_types.get(raw.upper(), valid_types.get(raw))
-            if session_type:
-                break
-            views.print_error(t("log.session_type_error"))
 
     # Sets
     if sets is None:

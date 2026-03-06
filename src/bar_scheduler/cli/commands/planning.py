@@ -1,4 +1,4 @@
-"""Planning commands: plan, explain, skip, and interactive menu helpers."""
+"""Planning commands: plan, explain, and interactive menu helpers."""
 
 import json
 from datetime import datetime, timedelta
@@ -164,7 +164,6 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
         return
 
     plan_start_date = _resolve_plan_start(store, user_state)
-    history_init_cutoff = store.get_plan_init_cutoff()
     total_weeks = _total_weeks(plan_start_date)
 
     views.console.print()
@@ -184,8 +183,7 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
     if date_input.lower() == "next":
         try:
             plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise,
-                                  overtraining_level=ot_level, overtraining_rest_days=ot_rest,
-                                  history_init_cutoff=history_init_cutoff)
+                                  overtraining_level=ot_level, overtraining_rest_days=ot_rest)
         except ValueError as e:
             views.print_error(str(e))
             return
@@ -203,8 +201,7 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
     result = explain_plan_entry(user_state, plan_start_date, date_input, total_weeks,
                                 exercise=exercise,
                                 overtraining_level=ot_level,
-                                overtraining_rest_days=ot_rest,
-                                history_init_cutoff=history_init_cutoff)
+                                overtraining_rest_days=ot_rest)
     views.console.print()
     views.console.print(result)
     views.console.print()
@@ -266,7 +263,6 @@ def plan(
 
     # Determine where the plan started (set by init; fall back to first history date)
     plan_start_date = _resolve_plan_start(store, user_state)
-    history_init_cutoff = store.get_plan_init_cutoff()
 
     # Generate plan for enough weeks to cover history + ahead
     if weeks is not None:
@@ -289,7 +285,6 @@ def plan(
         plans = generate_plan(
             user_state, plan_start_date, total_weeks, baseline_max,
             exercise=exercise, overtraining_level=overtraining_level,
-            history_init_cutoff=history_init_cutoff,
         )
     except ValueError as e:
         views.print_error(str(e))
@@ -319,8 +314,24 @@ def plan(
         ff = training_status.fitness_fatigue_state
         sessions_json = []
         for e in timeline:
-            plan_type = e.planned.session_type if e.planned else (e.actual.session_type if e.actual else "")
-            plan_grip = e.planned.grip if e.planned else (e.actual.grip if e.actual else "")
+            # For logged sessions, show the actual type/grip (what was done);
+            # for future slots, show the planned type/grip.
+            plan_type = e.actual.session_type if e.actual else (e.planned.session_type if e.planned else "")
+            plan_grip = e.actual.grip if e.actual else (e.planned.grip if e.planned else "")
+            # For logged sessions, prescribed_sets comes from the stored planned_sets
+            # in the actual session record (what was planned when the session was logged).
+            # This keeps the prescription stable across backward skips — the current plan
+            # may generate a different slot at the same date after a shift.
+            if e.actual is not None:
+                prescribed = [
+                    {"reps": ps.target_reps, "weight_kg": ps.added_weight_kg, "rest_s": ps.rest_seconds_before}
+                    for ps in e.actual.planned_sets
+                ] if e.actual.planned_sets else None
+            else:
+                prescribed = [
+                    {"reps": ps.target_reps, "weight_kg": ps.added_weight_kg, "rest_s": ps.rest_seconds_before}
+                    for ps in e.planned.sets
+                ] if e.planned else None
             session_obj: dict = {
                 "date": e.date,
                 "week": e.week_number,
@@ -329,10 +340,7 @@ def plan(
                 "status": e.status,
                 "id": e.actual_id,
                 "expected_tm": e.planned.expected_tm if e.planned else None,
-                "prescribed_sets": [
-                    {"reps": ps.target_reps, "weight_kg": ps.added_weight_kg, "rest_s": ps.rest_seconds_before}
-                    for ps in e.planned.sets
-                ] if e.planned else None,
+                "prescribed_sets": prescribed,
                 "actual_sets": [
                     {"reps": sr.actual_reps, "weight_kg": sr.added_weight_kg, "rest_s": sr.rest_seconds_before}
                     for sr in e.actual.completed_sets
@@ -473,7 +481,6 @@ def explain(
         raise typer.Exit(1)
 
     plan_start_date = _resolve_plan_start(store, user_state)
-    history_init_cutoff = store.get_plan_init_cutoff()
     weeks_ahead_val = weeks if weeks is not None else 4
     total_weeks = _total_weeks(plan_start_date, weeks_ahead_val)
 
@@ -495,8 +502,7 @@ def explain(
     if date.lower() == "next":
         try:
             plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise,
-                                  overtraining_level=ot_level, overtraining_rest_days=ot_rest,
-                                  history_init_cutoff=history_init_cutoff)
+                                  overtraining_level=ot_level, overtraining_rest_days=ot_rest)
         except ValueError as e:
             views.print_error(str(e))
             raise typer.Exit(1)
@@ -512,202 +518,7 @@ def explain(
         ot_level, ot_rest = 0, 0
 
     result = explain_plan_entry(user_state, plan_start_date, date, total_weeks, exercise=exercise,
-                                overtraining_level=ot_level, overtraining_rest_days=ot_rest,
-                                history_init_cutoff=history_init_cutoff)
+                                overtraining_level=ot_level, overtraining_rest_days=ot_rest)
     views.console.print()
     views.console.print(result)
     views.console.print()
-
-
-@app.command()
-def skip(
-    history_path: Annotated[
-        Optional[Path],
-        typer.Option("--history-path", "-p", help="Path to history JSONL file"),
-    ] = None,
-    exercise_id: ExerciseOption = "pull_up",
-    date_from: Annotated[
-        Optional[str],
-        typer.Option("--date-from", "-d", help="Start date of shift YYYY-MM-DD (non-interactive)"),
-    ] = None,
-    shift_days_flag: Annotated[
-        Optional[int],
-        typer.Option("--days", "-n", help="Days to shift; negative = shift backward (non-interactive)"),
-    ] = None,
-    json_out: Annotated[
-        bool,
-        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
-    ] = False,
-) -> None:
-    """
-    Add or remove rest days to shift the training plan forward or backward.
-
-    Adding N rest days pushes future sessions forward by N days.
-    Using a negative number removes rest days, undoing a previous shift.
-
-    Provide both --date-from and --days to run non-interactively.
-    """
-    # Validate non-interactive flag pairing
-    if (date_from is None) != (shift_days_flag is None):
-        views.print_error("--date-from and --days must be provided together")
-        raise typer.Exit(1)
-
-    store = get_store(history_path, exercise_id)
-
-    if not store.exists():
-        views.print_error(t("error.history_not_found", path=store.history_path))
-        views.print_info(t("error.run_init_first"))
-        raise typer.Exit(1)
-
-    plan_start_date = store.get_plan_start_date()
-    if plan_start_date is None:
-        views.print_error(t("plan.no_plan_start"))
-        raise typer.Exit(1)
-
-    user_state = store.load_user_state()
-    exercise = get_exercise(exercise_id)
-
-    non_interactive = date_from is not None
-
-    if non_interactive:
-        from_date = date_from
-        try:
-            datetime.strptime(from_date, "%Y-%m-%d")
-        except ValueError:
-            views.print_error(t("error.invalid_date", date=from_date))
-            raise typer.Exit(1)
-        shift_days = shift_days_flag
-    else:
-        # Build the current plan to find missed sessions for the default from-date
-        total_weeks = _total_weeks(plan_start_date)
-        try:
-            plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise)
-        except ValueError:
-            plans = []
-
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        timeline = views.build_timeline(plans, user_state.history)
-        missed = [e for e in timeline if e.status == "missed" and e.date < today_str]
-        missed.sort(key=lambda e: e.date, reverse=True)
-        default_from = missed[0].date if missed else today_str
-
-        # Prompt for from-date
-        views.console.print()
-        from_input = views.console.input(t("plan.shift_from_prompt", default=default_from)).strip()
-        from_date = from_input if from_input else default_from
-        try:
-            datetime.strptime(from_date, "%Y-%m-%d")
-        except ValueError:
-            views.print_error(t("error.invalid_date", date=from_date))
-            raise typer.Exit(1)
-
-        # Prompt for shift days (positive = forward, negative = backward)
-        days_input = views.console.input(t("plan.shift_days_prompt")).strip()
-        try:
-            shift_days = int(days_input) if days_input else 0
-        except ValueError:
-            views.print_error(t("error.invalid_number", value=days_input))
-            raise typer.Exit(1)
-
-    if shift_days == 0:
-        if json_out:
-            print(json.dumps({
-                "from_date": from_date,
-                "shift_days": 0,
-                "new_plan_start": plan_start_date,
-                "rest_records_added": 0,
-                "rest_records_removed": 0,
-            }, indent=2))
-        else:
-            views.print_info(t("plan.no_change"))
-        raise typer.Exit(0)
-
-    rest_records_added = 0
-    rest_records_removed = 0
-
-    if shift_days > 0:
-        # Add N consecutive REST records starting from from_date
-        bw = user_state.current_bodyweight_kg
-        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
-        for i in range(shift_days):
-            rest_date = (from_dt + timedelta(days=i)).strftime("%Y-%m-%d")
-            rest_session = SessionResult(
-                date=rest_date,
-                bodyweight_kg=bw,
-                grip=exercise.primary_variant,
-                session_type="REST",
-                exercise_id=exercise_id,
-                planned_sets=[],
-                completed_sets=[],
-            )
-            store.append_session(rest_session)
-        rest_records_added = shift_days
-        # Shift plan anchor by exactly N calendar days.
-        # Do NOT rely on auto-advance (last_REST+1): when plan_start < from_date,
-        # auto-advance would jump plan_start by more than N days.
-        old_plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-        new_plan_start = (old_plan_start_dt + timedelta(days=shift_days)).strftime("%Y-%m-%d")
-        store.set_plan_start_date(new_plan_start)
-        store.set_plan_init_cutoff(new_plan_start)
-        sign = "+"
-    else:
-        # Backward skip: two separate computations.
-        #
-        # 1. new_plan_start = plan_start + shift_days  (plan_start-relative)
-        #    Guarantees plan anchor shifts by exactly |shift_days| calendar days,
-        #    regardless of the gap between from_date and plan_start.
-        #
-        # 2. REST removal range = [from_date + shift_days, from_date)  (from_date-relative)
-        #    Removes only REST records that a matching forward skip from from_date
-        #    would have placed.  Records before (from_date + shift_days) are ALWAYS
-        #    preserved — even if they happen to be between new_plan_start and from_date.
-        #
-        # Bug history: using plan_start + shift_days as the removal lower bound caused
-        # pre-existing REST records (placed before from_date + shift_days) to be deleted
-        # whenever plan_start < from_date.
-        plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
-        new_plan_start_dt = plan_start_dt + timedelta(days=shift_days)   # plan anchor
-        new_plan_start = new_plan_start_dt.strftime("%Y-%m-%d")
-        rest_lower_dt = from_dt + timedelta(days=shift_days)             # REST removal lower bound
-        rest_lower_str = rest_lower_dt.strftime("%Y-%m-%d")
-
-        # Remove plan-REST records in [from_date + shift_days, from_date).
-        # Never touch training sessions the user explicitly logged (session_type != "REST").
-        all_history = store.load_history()
-        gap_rest = [
-            (i, s) for i, s in enumerate(all_history)
-            if s.session_type == "REST"
-            and rest_lower_str <= s.date < from_date
-        ]
-        for idx, _ in sorted(gap_rest, key=lambda x: x[0], reverse=True):
-            store.delete_session_at(idx)
-        rest_records_removed = len(gap_rest)
-
-        # Set plan anchor to new_plan_start (clamp: not before first training session)
-        non_rest = [s for s in store.load_history() if s.session_type != "REST"]
-        if non_rest:
-            first_training = min(s.date for s in non_rest)
-            if new_plan_start < first_training:
-                new_plan_start = first_training
-        # Freeze history cutoff at old plan_start before retreating the anchor.
-        # This keeps effective_init stable: sessions in [new_plan_start, plan_start)
-        # remain in the pre-plan history used for TM/rotation initialisation.
-        if store.get_plan_init_cutoff() is None:
-            store.set_plan_init_cutoff(plan_start_date)
-        store.set_plan_start_date(new_plan_start)
-        sign = ""
-
-    if json_out:
-        print(json.dumps({
-            "from_date": from_date,
-            "shift_days": shift_days,
-            "new_plan_start": new_plan_start,
-            "rest_records_added": rest_records_added,
-            "rest_records_removed": rest_records_removed,
-        }, indent=2))
-    else:
-        day_word = t("plan.day") if abs(shift_days) == 1 else t("plan.days")
-        views.print_success(
-            t("plan.shifted", sign=sign, days=abs(shift_days), day_word=day_word, from_date=from_date)
-        )

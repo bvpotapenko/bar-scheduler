@@ -2425,30 +2425,33 @@ class TestOvertrain:
 
     def test_level_1_mild(self):
         """2 sessions 4 days apart at 3×/week → mild overtraining (level 1)."""
+        from datetime import datetime as _dt
         from bar_scheduler.core.adaptation import overtraining_severity
         # n=2, expected = 2 × (7/3) ≈ 4.67 days; span_days=4; actual=4
         # extra = max(0, round(4.67 - 4)) = max(0, round(0.67)) = 1 → level 1
         sessions = self._make_sessions(["2026-02-23", "2026-02-27"])
-        result = overtraining_severity(sessions, days_per_week=3)
+        result = overtraining_severity(sessions, days_per_week=3, reference_date=_dt(2026, 2, 28))
         assert result["level"] == 1, f"Expected level 1, got {result}"
         assert result["extra_rest_days"] == 1
 
     def test_level_2_moderate(self):
         """3 sessions compressed into 2 days at 3×/week → level 2."""
+        from datetime import datetime as _dt
         from bar_scheduler.core.adaptation import overtraining_severity
         # span_days=2, n=3, expected=7 days, extra=round(7-2)=5 → level 3
         # For level 2: extra in [2,3]. 3 sessions, 3×/week: expected=7, actual≈4-5
         sessions = self._make_sessions(["2026-02-23", "2026-02-25", "2026-02-27"])
-        result = overtraining_severity(sessions, days_per_week=3)
+        result = overtraining_severity(sessions, days_per_week=3, reference_date=_dt(2026, 2, 28))
         # span_days=4, expected=7, extra=round(7-4)=3 → level 2
         assert result["level"] == 2, f"Expected level 2, got {result}"
         assert 2 <= result["extra_rest_days"] <= 3
 
     def test_level_3_severe(self):
         """3 sessions in 1 day at 3×/week → level 3 (all same date)."""
+        from datetime import datetime as _dt
         from bar_scheduler.core.adaptation import overtraining_severity
         sessions = self._make_sessions(["2026-02-27", "2026-02-27", "2026-02-27"])
-        result = overtraining_severity(sessions, days_per_week=3)
+        result = overtraining_severity(sessions, days_per_week=3, reference_date=_dt(2026, 2, 28))
         assert result["level"] == 3, f"Expected level 3, got {result}"
         # span_days=0 → actual=max(0,1)=1; expected=7; extra=round(7-1)=6
         assert result["extra_rest_days"] == 6
@@ -2473,9 +2476,10 @@ class TestOvertrain:
 
     def test_description_format(self):
         """Description string contains session count and day count."""
+        from datetime import datetime as _dt
         from bar_scheduler.core.adaptation import overtraining_severity
         sessions = self._make_sessions(["2026-02-27", "2026-02-27", "2026-02-27"])
-        result = overtraining_severity(sessions, days_per_week=3)
+        result = overtraining_severity(sessions, days_per_week=3, reference_date=_dt(2026, 2, 28))
         desc = result["description"]
         assert "3" in desc, f"Session count (3) must be in description: {desc!r}"
         assert "day" in desc.lower(), f"'day' must appear in description: {desc!r}"
@@ -2515,12 +2519,13 @@ class TestOvertrain:
 
     def test_description_uses_inclusive_days(self):
         """Description day count is inclusive (span_days + 1), not exclusive."""
+        from datetime import datetime as _dt
         from bar_scheduler.core.adaptation import overtraining_severity
 
         # 2 sessions on 02.24 and 02.26: span_days = 2, inclusive = 3 days
         # Expected description: "2 sessions in 3 days"
         sessions = self._make_sessions(["2026-02-24", "2026-02-26"])
-        result = overtraining_severity(sessions, days_per_week=3)
+        result = overtraining_severity(sessions, days_per_week=3, reference_date=_dt(2026, 2, 28))
         desc = result["description"]
         # Inclusive count: Feb 24 to Feb 26 = 3 calendar days (24, 25, 26)
         assert "3" in desc, f"Inclusive day count (3) must appear in: {desc!r}"
@@ -2528,11 +2533,12 @@ class TestOvertrain:
 
     def test_description_same_day_is_one_day(self):
         """Two sessions on the same date → description says '1 day' (inclusive)."""
+        from datetime import datetime as _dt
         from bar_scheduler.core.adaptation import overtraining_severity
 
         # span_days=0, inclusive=1
         sessions = self._make_sessions(["2026-02-27", "2026-02-27"])
-        result = overtraining_severity(sessions, days_per_week=3)
+        result = overtraining_severity(sessions, days_per_week=3, reference_date=_dt(2026, 2, 28))
         desc = result["description"]
         assert "1 day" in desc, f"Expected '1 day' in: {desc!r}"
 

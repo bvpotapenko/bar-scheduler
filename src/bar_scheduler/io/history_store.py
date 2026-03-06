@@ -119,41 +119,6 @@ class HistoryStore:
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def get_plan_init_cutoff(self) -> str | None:
-        """
-        Return the history cutoff date used for plan initial-state computation.
-
-        Unlike plan_start_date, this value is stable across backward skips: it only
-        advances (on forward skip) and never retreats.  When None, _plan_core falls
-        back to plan_start_date.
-
-        Returns:
-            ISO date string or None if not explicitly stored
-        """
-        if not self.profile_path.exists():
-            return None
-        try:
-            with open(self.profile_path, "r") as f:
-                data = json.load(f)
-            return data.get("plan_init_cutoffs", {}).get(self.exercise_id)
-        except (json.JSONDecodeError, KeyError):
-            return None
-
-    def set_plan_init_cutoff(self, date: str) -> None:
-        """
-        Store the plan init cutoff date for this exercise.
-
-        Args:
-            date: ISO date string (YYYY-MM-DD)
-        """
-        if not self.profile_path.exists():
-            return
-        with open(self.profile_path, "r") as f:
-            data = json.load(f)
-        data.setdefault("plan_init_cutoffs", {})[self.exercise_id] = date
-        with open(self.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
-
     def get_plan_weeks(self) -> int | None:
         """Return the last user-specified plan horizon in weeks, or None if never set."""
         if not self.profile_path.exists():

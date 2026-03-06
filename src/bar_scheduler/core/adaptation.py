@@ -336,6 +336,7 @@ def overtraining_severity(
     history: list[SessionResult],
     days_per_week: int = 3,
     full_history: list[SessionResult] | None = None,
+    reference_date: "datetime | None" = None,
 ) -> dict:
     """
     Assess how much the user has overcompressed their recent training load.
@@ -363,8 +364,8 @@ def overtraining_severity(
     if not history:
         return _empty
 
-    latest = datetime.strptime(history[-1].date, "%Y-%m-%d")
-    cutoff = latest - timedelta(days=6)  # 7-day window inclusive
+    ref = (reference_date or datetime.now()).replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = ref - timedelta(days=6)  # 7-day window ending today
 
     recent = [
         s for s in history

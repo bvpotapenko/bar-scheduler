@@ -82,7 +82,6 @@ def main_callback(
         "7": ("volume",           t("menu.volume")),
         "e": ("explain",          t("menu.explain")),
         "r": ("1rm",              t("menu.onerepmax")),
-        "s": ("skip",             t("menu.skip")),
         "u": ("update-equipment", t("menu.update_equipment")),
         "l": ("update-language",  t("menu.update_language")),
         "i": ("init",             t("menu.init")),
@@ -129,8 +128,6 @@ def main_callback(
         planning._menu_explain(exercise_id)
     elif chosen == "1rm":
         ctx.invoke(analysis.onerepmax, exercise_id=exercise_id)
-    elif chosen == "skip":
-        ctx.invoke(planning.skip, exercise_id=exercise_id)
     elif chosen == "update-equipment":
         profile._menu_update_equipment(exercise_id)
     elif chosen == "update-language":
