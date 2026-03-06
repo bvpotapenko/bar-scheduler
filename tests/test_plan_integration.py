@@ -1138,3 +1138,108 @@ class TestExplainNoOvertrain:
             f"Near date {near_date} must be within cutoff {cutoff_str}: effective_ot_rest={effective_near}"
         )
 
+
+# ===========================================================================
+# 16. REST day shifts planned session types
+# ===========================================================================
+
+class TestRestDaySessionTypeShift:
+    """
+    REST day logged for a planned training slot must shift subsequent session
+    types so the skipped type is not lost.
+
+    Setup: 4-day pull_up plan (schedule [S, H, T, E]).
+      history: TEST(02-28, max=12), S(03-01)
+      plan_start: 2026-03-02 (Monday)
+      last non-REST = S → rotation starts at H
+      planned slots: 03-02(H), 03-03(T), 03-05(E), 03-07(S)
+
+    After logging REST on 03-02 (the H slot):
+      expected slots: 03-03(H), 03-05(T), 03-07(E)
+    """
+
+    def _make_training_session(self, date: str, session_type: str) -> SessionResult:
+        return SessionResult(
+            date=date, bodyweight_kg=80.0, grip="pronated",
+            session_type=session_type, exercise_id="pull_up",
+            planned_sets=[], completed_sets=[
+                SetResult(target_reps=5, actual_reps=5,
+                          rest_seconds_before=180, added_weight_kg=0.0),
+            ],
+        )
+
+    def _make_rest(self, date: str) -> SessionResult:
+        return SessionResult(
+            date=date, bodyweight_kg=80.0, grip="pronated",
+            session_type="REST", exercise_id="pull_up",
+            planned_sets=[], completed_sets=[],
+        )
+
+    def _base_history(self):
+        return [
+            _make_test_session("2026-02-28", 12),           # last TEST (2 days before plan_start)
+            self._make_training_session("2026-03-01", "S"),  # last training = S → next = H
+        ]
+
+    def test_without_rest_slot1_is_H_slot2_is_T(self):
+        """Baseline: no REST, 4-day plan starts with H then T."""
+        user_state = _make_user_state(days_per_week=4, history=self._base_history())
+        plans = generate_plan(user_state, "2026-03-02", weeks_ahead=1)
+
+        plan_map = {p.date: p.session_type for p in plans}
+        assert plan_map.get("2026-03-02") == "H", (
+            f"slot1 (03-02) must be H, got {plan_map.get('2026-03-02')}"
+        )
+        assert plan_map.get("2026-03-03") == "T", (
+            f"slot2 (03-03) must be T, got {plan_map.get('2026-03-03')}"
+        )
+
+    def test_rest_on_slot1_removes_it_from_plan(self):
+        """REST-covered date must not appear as a planned session."""
+        history = self._base_history() + [self._make_rest("2026-03-02")]
+        user_state = _make_user_state(days_per_week=4, history=history)
+        plans = generate_plan(user_state, "2026-03-02", weeks_ahead=1)
+
+        plan_dates = {p.date for p in plans}
+        assert "2026-03-02" not in plan_dates, (
+            "REST-covered date 03-02 must not appear in the plan"
+        )
+
+    def test_rest_on_slot1_shifts_slot2_type_to_H(self):
+        """After REST on slot1 (H), slot2 must receive H (not T)."""
+        history = self._base_history() + [self._make_rest("2026-03-02")]
+        user_state = _make_user_state(days_per_week=4, history=history)
+        plans = generate_plan(user_state, "2026-03-02", weeks_ahead=1)
+
+        plan_map = {p.date: p.session_type for p in plans}
+        assert plan_map.get("2026-03-03") == "H", (
+            f"After REST on slot1, slot2 (03-03) must be H (not T), got {plan_map.get('2026-03-03')}"
+        )
+
+    def test_rest_on_slot1_slot3_becomes_T(self):
+        """After REST on slot1 (H), slot3 must be T (shifted down one)."""
+        history = self._base_history() + [self._make_rest("2026-03-02")]
+        user_state = _make_user_state(days_per_week=4, history=history)
+        plans = generate_plan(user_state, "2026-03-02", weeks_ahead=1)
+
+        plan_map = {p.date: p.session_type for p in plans}
+        assert plan_map.get("2026-03-05") == "T", (
+            f"After REST on slot1, slot3 (03-05) must be T, got {plan_map.get('2026-03-05')}"
+        )
+
+    def test_two_consecutive_rest_days_shift_types_by_two(self):
+        """REST on both slot1 (H) and slot2 (T) shifts slot3 to H."""
+        history = self._base_history() + [
+            self._make_rest("2026-03-02"),
+            self._make_rest("2026-03-03"),
+        ]
+        user_state = _make_user_state(days_per_week=4, history=history)
+        plans = generate_plan(user_state, "2026-03-02", weeks_ahead=1)
+
+        plan_map = {p.date: p.session_type for p in plans}
+        assert "2026-03-02" not in plan_map, "slot1 (REST) must not be in plan"
+        assert "2026-03-03" not in plan_map, "slot2 (REST) must not be in plan"
+        assert plan_map.get("2026-03-05") == "H", (
+            f"After 2 REST days, slot3 (03-05) must be H, got {plan_map.get('2026-03-05')}"
+        )
+

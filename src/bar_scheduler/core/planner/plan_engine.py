@@ -174,6 +174,20 @@ def _plan_core(
     session_dates = calculate_session_days(
         start, days_per_week, weeks_ahead, start_rotation_idx
     )
+
+    # REST records do not consume a rotation slot. Remove any REST-covered dates
+    # from the planned calendar and reassign session types so the sequence is
+    # continuous (e.g. resting on the H slot makes the next planned day H, not T).
+    rest_covered = {
+        s.date for s in user_state.history
+        if s.exercise_id == exercise.exercise_id and s.session_type == "REST"
+    }
+    if rest_covered:
+        schedule_rotated = schedule[start_rotation_idx:] + schedule[:start_rotation_idx]
+        sched_len = len(schedule)
+        remaining = [(d, t) for d, t in session_dates if d.strftime("%Y-%m-%d") not in rest_covered]
+        session_dates = [(d, schedule_rotated[i % sched_len]) for i, (d, t) in enumerate(remaining)]
+
     session_dates = _insert_test_sessions(
         session_dates, history, exercise.test_frequency_weeks, start
     )
