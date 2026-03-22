@@ -20,7 +20,7 @@ from ..core.max_estimator import estimate_max_reps_from_session
 from ..core.metrics import session_avg_rest, session_max_reps, session_total_reps
 from ..core.models import EquipmentState, ExerciseTarget, SessionPlan, SessionResult, TrainingStatus, UserState
 
-TimelineStatus = Literal["done", "missed", "next", "planned", "extra", "rested"]
+TimelineStatus = Literal["done", "missed", "next", "planned", "extra"]
 
 
 @dataclass
@@ -62,10 +62,9 @@ def build_timeline(
     # Stable week-number anchor: Monday of the week containing the first real session.
     # Anchoring to Monday means Mon-Sun calendar weeks stay together (e.g. sessions
     # on Mon 03.02 and Wed 03.04 both appear as "week 3", not split across weeks).
-    real_history = [s for s in history if s.session_type != "REST"]
     first_date: datetime | None = (
-        datetime.strptime(min(s.date for s in real_history), "%Y-%m-%d")
-        if real_history else None
+        datetime.strptime(min(s.date for s in history), "%Y-%m-%d")
+        if history else None
     )
     first_monday: datetime | None = (
         first_date - timedelta(days=first_date.weekday()) if first_date is not None else None
@@ -106,7 +105,7 @@ def build_timeline(
 
         # Determine status — "next" is assigned by the second pass below
         if matched is not None:
-            status: TimelineStatus = "rested" if matched.session_type == "REST" else "done"
+            status: TimelineStatus = "done"
         elif plan.date < today:
             status = "missed"
         else:
@@ -246,7 +245,7 @@ _GRIP_ABBR: dict[str, str] = {
     "deficit": "Def", "front_foot_elevated": "FFE",
 }
 _TYPE_DISPLAY: dict[str, str] = {
-    "TEST": "TST", "S": "Str", "H": "Hpy", "E": "End", "T": "Tec", "REST": "Rest",
+    "TEST": "TST", "S": "Str", "H": "Hpy", "E": "End", "T": "Tec",
 }
 
 
@@ -254,9 +253,7 @@ def _fmt_date_cell(date_str: str, status: TimelineStatus) -> str:
     """Format status icon + date as a single compact cell: '> 02.18(Tue)'."""
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     date_part = dt.strftime("%m.%d(%a)")
-    icon = {"done": "✓", "missed": "—", "next": ">", "planned": " ", "extra": "·", "rested": "~"}[
-        status
-    ]
+    icon = {"done": "✓", "missed": "—", "next": ">", "planned": " ", "extra": "·"}[status]
     return f"{icon} {date_part}"
 
 
@@ -356,11 +353,11 @@ def _print_band_progression(exercise_id: str, history: list[SessionResult], equi
 def print_unified_plan(
     entries: list[TimelineEntry],
     status: TrainingStatus,
+    exercise_id: str,
     title: str | None = None,
     exercise_target: ExerciseTarget | None = None,
     equipment_state: EquipmentState | None = None,
     history: list[SessionResult] | None = None,
-    exercise_id: str = "pull_up",
     bodyweight_kg: float | None = None,
 ) -> None:
     """
@@ -441,19 +438,12 @@ def print_unified_plan(
         type_str = _TYPE_DISPLAY.get(raw_type, raw_type[:3] if raw_type else "")
         grip_str = _GRIP_ABBR.get(raw_grip, raw_grip[:3].capitalize() if raw_grip else "")
 
-        # REST rows: show the type label but no prescription/actual/eMax content
-        is_rest_row = entry.actual is not None and entry.actual.session_type == "REST"
-
         # For completed sessions: show the historically stored planned_sets
         # (frozen at log time) so past prescriptions are immutable across
         # plan regenerations.  Fall back to the regenerated plan only when
         # no stored prescription is available (e.g. sessions logged without
         # a prior plan).
-        if is_rest_row:
-            prescribed_str = ""
-            actual_str = ""
-            tm_str = ""
-        elif entry.actual and entry.actual.planned_sets:
+        if entry.actual and entry.actual.planned_sets:
             prescribed_str = _fmt_prescribed_sets(
                 entry.actual.planned_sets, entry.actual.session_type
             )
@@ -461,13 +451,12 @@ def print_unified_plan(
             prescribed_str = _fmt_prescribed(entry.planned)
         else:
             prescribed_str = ""
-        if not is_rest_row:
-            actual_str = _fmt_actual(entry.actual) if entry.actual else ""
+        actual_str = _fmt_actual(entry.actual) if entry.actual else ""
 
         # Style for the row
         if entry.status == "next":
             row_style = "bold"
-        elif entry.status in ("done", "rested"):
+        elif entry.status == "done":
             row_style = "dim"
         elif entry.status == "missed":
             row_style = "dim red"

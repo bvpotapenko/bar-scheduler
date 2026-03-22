@@ -88,7 +88,7 @@ def validate_session_type(session_type: str) -> SessionType:
     Raises:
         ValidationError: If session type is invalid
     """
-    valid_types = ("S", "H", "E", "T", "TEST", "REST")
+    valid_types = ("S", "H", "E", "T", "TEST")
     if session_type not in valid_types:
         raise ValidationError(
             f"Invalid session_type: {session_type}. Must be one of {valid_types}"
@@ -361,7 +361,10 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
     validate_grip(data["grip"])
     validate_session_type(data["session_type"])
 
-    # Deserialize equipment snapshot if present (backward compat: absent → None)
+    if "exercise_id" not in data:
+        raise ValidationError("Missing required field: exercise_id")
+
+    # Deserialize equipment snapshot if present (absent → None)
     eq_data = data.get("equipment_snapshot")
     equipment_snapshot = dict_to_equipment_snapshot(eq_data) if eq_data else None
 
@@ -370,7 +373,7 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
         bodyweight_kg=float(data["bodyweight_kg"]),
         grip=data["grip"],
         session_type=data["session_type"],
-        exercise_id=data.get("exercise_id", "pull_up"),
+        exercise_id=data["exercise_id"],
         equipment_snapshot=equipment_snapshot,
         planned_sets=[dict_to_set_result(s) for s in data.get("planned_sets", [])],
         completed_sets=[dict_to_set_result(s) for s in data.get("completed_sets", [])],
@@ -451,16 +454,9 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
     raw_exercise_days = data.get("exercise_days") or {}
     exercise_days = {k: int(v) for k, v in raw_exercise_days.items()}
 
-    # Backward compat: if new exercise_targets key is absent but old target_max_reps
-    # is present, migrate it to a pull_up ExerciseTarget so old profiles keep their goal.
     raw_exercise_targets: dict[str, ExerciseTarget] = {}
-    if data.get("exercise_targets"):
-        for ex_id, v in data["exercise_targets"].items():
-            raw_exercise_targets[ex_id] = dict_to_exercise_target(v)
-    elif "target_max_reps" in data:
-        old_reps = int(data["target_max_reps"])
-        if old_reps > 0:
-            raw_exercise_targets["pull_up"] = ExerciseTarget(reps=old_reps)
+    for ex_id, v in (data.get("exercise_targets") or {}).items():
+        raw_exercise_targets[ex_id] = dict_to_exercise_target(v)
 
     rest_pref = data.get("rest_preference", "normal")
     if rest_pref not in ("short", "normal", "long"):
@@ -472,7 +468,7 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
         preferred_days_per_week=int(data.get("preferred_days_per_week", 3)),
         exercise_days=exercise_days,
         exercise_targets=raw_exercise_targets,
-        exercises_enabled=list(data.get("exercises_enabled", ["pull_up", "dip", "bss"])),
+        exercises_enabled=list(data.get("exercises_enabled", [])),
         max_session_duration_minutes=int(data.get("max_session_duration_minutes", 60)),
         rest_preference=rest_pref,
         injury_notes=str(data.get("injury_notes", "")),

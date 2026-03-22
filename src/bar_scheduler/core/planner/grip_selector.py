@@ -1,15 +1,12 @@
 """Variant / grip rotation management for plan generation."""
 
 from ..exercises.base import ExerciseDefinition
-from ..exercises.registry import get_exercise
 from ..models import Grip, SessionResult, SessionType
-
-PULL_UP = get_exercise("pull_up")
 
 
 def _init_grip_counts(
     history: list[SessionResult],
-    exercise: ExerciseDefinition = PULL_UP,
+    exercise: ExerciseDefinition,
 ) -> dict[str, int]:
     """
     Count past sessions of each type from history for grip rotation.
@@ -22,7 +19,7 @@ def _init_grip_counts(
         return {}
     counts: dict[str, int] = {}
     for s in history:
-        if s.exercise_id == exercise.exercise_id and s.session_type != "REST":
+        if s.exercise_id == exercise.exercise_id:
             counts[s.session_type] = counts.get(s.session_type, 0) + 1
     return counts
 
@@ -30,7 +27,7 @@ def _init_grip_counts(
 def _next_grip(
     session_type: str,
     counts: dict[str, int],
-    exercise: ExerciseDefinition = PULL_UP,
+    exercise: ExerciseDefinition,
 ) -> str:
     """Return next grip/variant for session_type and increment counts in-place."""
     cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
@@ -42,7 +39,7 @@ def _next_grip(
 def select_grip(
     session_type: SessionType,
     history: list[SessionResult],
-    exercise: ExerciseDefinition = PULL_UP,
+    exercise: ExerciseDefinition,
 ) -> Grip:
     """
     Select appropriate grip/variant for a session (one-off lookup).

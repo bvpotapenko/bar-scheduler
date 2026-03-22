@@ -290,24 +290,31 @@ Total reps: 31
 New personal best! Auto-logged TEST (12 reps). TM updated to 10.
 ```
 
-## Skip a Day
+## Refresh Plan After a Break
 
-If you need to delay training without dropping a session, shift the plan forward:
+If you haven't trained for a while and the plan has many past unlogged sessions, use `refresh-plan` to bring it current:
 
 ```bash
-# Skip 1 day (default)
-$ bar-scheduler skip
+$ bar-scheduler refresh-plan
 
-Shift plan start from 2026-02-20 to 2026-02-21? [y/N]: y
-Plan start updated to 2026-02-21.
+Plan anchor reset to 2026-03-22.
+Next session: S on 2026-03-22.
 
-# Skip multiple days without a confirmation prompt
-$ bar-scheduler skip --days 3 --force
-
-Plan start updated to 2026-02-23.
+# Machine-readable output
+$ bar-scheduler refresh-plan --json
+{
+  "plan_start_date": "2026-03-22",
+  "next_session": {
+    "date": "2026-03-22",
+    "session_type": "S",
+    "grip": "pronated"
+  }
+}
 ```
 
-`skip` updates `plan_start_date` in `profile.json`. No history is lost. Also available from the interactive menu via `[s]`.
+`refresh-plan` sets `plan_start_date` to today in `profile.json`. Session-type and grip rotation continue from history — no session is deleted or skipped. All unlogged days before today are implicitly treated as rest. Also available from the interactive menu via `[f]`.
+
+**Scenario: catch up on missed sessions.** If you actually trained on those past days but forgot to log them, log them first with `log-session --date YYYY-MM-DD ...`. Then run `plan` — the plan adapts automatically without needing `refresh-plan`.
 
 ## Estimate 1-Rep Max
 

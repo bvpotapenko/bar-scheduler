@@ -335,27 +335,23 @@ def apply_autoregulation(
 def overtraining_severity(
     history: list[SessionResult],
     days_per_week: int = 3,
-    full_history: list[SessionResult] | None = None,
     reference_date: "datetime | None" = None,
 ) -> dict:
     """
     Assess how much the user has overcompressed their recent training load.
 
-    Looks at the last 7 calendar days of non-REST sessions and compares the
-    actual session density to the expected spacing based on days_per_week.
-
-    REST days that fall within the training span are credited as recovery,
-    reducing the apparent severity.
+    Looks at the last 7 calendar days of sessions and compares the actual
+    session density to the expected spacing based on days_per_week.
+    Unlogged days are implicitly treated as rest — no explicit REST records needed.
 
     Args:
-        history:      Non-REST sessions (training_history in the caller).
+        history:       Training session history.
         days_per_week: User's preferred training frequency.
-        full_history: Full session history including REST records, used to
-                      credit deliberate rest days within the training span.
+        reference_date: Date to use as "today" (defaults to datetime.now()).
 
     Returns:
         level (int):           0=none, 1=mild, 2=moderate, 3=severe
-        sessions (int):        N non-REST sessions found in the last 7 days
+        sessions (int):        N sessions found in the last 7 days
         span_days (int):       calendar days from first to last recent session (exclusive)
         extra_rest_days (int): estimated additional rest days needed
         description (str):     human-readable summary, e.g. "3 sessions in 4 days"
@@ -369,8 +365,7 @@ def overtraining_severity(
 
     recent = [
         s for s in history
-        if s.session_type != "REST"
-        and datetime.strptime(s.date, "%Y-%m-%d") >= cutoff
+        if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff
     ]
     n = len(recent)
     if n < 2:
@@ -379,21 +374,10 @@ def overtraining_severity(
     dates = sorted(datetime.strptime(s.date, "%Y-%m-%d") for s in recent)
     span_days = (dates[-1] - dates[0]).days  # 0 = all on same day
 
-    # Credit REST days that fell within the training span as recovery.
-    rest_in_span = 0
-    if full_history and len(dates) >= 2:
-        span_start, span_end = dates[0], dates[-1]
-        rest_dates_in_span = {
-            s.date for s in full_history
-            if s.session_type == "REST"
-            and span_start <= datetime.strptime(s.date, "%Y-%m-%d") <= span_end
-        }
-        rest_in_span = len(rest_dates_in_span)
-
     # Expected time to complete n sessions at the user's planned frequency
     expected_days = n * (7.0 / max(days_per_week, 1))
-    # Actual elapsed time, crediting deliberate rest days within the span
-    actual_days = max(span_days + rest_in_span, 1)
+    # Actual elapsed time (calendar days between first and last session)
+    actual_days = max(span_days, 1)
     extra = max(0, round(expected_days - actual_days))
 
     if extra == 0:

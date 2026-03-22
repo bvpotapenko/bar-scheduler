@@ -21,7 +21,6 @@ from ..config import (
     expected_reps_per_week,
 )
 from ..exercises.base import ExerciseDefinition
-from ..exercises.registry import get_exercise
 from ..metrics import training_max_from_baseline
 from ..models import (
     PlannedSet,
@@ -46,14 +45,11 @@ from .test_session_inserter import _insert_test_sessions
 from .training_state_calculator import compute_training_state
 from .types import _SessionTrace
 
-PULL_UP = get_exercise("pull_up")
-
-
 def create_synthetic_test_session(
     date: str,
     bodyweight_kg: float,
     baseline_max: int,
-    exercise_id: str = "pull_up",
+    exercise_id: str,
 ) -> SessionResult:
     """
     Create a synthetic TEST session for initialization.
@@ -91,9 +87,9 @@ def create_synthetic_test_session(
 def _plan_core(
     user_state: UserState,
     start_date: str,
+    exercise: ExerciseDefinition,
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
-    exercise: ExerciseDefinition | None = None,
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
@@ -112,13 +108,10 @@ def _plan_core(
 
     Raises ValueError if there is no history and no baseline_max.
     """
-    if exercise is None:
-        exercise = PULL_UP
-
-    # Filter history: this exercise only, REST records excluded (full span of all dates)
+    # Filter history: this exercise only
     history = [
         s for s in user_state.history
-        if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
+        if s.exercise_id == exercise.exercise_id
     ]
 
     if not history and baseline_max is None:
@@ -175,27 +168,14 @@ def _plan_core(
         start, days_per_week, weeks_ahead, start_rotation_idx
     )
 
-    # REST records do not consume a rotation slot. Remove any REST-covered dates
-    # from the planned calendar and reassign session types so the sequence is
-    # continuous (e.g. resting on the H slot makes the next planned day H, not T).
-    rest_covered = {
-        s.date for s in user_state.history
-        if s.exercise_id == exercise.exercise_id and s.session_type == "REST"
-    }
-    if rest_covered:
-        schedule_rotated = schedule[start_rotation_idx:] + schedule[:start_rotation_idx]
-        sched_len = len(schedule)
-        remaining = [(d, t) for d, t in session_dates if d.strftime("%Y-%m-%d") not in rest_covered]
-        session_dates = [(d, schedule_rotated[i % sched_len]) for i, (d, t) in enumerate(remaining)]
-
     session_dates = _insert_test_sessions(
         session_dates, history, exercise.test_frequency_weeks, start
     )
 
-    # Stable week-number anchor: first real (non-REST) session in ALL history
+    # Stable week-number anchor: first session in ALL history for this exercise
     original_history = [
         s for s in user_state.history
-        if s.exercise_id == exercise.exercise_id and s.session_type != "REST"
+        if s.exercise_id == exercise.exercise_id
     ]
     first_date: datetime | None = (
         datetime.strptime(original_history[0].date, "%Y-%m-%d") if original_history else None
@@ -292,7 +272,7 @@ def _plan_core(
         )
 
         # Overtraining protection: adjust the first density_sessions_left sessions
-        if density_sessions_left > 0 and session_type not in ("TEST", "REST"):
+        if density_sessions_left > 0 and session_type != "TEST":
             rest_boost = 30 if overtraining_level == 1 else 60
             adjusted_sets = []
             for ps in sets:
@@ -360,9 +340,9 @@ def _plan_core(
 def generate_plan(
     user_state: UserState,
     start_date: str,
+    exercise: ExerciseDefinition,
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
-    exercise: ExerciseDefinition | None = None,
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
@@ -373,9 +353,9 @@ def generate_plan(
     Args:
         user_state: Current user state with profile and history
         start_date: Start date for the plan (ISO format)
+        exercise: ExerciseDefinition to parameterise the plan
         weeks_ahead: Number of weeks to plan (None = estimate)
         baseline_max: Baseline max if no history
-        exercise: ExerciseDefinition to parameterise the plan (default: PULL_UP)
         overtraining_level: Graduated overtraining protection level (0=none, 1-3)
         overtraining_rest_days: Days to shift training start forward for recovery
                                 (computed from overtraining severity; NOT saved to store)
@@ -384,8 +364,9 @@ def generate_plan(
         List of SessionPlan for the planning horizon
     """
     return [plan for plan, _ in _plan_core(
-        user_state, start_date, weeks_ahead, baseline_max, exercise,
-        overtraining_level, overtraining_rest_days,
+        user_state, start_date, exercise,
+        weeks_ahead=weeks_ahead, baseline_max=baseline_max,
+        overtraining_level=overtraining_level, overtraining_rest_days=overtraining_rest_days,
         history_init_cutoff=history_init_cutoff,
     )]
 
@@ -394,9 +375,9 @@ def explain_plan_entry(
     user_state: UserState,
     plan_start_date: str,
     target_date: str,
+    exercise: ExerciseDefinition,
     weeks_ahead: int | None = None,
     baseline_max: int | None = None,
-    exercise: ExerciseDefinition | None = None,
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
@@ -415,9 +396,9 @@ def explain_plan_entry(
         user_state: Current user state
         plan_start_date: Start date of the plan (ISO)
         target_date: Date of the session to explain (ISO)
+        exercise: ExerciseDefinition to parameterise the plan
         weeks_ahead: Plan horizon (None = estimate)
         baseline_max: Baseline max if no history
-        exercise: ExerciseDefinition (default: PULL_UP)
         overtraining_level: Level from overtraining_severity() (for shift notice)
         overtraining_rest_days: Days the plan start was shifted forward
         history_init_cutoff: Cutoff date for effective_init (stable across backward skips)
@@ -425,13 +406,12 @@ def explain_plan_entry(
     Returns:
         Rich-markup string ready for console.print()
     """
-    if exercise is None:
-        exercise = PULL_UP
     last_weeks_ahead: int | None = None
     try:
         for plan, trace in _plan_core(
-            user_state, plan_start_date, weeks_ahead, baseline_max, exercise,
-            overtraining_level, overtraining_rest_days,
+            user_state, plan_start_date, exercise,
+            weeks_ahead=weeks_ahead, baseline_max=baseline_max,
+            overtraining_level=overtraining_level, overtraining_rest_days=overtraining_rest_days,
             history_init_cutoff=history_init_cutoff,
         ):
             last_weeks_ahead = trace.weeks_ahead
@@ -455,7 +435,7 @@ def explain_plan_entry(
         pass
 
     # Fallback 2: past date found in history → brief session summary
-    ex_id = exercise.exercise_id if exercise else "pull_up"
+    ex_id = exercise.exercise_id
     past_sessions = [
         s for s in user_state.history
         if s.date == target_date and s.exercise_id == ex_id
@@ -483,8 +463,8 @@ def explain_plan_entry(
 
 def estimate_plan_completion_date(
     user_state: UserState,
+    exercise_id: str,
     baseline_max: int | None = None,
-    exercise_id: str = "pull_up",
 ) -> str | None:
     """
     Estimate when the user might reach their target reps goal.
@@ -495,8 +475,12 @@ def estimate_plan_completion_date(
         exercise_id: Which exercise's target to use
 
     Returns:
-        Estimated completion date (ISO format) or None if target reached
+        Estimated completion date (ISO format) or None if target not set or reached
     """
+    exercise_target = user_state.profile.target_for_exercise(exercise_id)
+    if exercise_target is None:
+        return None
+
     status = get_training_status(
         user_state.history,
         user_state.current_bodyweight_kg,
@@ -504,12 +488,10 @@ def estimate_plan_completion_date(
     )
 
     tm = status.training_max
-    target = user_state.profile.target_for_exercise(exercise_id).reps
-
-    if tm >= target:
+    if tm >= exercise_target.reps:
         return None
 
-    weeks = estimate_weeks_to_target(tm, target)
+    weeks = estimate_weeks_to_target(tm, exercise_target.reps)
     estimated_date = datetime.now() + timedelta(weeks=weeks)
 
     return estimated_date.strftime("%Y-%m-%d")

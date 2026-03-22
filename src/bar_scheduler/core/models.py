@@ -7,12 +7,12 @@ to ExerciseDefinition rather than enforced at the model level.
 """
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal
+from typing import Literal
 
 # Grip is now a plain str to support non-pull-up variant names
 # (e.g. "standard", "chest_lean" for dips; "deficit" for BSS).
 Grip = str
-SessionType = Literal["S", "H", "E", "T", "TEST", "REST"]
+SessionType = Literal["S", "H", "E", "T", "TEST"]
 Sex = Literal["male", "female"]
 
 
@@ -132,7 +132,7 @@ class SessionResult:
     bodyweight_kg: float
     grip: Grip  # exercise-specific variant string (e.g. "pronated", "standard")
     session_type: SessionType
-    exercise_id: str = "pull_up"
+    exercise_id: str
     equipment_snapshot: EquipmentSnapshot | None = None  # equipment context at log time
     planned_sets: list[SetResult] = field(default_factory=list)
     completed_sets: list[SetResult] = field(default_factory=list)
@@ -148,7 +148,7 @@ class SessionResult:
 
         # Grip validation is exercise-specific; not enforced here.
 
-        if self.session_type not in ("S", "H", "E", "T", "TEST", "REST"):
+        if self.session_type not in ("S", "H", "E", "T", "TEST"):
             raise ValueError(f"Invalid session_type: {self.session_type}")
 
     @staticmethod
@@ -179,7 +179,7 @@ class SessionPlan:
     date: str  # ISO format: YYYY-MM-DD
     grip: Grip  # exercise-specific variant string
     session_type: SessionType
-    exercise_id: str = "pull_up"
+    exercise_id: str
     sets: list[PlannedSet] = field(default_factory=list)
     expected_tm: int = 0  # Expected training max after completing this session
     week_number: int = 1  # Week number in the plan (1-indexed)
@@ -188,7 +188,7 @@ class SessionPlan:
         """Validate session plan data."""
         SessionResult._validate_date(self.date)
         # Grip validation is exercise-specific; not enforced here.
-        if self.session_type not in ("S", "H", "E", "T", "TEST", "REST"):
+        if self.session_type not in ("S", "H", "E", "T", "TEST"):
             raise ValueError(f"Invalid session_type: {self.session_type}")
 
     @property
@@ -253,33 +253,19 @@ class UserProfile:
     preferred_days_per_week: int = 3  # global fallback (3 or 4)
     exercise_days: dict = field(default_factory=dict)   # {exercise_id: days_per_week}
     exercise_targets: dict = field(default_factory=dict)  # {exercise_id: ExerciseTarget}
-    exercises_enabled: list = field(default_factory=lambda: ["pull_up", "dip", "bss"])
+    exercises_enabled: list = field(default_factory=list)
     max_session_duration_minutes: int = 60
     rest_preference: str = "normal"  # "short" | "normal" | "long"
     injury_notes: str = ""
     language: str = "en"  # ISO 639-1 code; "en" = English (default)
 
-    # Per-exercise default goals used when the user hasn't set an explicit target.
-    _TARGET_DEFAULTS: ClassVar[dict[str, tuple[int, float]]] = {
-        "pull_up": (30, 0.0),
-        "dip":     (40, 0.0),
-        "bss":     (20, 0.0),
-    }
-
     def days_for_exercise(self, exercise_id: str) -> int:
         """Return training days per week for the given exercise."""
         return self.exercise_days.get(exercise_id, self.preferred_days_per_week)
 
-    def target_for_exercise(self, exercise_id: str) -> ExerciseTarget:
-        """Return the user's personal goal for the given exercise.
-
-        Falls back to sensible per-exercise defaults when the user hasn't
-        configured an explicit target (pull_up→30, dip→40, bss→20, all weight=0).
-        """
-        if exercise_id in self.exercise_targets:
-            return self.exercise_targets[exercise_id]
-        reps, weight = self._TARGET_DEFAULTS.get(exercise_id, (30, 0.0))
-        return ExerciseTarget(reps=reps, weight_kg=weight)
+    def target_for_exercise(self, exercise_id: str) -> ExerciseTarget | None:
+        """Return the user's personal goal for the given exercise, or None if not set."""
+        return self.exercise_targets.get(exercise_id)
 
     def is_exercise_enabled(self, exercise_id: str) -> bool:
         """Return True if the exercise is in the enabled list."""

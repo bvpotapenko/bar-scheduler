@@ -23,18 +23,18 @@ uv tool install -e .
 
 | Command | Description |
 |---------|-------------|
-| `profile init` | Create / update profile; set baseline max and training days |
+| `profile init` | Create / update profile; requires `--height-cm`, `--sex`, `--bodyweight-kg` |
 | `profile update-weight 85.5` | Update current bodyweight |
 | `profile update-equipment` | Configure bands, machine, or BSS surface |
 | `profile update-language ru` | Save display language to profile |
 | `plan` | Unified history + upcoming plan table; `--weeks N`; `--json` |
-| `log-session` | Log a completed session |
+| `refresh-plan` | Reset plan anchor to today after a break; `--json` |
+| `log-session` | Log a completed session (one-liner or interactive) |
 | `show-history` | Display training history; `--limit N`; `--json` |
 | `plot-max` | ASCII chart of max reps; `-t z/g/m` trajectory overlays |
 | `status` | Current TM, readiness, plateau/deload flags; `--json` |
 | `volume` | Weekly rep volume chart; `--weeks N`; `--json` |
 | `explain DATE\|next` | Step-by-step breakdown of how a session was planned |
-| `skip` | Shift plan forward/backward N days; `--days N` |
 | `1rm` | Estimate 1-rep max (5 formulas with ★ recommendation) |
 | `delete-record N` | Delete history entry #N |
 | `help-adaptation` | Adaptation timeline: what the model can predict at each stage |
@@ -55,7 +55,7 @@ Run `bar-scheduler` without arguments:
 [7] Weekly volume chart
 [e] Explain how a session was planned
 [r] Estimate 1-rep max
-[s] Rest day — shift plan forward
+[f] Reset plan to today (after a break)
 [u] Update training equipment
 [l] Change display language
 [i] Setup / edit profile & training days

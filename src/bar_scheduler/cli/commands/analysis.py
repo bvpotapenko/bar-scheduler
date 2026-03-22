@@ -216,14 +216,15 @@ def plot_max(
 
         try:
             profile = store.load_profile()
-            ex_target = profile.target_for_exercise(exercise_id)
-            target_weight_kg = ex_target.weight_kg
-            if ex_target.weight_kg > 0:
-                full_load = _bw_load + ex_target.weight_kg
-                one_rm = full_load * (1 + ex_target.reps / 30)
-                traj_target = max(int(round(30 * (one_rm / _bw_load - 1))), 1)
-            else:
-                traj_target = ex_target.reps
+            ex_target = profile.target_for_exercise(exercise_id) if profile else None
+            if ex_target is not None:
+                target_weight_kg = ex_target.weight_kg
+                if ex_target.weight_kg > 0:
+                    full_load = _bw_load + ex_target.weight_kg
+                    one_rm = full_load * (1 + ex_target.reps / 30)
+                    traj_target = max(int(round(30 * (one_rm / _bw_load - 1))), 1)
+                else:
+                    traj_target = ex_target.reps
         except Exception:
             pass
 

@@ -53,7 +53,7 @@ def get_next_session_type_index(
     Returns:
         Index into schedule for the first planned session
     """
-    non_test = [s for s in history if s.session_type not in ("TEST", "REST")]
+    non_test = [s for s in history if s.session_type != "TEST"]
     if not non_test:
         return 0
     last_type = non_test[-1].session_type

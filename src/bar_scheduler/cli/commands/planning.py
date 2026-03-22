@@ -38,20 +38,12 @@ def _total_weeks(plan_start_date: str, weeks_ahead: int = 4) -> int:
     return max(2, min(weeks_since_start + weeks_ahead, MAX_PLAN_WEEKS * 3))
 
 
-def _prompt_baseline(store, bodyweight_kg: float, exercise=None) -> int | None:
+def _prompt_baseline(store, bodyweight_kg: float, exercise) -> int | None:
     """
     Prompt user to enter their baseline max reps when no history exists.
 
-    Uses exercise-specific language if ``exercise`` (an ExerciseDefinition)
-    is provided; defaults to pull-up language otherwise.
-
     Logs a TEST session and returns the rep count, or None if cancelled.
     """
-    from ...core.exercises.pull_up import PULL_UP
-
-    if exercise is None:
-        exercise = PULL_UP
-
     ex_name = exercise.display_name  # e.g. "Pull-Up", "Parallel Bar Dip"
 
     views.console.print()
@@ -153,7 +145,7 @@ def _diff_plan(old: list[dict], new: list[dict]) -> list[str]:
     return changes
 
 
-def _menu_explain(exercise_id: str = "pull_up") -> None:
+def _menu_explain(exercise_id: str) -> None:
     """Interactive explain helper called from the main menu."""
     exercise = get_exercise(exercise_id)
     store = get_store(None, exercise_id)
@@ -170,10 +162,8 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
     date_input = views.console.input(t("plan.explain_date_prompt")).strip() or "next"
 
     # Compute overtraining severity — only applies near-term (see cutoff below)
-    training_history = [s for s in user_state.history if s.session_type != "REST"]
-    ot_severity = overtraining_severity(training_history,
-                                        user_state.profile.preferred_days_per_week,
-                                        full_history=user_state.history)
+    ot_severity = overtraining_severity(user_state.history,
+                                        user_state.profile.preferred_days_per_week)
     ot_level = ot_severity["level"]
     ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
 
@@ -182,7 +172,8 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
 
     if date_input.lower() == "next":
         try:
-            plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise,
+            plans = generate_plan(user_state, plan_start_date, exercise,
+                                  weeks_ahead=total_weeks,
                                   overtraining_level=ot_level, overtraining_rest_days=ot_rest)
         except ValueError as e:
             views.print_error(str(e))
@@ -198,8 +189,8 @@ def _menu_explain(exercise_id: str = "pull_up") -> None:
     if date_input > ot_cutoff:
         ot_level, ot_rest = 0, 0
 
-    result = explain_plan_entry(user_state, plan_start_date, date_input, total_weeks,
-                                exercise=exercise,
+    result = explain_plan_entry(user_state, plan_start_date, date_input, exercise,
+                                weeks_ahead=total_weeks,
                                 overtraining_level=ot_level,
                                 overtraining_rest_days=ot_rest)
     views.console.print()
@@ -272,27 +263,23 @@ def plan(
         weeks_ahead = store.get_plan_weeks() or 4
     total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
-    # Filter out REST records for training analysis
-    training_history = [s for s in user_state.history if s.session_type != "REST"]
-
     # Overtraining detection — check before generating plan so level can be passed in
     days_per_week = user_state.profile.preferred_days_per_week
-    severity = overtraining_severity(training_history, days_per_week,
-                                     full_history=user_state.history)
+    severity = overtraining_severity(user_state.history, days_per_week)
     overtraining_level = severity["level"]
 
     try:
         plans = generate_plan(
-            user_state, plan_start_date, total_weeks, baseline_max,
-            exercise=exercise, overtraining_level=overtraining_level,
+            user_state, plan_start_date, exercise,
+            weeks_ahead=total_weeks, baseline_max=baseline_max,
+            overtraining_level=overtraining_level,
         )
     except ValueError as e:
         views.print_error(str(e))
         raise typer.Exit(1)
 
-    # Get training status (REST records don't count as training sessions)
     training_status = get_training_status(
-        training_history,
+        user_state.history,
         user_state.current_bodyweight_kg,
         baseline_max,
     )
@@ -414,7 +401,7 @@ def plan(
 
     exercise_target = user_state.profile.target_for_exercise(exercise_id)
     goal_reached = False
-    if training_status.latest_test_max is not None and training_status.latest_test_max >= exercise_target.reps:
+    if exercise_target is not None and training_status.latest_test_max is not None and training_status.latest_test_max >= exercise_target.reps:
         if exercise_target.weight_kg == 0.0:
             goal_reached = True
         else:
@@ -487,10 +474,8 @@ def explain(
     # Compute overtraining severity for shift/notice — only relevant for near-term dates.
     # Overtraining is a current-state condition; by the time the user trains 2+ weeks
     # from now it will have resolved, so far-future explains should not show the notice.
-    training_history = [s for s in user_state.history if s.session_type != "REST"]
     days_per_week = user_state.profile.preferred_days_per_week
-    ot_severity = overtraining_severity(training_history, days_per_week,
-                                        full_history=user_state.history)
+    ot_severity = overtraining_severity(user_state.history, days_per_week)
     ot_level = ot_severity["level"]
     ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
 
@@ -501,7 +486,8 @@ def explain(
     # Resolve "next" → first upcoming planned session date
     if date.lower() == "next":
         try:
-            plans = generate_plan(user_state, plan_start_date, total_weeks, exercise=exercise,
+            plans = generate_plan(user_state, plan_start_date, exercise,
+                                  weeks_ahead=total_weeks,
                                   overtraining_level=ot_level, overtraining_rest_days=ot_rest)
         except ValueError as e:
             views.print_error(str(e))
@@ -517,8 +503,70 @@ def explain(
     if date > ot_cutoff:
         ot_level, ot_rest = 0, 0
 
-    result = explain_plan_entry(user_state, plan_start_date, date, total_weeks, exercise=exercise,
+    result = explain_plan_entry(user_state, plan_start_date, date, exercise,
+                                weeks_ahead=total_weeks,
                                 overtraining_level=ot_level, overtraining_rest_days=ot_rest)
     views.console.print()
     views.console.print(result)
     views.console.print()
+
+
+@app.command("refresh-plan")
+def refresh_plan(
+    exercise_id: ExerciseOption = "pull_up",
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output as JSON for machine processing"),
+    ] = False,
+) -> None:
+    """
+    Reset the plan anchor to today.
+
+    Use after a break when unlogged sessions have piled up in the past.
+    The plan resumes from today; session-type rotation and grip rotation
+    continue from where your history left off. All unlogged days before
+    today are implicitly treated as rest.
+    """
+    import json
+
+    exercise = get_exercise(exercise_id)
+    store = get_store(None, exercise_id)
+
+    if not store.exists():
+        views.print_error(t("error.history_not_found", path=store.history_path))
+        views.print_info(t("error.run_init_first"))
+        raise typer.Exit(1)
+
+    try:
+        user_state = store.load_user_state()
+    except Exception as e:
+        views.print_error(str(e))
+        raise typer.Exit(1)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    store.set_plan_start_date(today)
+
+    try:
+        plans = generate_plan(user_state, today, exercise, weeks_ahead=2)
+    except ValueError as e:
+        views.print_error(str(e))
+        raise typer.Exit(1)
+
+    next_session = next((p for p in plans if p.date >= today), None)
+
+    if json_out:
+        print(json.dumps({
+            "plan_start_date": today,
+            "next_session": {
+                "date": next_session.date,
+                "session_type": next_session.session_type,
+                "grip": next_session.grip,
+            } if next_session else None,
+        }, indent=2))
+        return
+
+    views.print_success(t("plan.refreshed_to", date=today))
+    if next_session:
+        views.print_info(t("plan.next_is",
+                           session_type=next_session.session_type,
+                           date=next_session.date))

@@ -1,9 +1,6 @@
 """External load computation for Strength sessions."""
 
 from ..exercises.base import ExerciseDefinition
-from ..exercises.registry import get_exercise
-
-PULL_UP = get_exercise("pull_up")
 
 
 def _apply_rounding(raw: float) -> float:

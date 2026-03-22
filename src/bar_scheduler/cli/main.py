@@ -25,8 +25,8 @@ def _read_language_from_profile() -> str:
     routing is established.
     """
     try:
-        from ..io.history_store import get_default_history_path
-        profile_path = get_default_history_path("pull_up").parent / "profile.json"
+        from ..io.history_store import get_data_dir
+        profile_path = get_data_dir() / "profile.json"
         if profile_path.exists():
             with open(profile_path, encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -65,7 +65,7 @@ def main_callback(
     views.console.print()
     try:
         ex_name = get_exercise(exercise_id).display_name
-        header = t("app.tagline_exercise", exercise_name=ex_name) if exercise_id != "pull_up" else t("app.tagline")
+        header = t("app.tagline_exercise", exercise_name=ex_name)
     except Exception:
         header = t("app.tagline")
     views.console.print(header)
@@ -82,11 +82,13 @@ def main_callback(
         "7": ("volume",           t("menu.volume")),
         "e": ("explain",          t("menu.explain")),
         "r": ("1rm",              t("menu.onerepmax")),
+        "f": ("refresh-plan",     t("menu.refresh_plan")),
         "u": ("update-equipment", t("menu.update_equipment")),
         "l": ("update-language",  t("menu.update_language")),
         "i": ("init",             t("menu.init")),
+        "a": ("add-exercise",     t("menu.add_exercise")),
         "d": ("delete-record",    t("menu.delete_record")),
-        "a": ("help-adaptation",  t("menu.help_adaptation")),
+        "h": ("help-adaptation",  t("menu.help_adaptation")),
         "0": ("quit",             t("menu.quit")),
     }
 
@@ -128,12 +130,16 @@ def main_callback(
         planning._menu_explain(exercise_id)
     elif chosen == "1rm":
         ctx.invoke(analysis.onerepmax, exercise_id=exercise_id)
+    elif chosen == "refresh-plan":
+        ctx.invoke(planning.refresh_plan, exercise_id=exercise_id)
     elif chosen == "update-equipment":
         profile._menu_update_equipment(exercise_id)
     elif chosen == "update-language":
         profile._menu_update_language()
     elif chosen == "init":
         profile._menu_init()
+    elif chosen == "add-exercise":
+        profile._menu_add_exercise(exercise_id)
     elif chosen == "delete-record":
         sessions._menu_delete_record(exercise_id)
     elif chosen == "help-adaptation":

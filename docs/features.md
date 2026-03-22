@@ -53,10 +53,10 @@ This document lists all implemented features grouped by area. Intended for proje
 | 3.12 | Grip rotation across sessions (pronated → neutral → supinated for pull-ups) | automatic |
 | 3.13 | Deload detection: triggers on plateau + low readiness, underperformance, or low compliance | automatic |
 | 3.14 | Plan change notifications — diff printed when plan shifts between runs | `plan` |
-| 3.15 | Plan start date anchored per-exercise in profile. **Forward** `skip` sets `plan_start = old_plan_start + N` (preserves calendar-day invariant even when `plan_start < from_date`). **Backward** `skip` sets `plan_start = plan_start + shift_days` (NOT `from_date + shift_days`; prevents no-op when `from_date > plan_start`). `plan()` does NOT auto-advance plan_start. | `skip` |
+| 3.15 | Plan start date anchored per-exercise in profile. `refresh-plan` sets `plan_start = today`; session-type and grip rotation continue from history. Unlogged days before today are implicitly treated as rest. | `refresh-plan` |
 | 3.16 | Cumulative week numbering from first session in history | automatic |
 | 3.17 | BSS band progression note when next band level is achievable | automatic |
-| 3.18 | Overtraining detection — graduated warning + volume/rest/rep reduction at levels 1–3; first future session shifted forward by extra_rest_days (level ≥2) without writing REST records | automatic, shown before plan |
+| 3.18 | Overtraining detection — graduated warning + volume/rest/rep reduction at levels 1–3; first future session shifted forward by extra_rest_days (level ≥2); gaps between sessions are implicitly treated as rest | automatic, shown before plan |
 | 3.19 | RIR feedback: RIR=4+ sessions accumulate less fatigue than RIR=3 (sub-neutral multiplier); prevents false overtraining warnings for easy sessions | automatic |
 
 ## 4. Plan Explanation
@@ -139,7 +139,7 @@ This document lists all implemented features grouped by area. Intended for proje
 | 10.4 | Actual session shows rest times per-set or as single value when uniform | `plan` |
 | 10.5 | Interactive main menu with numbered/lettered shortcuts | `bar-scheduler` (no args) |
 | 10.6 | JSON output mode for scripting | `--json` on most commands |
-| 10.7 | Skip command to shift the **plan** forward (N>0) or backward (N<0) by N **calendar days**. Forward: inserts N plan-REST records starting at `from_date`, pushing all future sessions later. Backward: removes plan-REST records in the gap `[from_date−N, from_date)` and sets plan anchor to `from_date−N`, pulling future sessions earlier. **Never modifies user-submitted training logs** — only plan-REST records created by `skip` are added/removed; use `delete-record` to modify training logs. Logged training sessions never auto-advance the plan anchor. | `skip` |
+| 10.7 | Refresh plan command: resets plan anchor to today after a break; session-type and grip rotation continue from history. No history is modified. | `refresh-plan` |
 | 10.8 | Plan cache for change detection between runs | automatic |
 | 10.9 | Multilingual UI (i18n): all user-facing strings in YAML locale files; `--lang` flag for per-session override; `language` field in profile for persistent setting; fallback chain: `--lang` → profile → `"en"` | `--lang` flag / `[l]` menu / `profile update-language` |
 | 10.10 | Profile subcommand group: init, update-weight, update-equipment, update-language all under `bar-scheduler profile` | `profile <subcommand>` |

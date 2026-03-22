@@ -82,7 +82,7 @@ def _interactive_sets() -> str:
     return ", ".join(parts)
 
 
-def _menu_delete_record(exercise_id: str = "pull_up") -> None:
+def _menu_delete_record(exercise_id: str) -> None:
     """Interactive delete-session helper called from the main menu."""
     store = get_store(None, exercise_id)
     try:
@@ -208,6 +208,15 @@ def log_session(
         views.print_info(t("error.run_init_first"))
         raise typer.Exit(1)
 
+    # Normalize CLI-provided session_type shortcuts (M→TEST, lowercase aliases)
+    if session_type is not None:
+        _norm = {
+            "m": "TEST", "M": "TEST",
+            "s": "S", "h": "H", "e": "E", "t": "T",
+            "S": "S", "H": "H", "E": "E", "T": "T", "TEST": "TEST",
+        }
+        session_type = _norm.get(session_type, session_type)
+
     # ── Interactive prompts for missing values ──────────────────────────────
 
     # Date
@@ -236,39 +245,15 @@ def log_session(
     # Session type
     if session_type is None:
         views.console.print(t("log.session_type_header"))
-        valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "m": "TEST", "r": "REST",
-                       "S": "S", "H": "H", "E": "E", "T": "T", "M": "TEST", "R": "REST",
-                       "TEST": "TEST", "REST": "REST"}
+        valid_types = {"s": "S", "h": "H", "e": "E", "t": "T", "m": "TEST",
+                       "S": "S", "H": "H", "E": "E", "T": "T", "M": "TEST",
+                       "TEST": "TEST"}
         while True:
             raw = views.console.input(t("log.session_type_prompt")).strip() or "S"
             session_type = valid_types.get(raw.upper(), valid_types.get(raw))
             if session_type:
                 break
             views.print_error(t("log.session_type_error"))
-
-    # REST day — save immediately with no sets, no grip prompt
-    if session_type == "REST":
-        grip = grip or exercise.primary_variant
-        session = SessionResult(
-            date=date,
-            bodyweight_kg=bodyweight_kg,
-            grip=grip,  # type: ignore
-            session_type="REST",
-            exercise_id=exercise_id,
-            planned_sets=[],
-            completed_sets=[],
-            notes=notes,
-        )
-        try:
-            store.append_session(session)
-        except ValidationError as e:
-            views.print_error(f"Invalid session data: {e}")
-            raise typer.Exit(1)
-        if json_out:
-            print(json.dumps({"date": date, "session_type": "REST"}))
-        else:
-            views.print_success(t("log.rest_logged", date=date))
-        return
 
     # Grip / variant — show exercise-specific options (skipped for dip: always standard)
     if grip is None:

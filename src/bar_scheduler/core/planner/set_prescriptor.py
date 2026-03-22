@@ -3,12 +3,9 @@
 from ..adaptation import apply_autoregulation
 from ..config import MIN_SESSIONS_FOR_AUTOREG, endurance_volume_multiplier
 from ..exercises.base import ExerciseDefinition, SessionTypeParams
-from ..exercises.registry import get_exercise
 from ..models import PlannedSet, SessionResult, SessionType
 from .load_calculator import _calculate_added_weight
 from .rest_advisor import calculate_adaptive_rest
-
-PULL_UP = get_exercise("pull_up")
 
 
 def _calculate_rep_targets(
@@ -103,9 +100,9 @@ def calculate_set_prescription(
     training_max: int,
     ff_state,
     bodyweight_kg: float,
+    exercise: ExerciseDefinition,
     history_sessions: int = 0,
     recent_same_type: list[SessionResult] | None = None,
-    exercise: ExerciseDefinition = PULL_UP,
     last_test_weight: float = 0.0,
 ) -> list[PlannedSet]:
     """

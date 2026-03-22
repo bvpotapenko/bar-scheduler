@@ -5,7 +5,7 @@ from typing import Annotated, Optional
 
 import typer
 
-from ..io.history_store import HistoryStore, get_default_history_path
+from ..io.history_store import HistoryStore, get_default_history_path, get_profile_store
 
 # Overperformance: reps above training max that trigger personal-best detection
 OVERPERFORMANCE_REP_THRESHOLD = 2

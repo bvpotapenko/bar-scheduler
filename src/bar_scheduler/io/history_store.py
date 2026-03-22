@@ -89,12 +89,7 @@ class HistoryStore:
         try:
             with open(self.profile_path, "r") as f:
                 data = json.load(f)
-            # Per-exercise format takes precedence
-            per_ex = data.get("plan_start_dates", {})
-            if self.exercise_id in per_ex:
-                return per_ex[self.exercise_id]
-            # Legacy single-key fallback
-            return data.get("plan_start_date")
+            return data.get("plan_start_dates", {}).get(self.exercise_id)
         except (json.JSONDecodeError, KeyError):
             return None
 
@@ -115,7 +110,6 @@ class HistoryStore:
         if "plan_start_dates" not in data:
             data["plan_start_dates"] = {}
         data["plan_start_dates"][self.exercise_id] = date
-        data.pop("plan_start_date", None)  # remove legacy flat key
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
@@ -506,34 +500,31 @@ class HistoryStore:
             self.history_path.write_text("")
 
 
-def get_default_history_path(exercise_id: str = "pull_up") -> Path:
+def get_data_dir() -> Path:
+    """Return the base data directory where all bar-scheduler data is stored."""
+    return Path.home() / ".bar-scheduler"
+
+
+def get_default_history_path(exercise_id: str) -> Path:
     """
     Get the default history file path for an exercise.
 
-    Pull-up history is routed to the legacy ``history.jsonl`` when it exists
-    (backward compat) and to ``pull_up_history.jsonl`` otherwise.
-    All other exercises get their own ``<exercise_id>_history.jsonl``.
-
     Args:
-        exercise_id: Exercise identifier (default: "pull_up")
+        exercise_id: Exercise identifier
 
     Returns:
         Default history path
     """
-    base = Path.home() / ".bar-scheduler"
-    if exercise_id == "pull_up":
-        legacy = base / "history.jsonl"
-        if legacy.exists():
-            return legacy
-        return base / "pull_up_history.jsonl"
-    return base / f"{exercise_id}_history.jsonl"
+    return get_data_dir() / f"{exercise_id}_history.jsonl"
 
 
-def get_default_store() -> HistoryStore:
+def get_profile_store() -> "HistoryStore":
     """
-    Get a HistoryStore with the default path.
+    Return a HistoryStore suitable for profile-only operations.
 
-    Returns:
-        HistoryStore instance
+    Does not reference any specific exercise; only profile.json
+    operations (load/save profile, bodyweight, language) are valid.
     """
-    return HistoryStore(get_default_history_path())
+    data_dir = get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return HistoryStore(data_dir / "_profile.jsonl", exercise_id="")

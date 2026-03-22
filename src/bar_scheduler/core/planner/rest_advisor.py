@@ -4,10 +4,7 @@ import math
 
 from ..config import DROP_OFF_THRESHOLD, READINESS_Z_LOW
 from ..exercises.base import ExerciseDefinition
-from ..exercises.registry import get_exercise
 from ..models import SessionResult, SessionType
-
-PULL_UP = get_exercise("pull_up")
 
 
 def _analyze_rir(sets: list, rest: int) -> int:
@@ -89,7 +86,7 @@ def calculate_adaptive_rest(
     session_type: SessionType,
     recent_sessions: list[SessionResult],
     ff_state,
-    exercise: ExerciseDefinition = PULL_UP,
+    exercise: ExerciseDefinition,
 ) -> int:
     """
     Calculate adaptive rest based on recent same-type session performance and readiness.

@@ -245,60 +245,6 @@ bar-scheduler plot-max --trajectory --json
 
 ---
 
-## `skip`
-
-Shift the training plan forward or backward by inserting or removing rest days.
-
-```bash
-# Non-interactive (all values as flags):
-bar-scheduler skip --date-from 2026-02-10 --days 3
-bar-scheduler skip --date-from 2026-02-10 --days -2 --exercise dip --json
-
-# Interactive (prompts for from-date and shift amount):
-bar-scheduler skip
-bar-scheduler skip --exercise dip
-```
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--date-from` | `-d` | Start date of shift `YYYY-MM-DD`. Required for non-interactive mode. |
-| `--days` | `-n` | Integer days to shift (positive = forward, negative = backward). Required for non-interactive mode. |
-| `--json` | `-j` | Output result as JSON instead of plain text. Works in both modes. |
-| `--exercise` | `-e` | Exercise ID: `pull_up` (default), `dip`, `bss`. |
-| `--history-path` | `-p` | Path to a non-default history JSONL file. |
-
-When both `--date-from` and `--days` are provided, all interactive prompts are skipped. Providing only one of the two is an error (exit code 1).
-
-### Semantics
-
-- **`--days N` (N > 0)**: inserts N consecutive `REST` records starting at `--date-from` and advances `plan_start_date` by exactly N calendar days. All future sessions shift forward by N days.
-- **`--days N` (N < 0)**: removes REST records in the half-open range `[date_from + N, date_from)` (only records a matching forward skip would have placed) and decreases `plan_start_date` by |N| days. Training logs are never modified.
-- **`--days 0`**: no-op, exits 0.
-
-**Note on backward `from_date`**: to undo a forward skip, set `--date-from` to the day *after* the last REST record you want to remove (the exclusive upper bound of the REST block). Example: a `+3` forward skip from `2026-02-10` inserts REST at 10, 11, 12; `--date-from 2026-02-12 --days -2` removes REST at 10 and 11 (range `[2026-02-10, 2026-02-12)`).
-
-### JSON output (`--json`)
-
-```json
-{
-  "from_date": "2026-02-10",
-  "shift_days": 3,
-  "new_plan_start": "2026-02-13",
-  "rest_records_added": 3,
-  "rest_records_removed": 0
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `from_date` | string | The date the shift was applied from |
-| `shift_days` | int | Days shifted (positive = forward, negative = backward) |
-| `new_plan_start` | string | `plan_start_date` after the operation |
-| `rest_records_added` | int | REST records inserted (`N > 0` only; 0 otherwise) |
-| `rest_records_removed` | int | REST records deleted (`N < 0` only; 0 otherwise) |
-
----
-
 ## `log-session --json`
 
 Log a session and receive a JSON summary. All interactive prompts still run normally when options are omitted — only the final output is JSON.
@@ -412,6 +358,38 @@ The profile is stored at `~/.bar-scheduler/profile.json`. Key fields:
 `exercise_days` is optional. If an exercise is not listed, `preferred_days_per_week` is used as the fallback via `profile.days_for_exercise(exercise_id)`.
 
 The `language` key is omitted when set to `"en"` for backward compatibility. Set it via `bar-scheduler profile update-language <lang>` or the `[l]` menu option.
+
+---
+
+## `refresh-plan --json`
+
+Resets the plan anchor to today and returns the next scheduled session. Use after a break when many unlogged sessions have piled up in the plan's past.
+
+```bash
+bar-scheduler refresh-plan --json
+bar-scheduler refresh-plan --exercise dip --json
+```
+
+```json
+{
+  "plan_start_date": "2026-03-22",
+  "next_session": {
+    "date": "2026-03-22",
+    "session_type": "S",
+    "grip": "pronated"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `plan_start_date` | string | The new plan anchor (always today's date, ISO format) |
+| `next_session` | object \| null | First planned session on or after today; null only when no history exists |
+| `next_session.date` | string | ISO date of the next session |
+| `next_session.session_type` | string | `S`, `H`, `E`, `T`, or `TEST` |
+| `next_session.grip` | string | Grip/variant for the next session |
+
+Session-type rotation and grip rotation continue from where history left off. All unlogged days between the last logged session and today are implicitly treated as rest.
 
 ---
 
