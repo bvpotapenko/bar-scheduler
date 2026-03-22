@@ -1,416 +1,694 @@
-# bar-scheduler JSON API
+# bar-scheduler Python Library API
 
-All commands that produce data support a `--json` (`-j`) flag that writes a single JSON object or array to **stdout** (no Rich markup, no colour). Use this to integrate bar-scheduler with scripts, dashboards, or other tools.
+bar-scheduler is a Python package. External consumers — Telegram bots, web apps, scripts — import it directly and call functions; no CLI is required. All persistent data lives in `~/.bar-scheduler/` (`profile.json` for profile and equipment, `{exercise_id}_history.jsonl` for each exercise's sessions).
 
-Errors are always written to **stderr** in plain text even when `--json` is active.
+## Import cheat sheet
+
+```python
+from bar_scheduler.io.history_store import (
+    HistoryStore, get_profile_store, get_default_history_path, get_data_dir,
+)
+from bar_scheduler.core.models import (
+    UserProfile, ExerciseTarget, UserState,
+    SetResult, PlannedSet, SessionResult, SessionPlan,
+    EquipmentState, EquipmentSnapshot,
+    TrainingStatus, FitnessFatigueState,
+)
+from bar_scheduler.core.exercises.registry import get_exercise
+from bar_scheduler.core.adaptation import get_training_status
+from bar_scheduler.core.planner import generate_plan, explain_plan_entry
+from bar_scheduler.core.metrics import (
+    session_total_reps, session_max_reps, session_avg_rest,
+    get_test_sessions, latest_test_max, estimate_1rm,
+)
+from bar_scheduler.core.equipment import (
+    get_catalog, compute_leff, snapshot_from_state,
+)
+from bar_scheduler.io.serializers import parse_sets_string, ValidationError
+```
 
 ---
 
-## `status --json`
+## Key data models
 
-Returns current training status.
+### `UserProfile`
 
-```bash
-bar-scheduler status --json
-bar-scheduler status --exercise dip --json
+```python
+@dataclass
+class UserProfile:
+    height_cm: int
+    sex: Literal["male", "female"]
+    preferred_days_per_week: int = 3        # 1–5, fallback for exercises not in exercise_days
+    exercise_days: dict = {}                # {"pull_up": 3, "dip": 4}
+    exercise_targets: dict = {}             # {"pull_up": ExerciseTarget(30)}
+    exercises_enabled: list = []            # ["pull_up", "dip"]
+    max_session_duration_minutes: int = 60
+    rest_preference: str = "normal"         # "short" | "normal" | "long"
+    injury_notes: str = ""
+    language: str = "en"                    # ISO 639-1; controls t() output
 ```
 
-```json
-{
-  "training_max": 10,
-  "latest_test_max": 12,
-  "trend_slope_per_week": 0.45,
-  "is_plateau": false,
-  "deload_recommended": false,
-  "readiness_z_score": 0.23,
-  "fitness": 1.4832,
-  "fatigue": 0.6201
-}
+Methods: `days_for_exercise(exercise_id)`, `target_for_exercise(exercise_id)`, `is_exercise_enabled(exercise_id)`.
+
+### `ExerciseTarget`
+
+```python
+@dataclass
+class ExerciseTarget:
+    reps: int           # target rep count (must be > 0)
+    weight_kg: float = 0.0  # added weight (0 = bodyweight goal)
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `training_max` | int | Current TM = floor(0.9 × test_max) — conventional definition |
-| `latest_test_max` | int \| null | Most recent TEST session max reps |
-| `trend_slope_per_week` | float | Linear regression slope of test-max data (reps/week) |
-| `is_plateau` | bool | True if slope below threshold for plateau window |
-| `deload_recommended` | bool | True if deload criteria met |
-| `readiness_z_score` | float | Fitness-fatigue model z-score (autoregulation input) |
-| `fitness` | float | G(t) — slow-decay fitness component |
-| `fatigue` | float | H(t) — fast-decay fatigue component |
+### `UserState`
+
+```python
+@dataclass
+class UserState:
+    profile: UserProfile
+    current_bodyweight_kg: float
+    history: list[SessionResult] = []
+```
+
+### `SetResult` / `PlannedSet`
+
+```python
+@dataclass
+class SetResult:
+    target_reps: int
+    actual_reps: int | None     # None = not yet completed
+    rest_seconds_before: int
+    added_weight_kg: float = 0.0
+    rir_target: int = 2
+    rir_reported: int | None = None
+
+@dataclass
+class PlannedSet:                # future sets — no actual_reps
+    target_reps: int
+    rest_seconds_before: int
+    added_weight_kg: float = 0.0
+    rir_target: int = 2
+```
+
+### `SessionResult`
+
+```python
+@dataclass
+class SessionResult:
+    date: str                               # "YYYY-MM-DD"
+    bodyweight_kg: float
+    grip: str                               # exercise-specific variant, e.g. "pronated"
+    session_type: Literal["S","H","E","T","TEST"]
+    exercise_id: str                        # "pull_up" | "dip" | "bss"
+    equipment_snapshot: EquipmentSnapshot | None = None
+    planned_sets: list[SetResult] = []
+    completed_sets: list[SetResult] = []
+    notes: str | None = None
+```
+
+Session types: `S` = Strength, `H` = Hypertrophy, `E` = Endurance, `T` = Technique, `TEST` = max assessment (max reps for bodyweight exercises, 1RM for weighted exercises).
+
+### `SessionPlan`
+
+```python
+@dataclass
+class SessionPlan:
+    date: str
+    grip: str
+    session_type: str
+    exercise_id: str
+    sets: list[PlannedSet] = []
+    expected_tm: int = 0    # projected training max at this point in the plan
+    week_number: int = 1    # 1-indexed calendar week
+```
+
+Property: `total_reps` — sum of `target_reps` across all sets.
+Method: `to_session_result(bodyweight_kg)` → `SessionResult` shell ready for logging.
+
+### `TrainingStatus`
+
+```python
+@dataclass
+class TrainingStatus:
+    training_max: int               # floor(0.9 × latest_test_max)
+    latest_test_max: int | None
+    trend_slope: float              # reps/week (linear regression)
+    is_plateau: bool
+    deload_recommended: bool
+    compliance_ratio: float         # actual / planned reps ratio
+    fatigue_score: float
+    fitness_fatigue_state: FitnessFatigueState
+```
+
+`FitnessFatigueState` methods: `readiness()` → `G(t)−H(t)`, `readiness_z_score()` → autoregulation signal.
 
 ---
 
-## `show-history --json`
+## 1. Profile: check & create
 
-Returns an array of logged sessions, oldest first.
+```python
+from bar_scheduler.io.history_store import get_profile_store
+from bar_scheduler.core.models import UserProfile, ExerciseTarget
 
-```bash
-bar-scheduler show-history --json
-bar-scheduler show-history --limit 5 --json
-bar-scheduler show-history --exercise dip --json
+store = get_profile_store()
+
+# Check if profile exists
+profile = store.load_profile()
+bodyweight = store.load_bodyweight()
+profile_exists = profile is not None and bodyweight is not None
+
+# Create / overwrite profile
+profile = UserProfile(
+    height_cm=180,
+    sex="male",
+    preferred_days_per_week=3,
+    exercises_enabled=["pull_up"],
+    language="en",
+)
+store.save_profile(profile, bodyweight_kg=82.0)
 ```
 
-```json
-[
-  {
-    "date": "2026-02-01",
-    "session_type": "TEST",
-    "grip": "pronated",
-    "bodyweight_kg": 82.0,
-    "exercise_id": "pull_up",
-    "total_reps": 10,
-    "max_reps": 10,
-    "avg_rest_s": 180,
-    "sets": [
-      { "reps": 10, "weight_kg": 0.0, "rest_s": 180 }
-    ]
-  },
-  {
-    "date": "2026-02-04",
-    "session_type": "S",
-    "grip": "neutral",
-    "bodyweight_kg": 82.0,
-    "exercise_id": "pull_up",
-    "total_reps": 19,
-    "max_reps": 5,
-    "avg_rest_s": 240,
-    "sets": [
-      { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
-      { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
-      { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
-      { "reps": 4, "weight_kg": 0.5, "rest_s": 240 }
-    ]
-  }
+`save_profile(profile, bodyweight_kg)` writes both the profile and current bodyweight atomically to `profile.json`. It creates the data directory if needed.
+
+---
+
+## 2. Profile: edit
+
+```python
+store = get_profile_store()
+profile = store.load_profile()
+bw = store.load_bodyweight()
+
+# Change bodyweight only (cheap, no profile reload needed)
+store.update_bodyweight(85.0)
+
+# Change display language
+store.update_language("ru")   # "en" | "ru" | "zh"
+
+# Structural changes (days, rest preference, etc.) — mutate and re-save
+profile.preferred_days_per_week = 4
+profile.rest_preference = "long"
+store.save_profile(profile, bw)
+```
+
+---
+
+## 3. Exercises: add & remove
+
+Built-in exercise IDs: `"pull_up"`, `"dip"`, `"bss"`. Validate with `get_exercise(id)` — raises `ValueError` for unknown IDs.
+
+### Add an exercise
+
+```python
+from bar_scheduler.io.history_store import HistoryStore, get_default_history_path, get_profile_store
+from bar_scheduler.core.exercises.registry import get_exercise
+from bar_scheduler.core.planner import create_synthetic_test_session
+from datetime import date
+
+exercise_id = "dip"
+exercise = get_exercise(exercise_id)   # validates ID
+
+# 1. Create per-exercise history file
+history_path = get_default_history_path(exercise_id)
+ex_store = HistoryStore(history_path, exercise_id=exercise_id)
+ex_store.init()                        # creates ~/.bar-scheduler/dip_history.jsonl
+
+# 2. Set plan anchor
+ex_store.set_plan_start_date(date.today().isoformat())
+
+# 3. Log a baseline TEST session so the planner has a starting TM
+baseline_max = 15
+session = create_synthetic_test_session(
+    date=date.today().isoformat(),
+    bodyweight_kg=82.0,
+    baseline_max=baseline_max,
+    exercise_id=exercise_id,
+)
+ex_store.append_session(session)
+
+# 4. Mark exercise as enabled in profile
+profile_store = get_profile_store()
+profile = profile_store.load_profile()
+bw = profile_store.load_bodyweight()
+if exercise_id not in profile.exercises_enabled:
+    profile.exercises_enabled.append(exercise_id)
+profile_store.save_profile(profile, bw)
+```
+
+### Remove an exercise
+
+Removing means disabling it in the profile. The history file can be left on disk or deleted manually — the library never auto-deletes it.
+
+```python
+profile_store = get_profile_store()
+profile = profile_store.load_profile()
+bw = profile_store.load_bodyweight()
+
+profile.exercises_enabled = [e for e in profile.exercises_enabled if e != "dip"]
+profile.exercise_days.pop("dip", None)
+profile.exercise_targets.pop("dip", None)
+profile_store.save_profile(profile, bw)
+```
+
+---
+
+## 4. Goals: add & update
+
+Goals are `ExerciseTarget` values stored in `profile.exercise_targets`. They drive `estimate_plan_completion_date()` and the trajectory overlays in plot data.
+
+```python
+from bar_scheduler.core.models import ExerciseTarget
+
+profile_store = get_profile_store()
+profile = profile_store.load_profile()
+bw = profile_store.load_bodyweight()
+
+# Set or update goal for pull_up: 25 bodyweight reps
+profile.exercise_targets["pull_up"] = ExerciseTarget(reps=25)
+
+# Weighted goal: 15 dips with +20 kg
+profile.exercise_targets["dip"] = ExerciseTarget(reps=15, weight_kg=20.0)
+
+profile_store.save_profile(profile, bw)
+
+# Read back
+target = profile.target_for_exercise("pull_up")
+# target.reps == 25, target.weight_kg == 0.0
+```
+
+---
+
+## 5. Equipment: add & update
+
+Equipment is stored per-exercise in `profile.json` as an append-only history. Each change closes the previous entry and starts a new one.
+
+### Available equipment items
+
+```python
+from bar_scheduler.core.equipment import get_catalog
+
+catalog = get_catalog("pull_up")
+# Keys: "BAR_ONLY", "BAND_LIGHT", "BAND_MEDIUM", "BAND_HEAVY",
+#       "MACHINE_ASSISTED", "WEIGHT_BELT"
+
+catalog = get_catalog("dip")
+# Similar: "BAR_ONLY", "BAND_LIGHT", etc., "WEIGHT_BELT"
+
+catalog = get_catalog("bss")
+# Keys: "BODYWEIGHT", "DUMBBELLS", "BARBELL",
+#       "RESISTANCE_BAND", "ELEVATION_SURFACE"
+```
+
+Each catalog entry has `"assistance_kg"` (positive = assistive, 0 = neutral/additive).
+
+### Read current equipment
+
+```python
+from bar_scheduler.io.history_store import get_default_history_path, HistoryStore
+
+store = HistoryStore(get_default_history_path("pull_up"), exercise_id="pull_up")
+eq_state = store.load_current_equipment("pull_up")   # EquipmentState | None
+if eq_state:
+    print(eq_state.active_item)         # e.g. "BAR_ONLY"
+    print(eq_state.available_items)     # e.g. ["BAR_ONLY", "WEIGHT_BELT"]
+    print(eq_state.assistance_kg if hasattr(eq_state, 'assistance_kg') else 0)
+```
+
+### Set / update equipment
+
+```python
+from bar_scheduler.core.models import EquipmentState
+from datetime import date
+
+new_state = EquipmentState(
+    exercise_id="pull_up",
+    available_items=["BAR_ONLY", "BAND_MEDIUM", "WEIGHT_BELT"],
+    active_item="BAND_MEDIUM",          # currently using medium band (assistive)
+    machine_assistance_kg=None,
+    elevation_height_cm=None,
+    valid_from=date.today().isoformat(),
+)
+store.update_equipment(new_state)
+# closes previous entry (valid_until = yesterday), appends new one
+```
+
+For `MACHINE_ASSISTED` items set `machine_assistance_kg` to the machine's assistance value in kg. For BSS `ELEVATION_SURFACE` set `elevation_height_cm` to 30, 45, or 60.
+
+### Effective load calculation
+
+```python
+from bar_scheduler.core.equipment import compute_leff, get_catalog
+
+catalog = get_catalog("pull_up")
+assistance_kg = catalog["BAND_MEDIUM"]["assistance_kg"]   # e.g. 15.0
+
+leff = compute_leff(
+    bw_fraction=1.0,        # from ExerciseDefinition
+    bodyweight_kg=82.0,
+    added_weight_kg=0.0,
+    assistance_kg=assistance_kg,
+)
+# leff = 82.0 - 15.0 = 67.0 kg
+```
+
+---
+
+## 6. History: read
+
+```python
+from bar_scheduler.io.history_store import HistoryStore, get_default_history_path
+from bar_scheduler.core.metrics import (
+    session_total_reps, session_max_reps, session_avg_rest,
+    get_test_sessions, latest_test_max,
+)
+
+store = HistoryStore(get_default_history_path("pull_up"), exercise_id="pull_up")
+history = store.load_history()   # list[SessionResult], sorted by date
+
+# Per-session metrics
+for s in history:
+    print(s.date, s.session_type, s.grip)
+    print("  total reps:", session_total_reps(s))
+    print("  best set:  ", session_max_reps(s))
+    print("  avg rest:  ", session_avg_rest(s), "s")
+
+# TEST sessions only
+tests = get_test_sessions(history)
+tm = latest_test_max(history)   # int | None
+```
+
+### `SessionResult` key fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `date` | `str` | `"YYYY-MM-DD"` |
+| `session_type` | `str` | `S`, `H`, `E`, `T`, `TEST` |
+| `grip` | `str` | exercise-specific variant |
+| `exercise_id` | `str` | `"pull_up"`, `"dip"`, `"bss"` |
+| `bodyweight_kg` | `float` | logged bodyweight |
+| `completed_sets` | `list[SetResult]` | actual sets performed |
+| `planned_sets` | `list[SetResult]` | prescribed sets (from plan cache) |
+| `equipment_snapshot` | `EquipmentSnapshot \| None` | equipment at log time |
+| `notes` | `str \| None` | free text |
+
+### Filtering and slicing
+
+```python
+# All sessions for one exercise after a date
+from datetime import date
+cutoff = "2026-01-01"
+recent = [s for s in history if s.date >= cutoff]
+
+# Load full user state (profile + bodyweight + history in one call)
+user_state = store.load_user_state()   # UserState
+```
+
+---
+
+## 7. History: write & delete
+
+### Log a session
+
+```python
+from bar_scheduler.core.models import SessionResult, SetResult
+
+session = SessionResult(
+    date="2026-03-22",
+    bodyweight_kg=82.0,
+    grip="pronated",
+    session_type="S",
+    exercise_id="pull_up",
+    completed_sets=[
+        SetResult(target_reps=5, actual_reps=5, rest_seconds_before=180, added_weight_kg=0.0, rir_reported=2),
+        SetResult(target_reps=5, actual_reps=4, rest_seconds_before=180, added_weight_kg=0.0, rir_reported=1),
+        SetResult(target_reps=5, actual_reps=4, rest_seconds_before=180, added_weight_kg=0.0, rir_reported=1),
+    ],
+)
+store.append_session(session)
+# inserts in chronological order; same (date, session_type) replaces the existing entry
+```
+
+### Parse a sets string (helper)
+
+```python
+from bar_scheduler.io.serializers import parse_sets_string
+
+# Returns list of (reps, added_weight_kg, rest_seconds)
+sets = parse_sets_string("4x5 +0.5kg / 240s")
+# → [(5, 0.5, 240), (5, 0.5, 240), (5, 0.5, 240), (5, 0.5, 240)]
+
+sets = parse_sets_string("8@0/180, 6@5/180")
+# → [(8, 0.0, 180), (6, 5.0, 180)]
+
+sets = parse_sets_string("8 0 180")   # space-separated
+# → [(8, 0.0, 180)]
+```
+
+Raises `ValidationError` on invalid input.
+
+### Update bodyweight after logging
+
+```python
+store.update_bodyweight(82.5)
+```
+
+### Delete a session
+
+```python
+history = store.load_history()   # sorted list, 0-based index
+
+# delete the third session (0-based)
+store.delete_session_at(2)
+
+# if you got the ID from a TimelineEntry (actual_id is 1-based):
+store.delete_session_at(entry.actual_id - 1)
+```
+
+---
+
+## 8. Training plan
+
+### Training status
+
+```python
+from bar_scheduler.core.adaptation import get_training_status
+
+user_state = store.load_user_state()
+status = get_training_status(
+    history=user_state.history,
+    current_bodyweight_kg=user_state.current_bodyweight_kg,
+    baseline_max=None,   # provide only if history is empty
+)
+
+status.training_max           # int — floor(0.9 × latest_test_max)
+status.latest_test_max        # int | None
+status.trend_slope            # float — reps/week
+status.is_plateau             # bool
+status.deload_recommended     # bool
+status.compliance_ratio       # float — actual/planned reps ratio
+status.fitness_fatigue_state.readiness_z_score()   # float — autoregulation signal
+```
+
+### Generate a plan
+
+```python
+from bar_scheduler.core.planner import generate_plan
+from bar_scheduler.core.exercises.registry import get_exercise
+
+exercise = get_exercise("pull_up")   # ExerciseDefinition
+plan_start = store.get_plan_start_date() or "2026-03-22"
+
+plans = generate_plan(
+    user_state=user_state,
+    start_date=plan_start,
+    exercise=exercise,
+    weeks_ahead=4,          # None = auto-estimate based on distance to goal
+    baseline_max=None,      # required only if no TEST session in history
+)
+# returns list[SessionPlan], one entry per scheduled training day
+
+for session_plan in plans:
+    print(session_plan.date, session_plan.session_type, session_plan.grip)
+    print("  week:", session_plan.week_number)
+    print("  expected TM:", session_plan.expected_tm)
+    for s in session_plan.sets:
+        print(f"  {s.target_reps} reps @ {s.added_weight_kg} kg / {s.rest_seconds_before}s rest")
+```
+
+`generate_plan` raises `ValueError` when there is no history and `baseline_max` is `None`.
+
+### Unified timeline (past + future)
+
+`build_timeline` is a convenience function in the CLI layer that merges history and plan into a single chronological list. Useful if you want to display a combined view.
+
+```python
+from bar_scheduler.cli.views import build_timeline, TimelineEntry
+
+entries = build_timeline(plans, user_state.history)
+
+for entry in entries:
+    print(entry.date, entry.status)  # "done" | "missed" | "next" | "planned" | "extra" | "rested"
+    if entry.planned:
+        print("  prescribed:", entry.planned.sets)
+    if entry.actual:
+        print("  actual:", entry.actual.completed_sets)
+    if entry.track_b:
+        # Between-test max estimates (FI method + Nuzzo method)
+        print("  eMax estimate:", entry.track_b["fi_est"], "/", entry.track_b["nuzzo_est"])
+```
+
+`TimelineEntry.actual_id` is the 1-based history index for use with `delete_session_at(actual_id - 1)`.
+
+### Plan start date management
+
+```python
+store.get_plan_start_date()         # str | None — current plan anchor for this exercise
+store.set_plan_start_date("2026-03-22")   # move plan anchor (e.g. after a break)
+```
+
+---
+
+## 9. Explanation text
+
+```python
+from bar_scheduler.core.planner import explain_plan_entry
+
+text = explain_plan_entry(
+    user_state=user_state,
+    plan_start_date=plan_start,
+    target_date="2026-03-24",       # or use "next" logic: first session with status "next"
+    exercise=exercise,
+    weeks_ahead=4,
+)
+# Returns a Rich markup string.
+
+# To display in a Rich console:
+from rich.console import Console
+Console().print(text)
+
+# To get plain text (e.g. for Telegram):
+from rich.text import Text
+plain = Text.from_markup(text).plain
+```
+
+The function has three fallback levels:
+1. Session is in the plan → full breakdown (TM formula, grip rotation, set config, weight, rest)
+2. Date is within the plan horizon but not a training day → rest day message
+3. Date is in history (past) → brief session summary
+
+---
+
+## 10. Data for plotting
+
+bar-scheduler does not generate graphics. It returns structured data that the consumer renders. Below are the data sources for the most common chart types.
+
+### Progress chart (max reps over time)
+
+```python
+from bar_scheduler.core.metrics import get_test_sessions
+
+tests = get_test_sessions(user_state.history)
+# Each SessionResult — use .date and session_max_reps(s)
+
+data_points = [
+    {"date": s.date, "max_reps": session_max_reps(s)}
+    for s in tests
 ]
+# [{"date": "2026-02-01", "max_reps": 10}, ...]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `date` | string | ISO date YYYY-MM-DD |
-| `session_type` | string | `S`, `H`, `E`, `T`, or `TEST` |
-| `grip` | string | e.g. `pronated`, `neutral`, `supinated`, `standard` |
-| `bodyweight_kg` | float | Bodyweight at time of session |
-| `exercise_id` | string | Exercise identifier: `pull_up`, `dip`, or `bss` |
-| `total_reps` | int | Sum of actual reps across all sets |
-| `max_reps` | int | Best single set (bodyweight-equivalent) |
-| `avg_rest_s` | int | Average rest between sets (seconds) |
-| `sets[].reps` | int | Actual reps performed |
-| `sets[].weight_kg` | float | Added weight (0 = bodyweight only) |
-| `sets[].rest_s` | int | Rest before this set (seconds) |
+### Training max trajectory (goal projection)
+
+```python
+from bar_scheduler.core.config import expected_reps_per_week
+from bar_scheduler.core.metrics import training_max as compute_tm
+from datetime import date, timedelta
+
+tm = compute_tm(user_state.history)      # current TM
+target = exercise.target_value           # goal (from ExerciseDefinition)
+
+trajectory = []
+current = date.today()
+current_tm = float(tm)
+for week in range(16):
+    trajectory.append({"date": current.isoformat(), "projected_max_reps": int(current_tm / 0.9)})
+    current_tm += expected_reps_per_week(int(current_tm), int(target))
+    current += timedelta(weeks=1)
+```
+
+### Weekly volume
+
+```python
+from datetime import date
+
+def week_label(iso_date: str) -> str:
+    """Return ISO year-week string for grouping, e.g. '2026-W12'."""
+    d = date.fromisoformat(iso_date)
+    return f"{d.isocalendar().year}-W{d.isocalendar().week:02d}"
+
+from collections import defaultdict
+from bar_scheduler.core.metrics import session_total_reps
+
+volume: dict[str, int] = defaultdict(int)
+for s in user_state.history:
+    volume[week_label(s.date)] += session_total_reps(s)
+
+# [{"week": "2026-W10", "total_reps": 85}, ...]
+weekly = [{"week": wk, "total_reps": reps} for wk, reps in sorted(volume.items())]
+```
+
+### 1RM estimate
+
+```python
+from bar_scheduler.core.metrics import estimate_1rm
+
+result = estimate_1rm(
+    exercise=exercise,
+    bodyweight_kg=user_state.current_bodyweight_kg,
+    history=user_state.history,
+    window_sessions=5,
+)
+
+if result:
+    result["1rm_kg"]                 # float — best estimate
+    result["best_reps"]              # int
+    result["best_added_weight_kg"]   # float
+    result["best_date"]              # str "YYYY-MM-DD"
+    result["formulas"]               # dict: epley, brzycki, lander, lombardi, blended
+    result["recommended_formula"]    # str — most accurate for this rep count
+```
+
+Returns `None` if no eligible sets are found within the scan window.
+
+### Fitness-fatigue state (readiness over time)
+
+```python
+status = get_training_status(user_state.history, user_state.current_bodyweight_kg)
+ff = status.fitness_fatigue_state
+
+ff.fitness          # float — G(t), slow-decay fitness impulse
+ff.fatigue          # float — H(t), fast-decay fatigue impulse
+ff.readiness()      # float — G(t) − H(t)
+ff.readiness_z_score()  # float — z-score for autoregulation
+```
+
+To build a readiness time series, call `get_training_status` with a slice of history up to each date. For most bot use cases the current scalar values above are sufficient.
 
 ---
 
-## `plan --json`
+## Storage layout
 
-Returns the current training status plus the full unified timeline (past sessions + upcoming plan).
-
-**Note:** The `eMax` column shown in the plan table is display-only and is not present in the JSON output. The `expected_tm` field is the machine-readable equivalent for future sessions.
-
-```bash
-bar-scheduler plan --json
-bar-scheduler plan -w 8 --json
-bar-scheduler plan --exercise dip --json
+```
+~/.bar-scheduler/
+  profile.json                    — UserProfile + bodyweight + equipment history + plan anchors
+  pull_up_history.jsonl           — pull-up sessions (one JSON line per session)
+  dip_history.jsonl               — dip sessions
+  bss_history.jsonl               — BSS sessions
+  plan_cache.json                 — last generated plan snapshot (for change diffing)
 ```
 
-```json
-{
-  "status": {
-    "training_max": 9,
-    "latest_test_max": 10,
-    "trend_slope_per_week": 0.0,
-    "is_plateau": false,
-    "deload_recommended": false,
-    "readiness_z_score": 0.12
-  },
-  "plan_changes": ["2026-02-11 S: 4→5 sets", "2026-02-17 E: TM 9→10"],
-  "sessions": [
-    {
-      "date": "2026-02-01",
-      "week": 1,
-      "type": "TEST",
-      "grip": "pronated",
-      "status": "done",
-      "id": 1,
-      "exercise_id": "pull_up",
-      "expected_tm": 9,
-      "prescribed_sets": [
-        { "reps": 10, "weight_kg": 0.0, "rest_s": 180 }
-      ],
-      "actual_sets": [
-        { "reps": 10, "weight_kg": 0.0, "rest_s": 180 }
-      ]
-    },
-    {
-      "date": "2026-02-08",
-      "week": 2,
-      "type": "E",
-      "grip": "pronated",
-      "status": "next",
-      "id": null,
-      "exercise_id": "pull_up",
-      "expected_tm": 9,
-      "prescribed_sets": [
-        { "reps": 4, "weight_kg": 0.0, "rest_s": 60 },
-        { "reps": 3, "weight_kg": 0.0, "rest_s": 60 },
-        { "reps": 3, "weight_kg": 0.0, "rest_s": 60 }
-      ],
-      "actual_sets": null
-    }
-  ]
-}
-```
+```python
+from bar_scheduler.io.history_store import get_data_dir, get_default_history_path
 
-### `status` fields
-
-Same as `status --json` (without `fitness`/`fatigue`).
-
-### `plan_changes` field
-
-Array of human-readable strings describing what changed vs the previous `plan` run. Empty array `[]` if nothing changed or on the first run. Examples:
-
-- `"New: 2026-02-22 S"` — a new session was added to the plan
-- `"Removed: 2026-02-22 S"` — a session was removed
-- `"2026-02-11 S: 4→5 sets"` — set count changed
-- `"2026-02-11 S: 5→6 reps, TM 9→10"` — multiple fields changed in one session
-
-### `sessions[]` fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `date` | string | ISO date YYYY-MM-DD |
-| `week` | int | Week number in the plan (1-indexed; 0 = unplanned extra) |
-| `type` | string | Session type: `S`, `H`, `E`, `T`, or `TEST` |
-| `grip` | string | Grip for this session |
-| `status` | string | `done`, `next`, `planned`, `missed`, or `extra` |
-| `id` | int \| null | History ID (for `delete-record N`); null for future sessions |
-| `exercise_id` | string | Exercise identifier: `pull_up`, `dip`, or `bss` |
-| `expected_tm` | int \| null | Projected TM for this session (used to compute eMax for display) |
-| `prescribed_sets` | array \| null | Planned sets; null for unplanned extra sessions |
-| `actual_sets` | array \| null | What was actually done; null for future sessions |
-
----
-
-## `volume --json`
-
-Returns weekly total rep counts.
-
-```bash
-bar-scheduler volume --json
-bar-scheduler volume -w 8 --json
-```
-
-```json
-{
-  "weeks": [
-    { "label": "3 weeks ago", "total_reps": 85 },
-    { "label": "2 weeks ago", "total_reps": 115 },
-    { "label": "Last week",   "total_reps": 128 },
-    { "label": "This week",   "total_reps": 42  }
-  ]
-}
-```
-
-Array is ordered oldest → newest. `total_reps` is 0 for weeks with no sessions.
-
----
-
-## `plot-max --json`
-
-Returns the raw TEST session data points used by the progress chart.
-
-```bash
-bar-scheduler plot-max --json
-bar-scheduler plot-max --trajectory --json
-```
-
-```json
-{
-  "data_points": [
-    { "date": "2026-02-01", "max_reps": 10 },
-    { "date": "2026-03-15", "max_reps": 12 },
-    { "date": "2026-05-01", "max_reps": 16 }
-  ],
-  "trajectory": [
-    { "date": "2026-02-01", "projected_max": 10.0 },
-    { "date": "2026-02-08", "projected_max": 10.78 },
-    { "date": "2026-02-15", "projected_max": 11.54 }
-  ]
-}
-```
-
-`data_points` is ordered chronologically. Only TEST sessions with at least 1 rep are included.
-
-`trajectory` is `null` when `--trajectory` flag is not given. When present, it contains weekly projected max reps from the first test date to the target, computed using the model's progression formula.
-
----
-
-## `log-session --json`
-
-Log a session and receive a JSON summary. All interactive prompts still run normally when options are omitted — only the final output is JSON.
-
-```bash
-bar-scheduler log-session \
-  --date 2026-02-18 --bodyweight-kg 82 \
-  --grip pronated --session-type S \
-  --sets "5x4 +0.5kg / 240s" \
-  --json
-```
-
-```json
-{
-  "date": "2026-02-18",
-  "session_type": "S",
-  "grip": "pronated",
-  "bodyweight_kg": 82.0,
-  "exercise_id": "pull_up",
-  "total_reps": 20,
-  "max_reps_bodyweight": 0,
-  "max_reps_equivalent": 5,
-  "new_personal_best": false,
-  "new_tm": null,
-  "sets": [
-    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
-    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
-    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 },
-    { "reps": 5, "weight_kg": 0.5, "rest_s": 240 }
-  ]
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `date` | string | Session date |
-| `session_type` | string | Session type logged |
-| `grip` | string | Grip used |
-| `bodyweight_kg` | float | Bodyweight logged |
-| `exercise_id` | string | Exercise identifier |
-| `total_reps` | int | Total reps across all sets |
-| `max_reps_bodyweight` | int | Best bodyweight-only set (0 if weighted throughout) |
-| `max_reps_equivalent` | int | Best BW-equivalent rep count (same as above when no added weight) |
-| `new_personal_best` | bool | True if a new TEST session was auto-logged |
-| `new_tm` | int \| null | New training max if personal best, otherwise null |
-| `sets[].reps` | int | Reps in this set |
-| `sets[].weight_kg` | float | Added weight (0 = bodyweight only) |
-| `sets[].rest_s` | int | Rest before this set (seconds) |
-
----
-
-## `1rm --json`
-
-Estimate 1-rep max from recent training sessions using the Epley formula.
-
-```bash
-bar-scheduler 1rm --json
-bar-scheduler 1rm --exercise bss --json
-```
-
-```json
-{
-  "exercise_id": "pull_up",
-  "epley_1rm_kg": 102.7,
-  "best_set_reps": 5,
-  "best_set_load_kg": 82.5,
-  "sessions_scanned": 5
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `exercise_id` | string | Exercise the estimate applies to |
-| `epley_1rm_kg` | float | Estimated 1-rep max in kg (Epley formula: `load × (1 + reps/30)`) |
-| `best_set_reps` | int | Reps from the set that produced the highest 1RM estimate |
-| `best_set_load_kg` | float | Total load used for that set (BW + added weight; BSS = added weight only) |
-| `sessions_scanned` | int | Number of recent sessions examined (up to 5) |
-
-Returns `null` (with a non-zero exit code) if no eligible sets are found in the scan window.
-
----
-
-## `profile.json` Structure
-
-The profile is stored at `~/.bar-scheduler/profile.json`. Key fields:
-
-```json
-{
-  "height_cm": 180,
-  "sex": "male",
-  "preferred_days_per_week": 3,
-  "target_max_reps": 30,
-  "current_bodyweight_kg": 82.0,
-  "plan_start_dates": { "pull_up": "2026-02-20", "dip": "2026-02-18" },
-  "exercise_days": { "pull_up": 3, "dip": 4 },
-  "language": "ru"
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `height_cm` | int | Used for biomechanical scaling |
-| `sex` | string | `male` or `female` |
-| `preferred_days_per_week` | int | Default training frequency (fallback for exercises not in `exercise_days`) |
-| `target_max_reps` | int | Long-term goal; used by progression formula |
-| `current_bodyweight_kg` | float | Auto-updated after each logged session |
-| `plan_start_dates` | dict | Per-exercise ISO plan-start dates; updated by `profile init` and `skip` |
-| `exercise_days` | dict | Per-exercise days-per-week overrides; e.g. `{"pull_up": 3, "dip": 4}` |
-| `language` | string | Display language: `"en"` / `"ru"` / `"zh"`; omitted when English (backward compat) |
-
-`exercise_days` is optional. If an exercise is not listed, `preferred_days_per_week` is used as the fallback via `profile.days_for_exercise(exercise_id)`.
-
-The `language` key is omitted when set to `"en"` for backward compatibility. Set it via `bar-scheduler profile update-language <lang>` or the `[l]` menu option.
-
----
-
-## `refresh-plan --json`
-
-Resets the plan anchor to today and returns the next scheduled session. Use after a break when many unlogged sessions have piled up in the plan's past.
-
-```bash
-bar-scheduler refresh-plan --json
-bar-scheduler refresh-plan --exercise dip --json
-```
-
-```json
-{
-  "plan_start_date": "2026-03-22",
-  "next_session": {
-    "date": "2026-03-22",
-    "session_type": "S",
-    "grip": "pronated"
-  }
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `plan_start_date` | string | The new plan anchor (always today's date, ISO format) |
-| `next_session` | object \| null | First planned session on or after today; null only when no history exists |
-| `next_session.date` | string | ISO date of the next session |
-| `next_session.session_type` | string | `S`, `H`, `E`, `T`, or `TEST` |
-| `next_session.grip` | string | Grip/variant for the next session |
-
-Session-type rotation and grip rotation continue from where history left off. All unlogged days between the last logged session and today are implicitly treated as rest.
-
----
-
-## Integration Examples
-
-```bash
-# Get current TM in a shell script
-TM=$(bar-scheduler status --json | python3 -c "import sys,json; print(json.load(sys.stdin)['training_max'])")
-echo "Training max: $TM"
-
-# Export history to CSV (via jq)
-bar-scheduler show-history --json \
-  | jq -r '.[] | [.date, .session_type, .total_reps, .max_reps] | @csv'
-
-# Get next session date
-bar-scheduler plan --json \
-  | jq -r '.sessions[] | select(.status == "next") | .date'
-
-# Weekly reps last 8 weeks
-bar-scheduler volume -w 8 --json | jq '.weeks[] | "\(.label): \(.total_reps)"'
-
-# Estimated 1RM as a plain number
-bar-scheduler 1rm --json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['epley_1rm_kg'])"
+get_data_dir()                          # Path("~/.bar-scheduler")
+get_default_history_path("pull_up")     # Path("~/.bar-scheduler/pull_up_history.jsonl")
 ```
