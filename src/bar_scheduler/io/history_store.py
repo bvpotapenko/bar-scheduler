@@ -22,43 +22,37 @@ from .serializers import (
 )
 
 
-class HistoryStore:
+class UserStore:
     """
-    Manages training history stored in JSONL format.
+    Profile-centric store for a single user's data directory.
 
-    The history file contains one JSON object per line:
-    - First line (optional): profile record with type="profile"
-    - Subsequent lines: session records
-
-    A separate profile.json file stores user profile data.
+    One UserStore per user (data_dir). Profile operations need no exercise context.
+    Exercise-specific operations (history, plan dates, equipment) accept exercise_id
+    as a parameter — no per-exercise store objects, no dummy IDs.
     """
 
-    def __init__(self, history_path: str | Path, exercise_id: str = "pull_up"):
-        """
-        Initialize the history store.
+    def __init__(self, data_dir: str | Path):
+        self.data_dir = Path(data_dir)
+        self.profile_path = self.data_dir / "profile.json"
 
-        Args:
-            history_path: Path to the JSONL history file
-            exercise_id: Exercise this store belongs to (used to isolate plan_start_date)
-        """
-        self.history_path = Path(history_path)
-        self.profile_path = self.history_path.parent / "profile.json"
-        self.exercise_id = exercise_id
+    def history_path(self, exercise_id: str) -> Path:
+        """Return the JSONL history file path for the given exercise."""
+        return self.data_dir / f"{exercise_id}_history.jsonl"
 
-    def exists(self) -> bool:
-        """Check if the history file exists."""
-        return self.history_path.exists()
+    def exists(self, exercise_id: str) -> bool:
+        """Check if the history file exists for the given exercise."""
+        return self.history_path(exercise_id).exists()
 
-    def init(self) -> None:
+    def init_exercise(self, exercise_id: str) -> None:
         """
-        Initialize empty history file if it doesn't exist.
+        Initialize empty history file for exercise if it doesn't exist.
 
         Creates parent directories if needed.
         """
-        self.history_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not self.history_path.exists():
-            self.history_path.touch()
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        path = self.history_path(exercise_id)
+        if not path.exists():
+            path.touch()
 
     def load_profile(self) -> UserProfile | None:
         """
@@ -77,7 +71,7 @@ class HistoryStore:
         except (json.JSONDecodeError, ValidationError, KeyError):
             return None
 
-    def get_plan_start_date(self) -> str | None:
+    def get_plan_start_date(self, exercise_id: str) -> str | None:
         """
         Get the plan start date from profile.json for this exercise.
 
@@ -89,11 +83,11 @@ class HistoryStore:
         try:
             with open(self.profile_path, "r") as f:
                 data = json.load(f)
-            return data.get("plan_start_dates", {}).get(self.exercise_id)
+            return data.get("plan_start_dates", {}).get(exercise_id)
         except (json.JSONDecodeError, KeyError):
             return None
 
-    def set_plan_start_date(self, date: str) -> None:
+    def set_plan_start_date(self, exercise_id: str, date: str) -> None:
         """
         Store the plan start date in profile.json for this exercise.
 
@@ -101,6 +95,7 @@ class HistoryStore:
         don't overwrite each other's plan anchor.
 
         Args:
+            exercise_id: Exercise identifier
             date: ISO date string (YYYY-MM-DD)
         """
         if not self.profile_path.exists():
@@ -109,7 +104,7 @@ class HistoryStore:
             data = json.load(f)
         if "plan_start_dates" not in data:
             data["plan_start_dates"] = {}
-        data["plan_start_dates"][self.exercise_id] = date
+        data["plan_start_dates"][exercise_id] = date
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
@@ -135,9 +130,9 @@ class HistoryStore:
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def lookup_plan_cache_entry(self, date: str, session_type: str) -> dict | None:
+    def lookup_plan_cache_entry(self, exercise_id: str, date: str, session_type: str) -> dict | None:
         """Find the cached plan prescription for a given (date, session_type), or None."""
-        cache = self.load_plan_cache()
+        cache = self.load_plan_cache(exercise_id)
         if not cache:
             return None
         for entry in cache:
@@ -153,7 +148,7 @@ class HistoryStore:
             profile: User profile to save
             bodyweight_kg: Current bodyweight
         """
-        self.profile_path.parent.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
         data = user_profile_to_dict(profile)
         data["current_bodyweight_kg"] = bodyweight_kg
@@ -213,9 +208,9 @@ class HistoryStore:
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def load_history(self) -> list[SessionResult]:
+    def load_history(self, exercise_id: str) -> list[SessionResult]:
         """
-        Load all sessions from the history file.
+        Load all sessions from the history file for the given exercise.
 
         Returns:
             List of SessionResult, sorted by date
@@ -223,14 +218,15 @@ class HistoryStore:
         Raises:
             FileNotFoundError: If history file doesn't exist
         """
-        if not self.history_path.exists():
+        path = self.history_path(exercise_id)
+        if not path.exists():
             raise FileNotFoundError(
-                f"History file not found: {self.history_path}. Run 'init' first."
+                f"History file not found: {path}. Run 'init' first."
             )
 
         sessions: list[SessionResult] = []
 
-        with open(self.history_path, "r") as f:
+        with open(path, "r") as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
@@ -248,7 +244,7 @@ class HistoryStore:
 
                 except (json.JSONDecodeError, ValidationError) as e:
                     raise ValidationError(
-                        f"Error parsing line {line_num} in {self.history_path}: {e}"
+                        f"Error parsing line {line_num} in {path}: {e}"
                     ) from e
 
         # Sort by date
@@ -256,9 +252,9 @@ class HistoryStore:
 
         return sessions
 
-    def load_user_state(self) -> UserState:
+    def load_user_state(self, exercise_id: str) -> UserState:
         """
-        Load complete user state (profile + history).
+        Load complete user state (profile + history for the given exercise).
 
         Returns:
             UserState with profile, bodyweight, and history
@@ -277,7 +273,7 @@ class HistoryStore:
         if bodyweight is None:
             raise ValidationError("Bodyweight not set in profile. Run 'init' with --bodyweight-kg.")
 
-        history = self.load_history()
+        history = self.load_history(exercise_id)
 
         return UserState(
             profile=profile,
@@ -290,17 +286,19 @@ class HistoryStore:
         Append a session to the history file.
 
         Maintains chronological order by inserting at the correct position.
+        Uses session.exercise_id to determine the history file.
 
         Args:
             session: Session to append
         """
-        if not self.history_path.exists():
+        path = self.history_path(session.exercise_id)
+        if not path.exists():
             raise FileNotFoundError(
-                f"History file not found: {self.history_path}. Run 'init' first."
+                f"History file not found: {path}. Run 'init' first."
             )
 
         # Load existing sessions
-        sessions = self.load_history()
+        sessions = self.load_history(session.exercise_id)
 
         # Insert new session in chronological order
         session_date = datetime.strptime(session.date, "%Y-%m-%d")
@@ -322,73 +320,76 @@ class HistoryStore:
             sessions.insert(insert_idx, session)
 
         # Rewrite file
-        self._write_sessions(sessions)
+        self._write_sessions(session.exercise_id, sessions)
 
-    def _write_sessions(self, sessions: list[SessionResult]) -> None:
+    def _write_sessions(self, exercise_id: str, sessions: list[SessionResult]) -> None:
         """
-        Write all sessions to the history file.
+        Write all sessions to the history file for the given exercise.
 
         Args:
+            exercise_id: Exercise identifier
             sessions: Sessions to write
         """
-        with open(self.history_path, "w") as f:
+        with open(self.history_path(exercise_id), "w") as f:
             for session in sessions:
                 f.write(session_to_json_line(session) + "\n")
 
-    def get_latest_session(self) -> SessionResult | None:
+    def get_latest_session(self, exercise_id: str) -> SessionResult | None:
         """
-        Get the most recent session.
+        Get the most recent session for the given exercise.
 
         Returns:
             Latest SessionResult or None if no history
         """
         try:
-            sessions = self.load_history()
+            sessions = self.load_history(exercise_id)
             return sessions[-1] if sessions else None
         except FileNotFoundError:
             return None
 
-    def get_sessions_after(self, date: str) -> list[SessionResult]:
+    def get_sessions_after(self, exercise_id: str, date: str) -> list[SessionResult]:
         """
         Get all sessions after a given date.
 
         Args:
+            exercise_id: Exercise identifier
             date: ISO date string (YYYY-MM-DD)
 
         Returns:
             List of sessions after the date
         """
-        sessions = self.load_history()
+        sessions = self.load_history(exercise_id)
         target = datetime.strptime(date, "%Y-%m-%d")
 
         return [
             s for s in sessions if datetime.strptime(s.date, "%Y-%m-%d") > target
         ]
 
-    def delete_session_at(self, index: int) -> None:
+    def delete_session_at(self, exercise_id: str, index: int) -> None:
         """
         Delete the session at the given 0-based index in sorted history.
 
         Args:
+            exercise_id: Exercise identifier
             index: 0-based index
 
         Raises:
             IndexError: If index is out of range
         """
-        sessions = self.load_history()
+        sessions = self.load_history(exercise_id)
         if index < 0 or index >= len(sessions):
             raise IndexError(f"Session index {index} out of range (0–{len(sessions) - 1})")
         del sessions[index]
-        self._write_sessions(sessions)
+        self._write_sessions(exercise_id, sessions)
 
-    def load_plan_cache(self) -> list[dict] | None:
+    def load_plan_cache(self, exercise_id: str) -> list[dict] | None:
         """
         Load the previously saved plan snapshot for diffing.
 
         Returns:
             List of session snapshot dicts or None if not found
         """
-        cache_path = self.history_path.parent / "plan_cache.json"
+        cache_path = self.data_dir / f"{exercise_id}_plan_cache.json"
         if not cache_path.exists():
             return None
         try:
@@ -397,14 +398,15 @@ class HistoryStore:
         except (json.JSONDecodeError, OSError):
             return None
 
-    def save_plan_cache(self, sessions: list[dict]) -> None:
+    def save_plan_cache(self, exercise_id: str, sessions: list[dict]) -> None:
         """
         Persist upcoming plan sessions for next-run diffing.
 
         Args:
+            exercise_id: Exercise identifier
             sessions: List of session snapshot dicts
         """
-        cache_path = self.history_path.parent / "plan_cache.json"
+        cache_path = self.data_dir / f"{exercise_id}_plan_cache.json"
         with open(cache_path, "w") as f:
             json.dump(sessions, f, indent=2)
 
@@ -492,12 +494,20 @@ class HistoryStore:
         history.append(new_state)
         self.save_equipment_history(exercise_id, history)
 
-    def clear_history(self) -> None:
+    def clear_history(self, exercise_id: str) -> None:
         """
-        Clear all history (dangerous - use with caution).
+        Clear all history for the given exercise (dangerous - use with caution).
         """
-        if self.history_path.exists():
-            self.history_path.write_text("")
+        path = self.history_path(exercise_id)
+        if path.exists():
+            path.write_text("")
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatibility alias
+# ---------------------------------------------------------------------------
+
+HistoryStore = UserStore
 
 
 def get_data_dir() -> Path:
@@ -505,26 +515,12 @@ def get_data_dir() -> Path:
     return Path.home() / ".bar-scheduler"
 
 
-def get_default_history_path(exercise_id: str) -> Path:
+def get_profile_store() -> "UserStore":
     """
-    Get the default history file path for an exercise.
+    Return a UserStore for the default data directory.
 
-    Args:
-        exercise_id: Exercise identifier
-
-    Returns:
-        Default history path
-    """
-    return get_data_dir() / f"{exercise_id}_history.jsonl"
-
-
-def get_profile_store() -> "HistoryStore":
-    """
-    Return a HistoryStore suitable for profile-only operations.
-
-    Does not reference any specific exercise; only profile.json
-    operations (load/save profile, bodyweight, language) are valid.
+    Suitable for profile-only operations when no specific exercise is needed.
     """
     data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    return HistoryStore(data_dir / "_profile.jsonl", exercise_id="")
+    return UserStore(data_dir)

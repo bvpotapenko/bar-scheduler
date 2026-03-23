@@ -43,7 +43,7 @@ from ..core.metrics import (
 from ..core.models import SessionResult, SetResult
 from ..core.planner import explain_plan_entry, generate_plan
 from ..core.timeline import TimelineEntry, build_timeline
-from ..io.history_store import HistoryStore, get_default_history_path
+from ..io.history_store import UserStore
 from ..io.serializers import (
     ValidationError,
     dict_to_user_profile,
@@ -128,37 +128,28 @@ def _lang_context(lang: str):
         _i18n.set_language(prev)
 
 
-def _store(data_dir: Path, exercise_id: str) -> HistoryStore:
-    history_path = data_dir / f"{exercise_id}_history.jsonl"
-    return HistoryStore(history_path, exercise_id=exercise_id)
-
-
-def _require_store(data_dir: Path, exercise_id: str) -> HistoryStore:
-    """Return a HistoryStore, raising typed errors when files are missing."""
-    store = _store(data_dir, exercise_id)
+def _require_profile_store(data_dir: Path) -> UserStore:
+    """Return a UserStore, raising ProfileNotFoundError if profile.json is missing."""
+    store = UserStore(data_dir)
     if not store.profile_path.exists():
         raise ProfileNotFoundError(
             f"Profile not found at {store.profile_path}. Call init_profile() first."
         )
-    if not store.history_path.exists():
+    return store
+
+
+def _require_store(data_dir: Path, exercise_id: str) -> UserStore:
+    """Return a UserStore, raising typed errors when profile or history files are missing."""
+    store = _require_profile_store(data_dir)
+    if not store.exists(exercise_id):
         raise HistoryNotFoundError(
-            f"History file not found at {store.history_path}. Call init_profile() first."
+            f"History file not found at {store.history_path(exercise_id)}. Call init_profile() first."
         )
     return store
 
 
-def _require_profile_store(data_dir: Path) -> HistoryStore:
-    """Return a HistoryStore that only checks profile.json exists (not any exercise JSONL)."""
-    store = _store(data_dir, "pull_up")
-    if not store.profile_path.exists():
-        raise ProfileNotFoundError(
-            f"Profile not found at {store.profile_path}. Call init_profile() first."
-        )
-    return store
-
-
-def _resolve_plan_start(store: HistoryStore, history: list[SessionResult]) -> str:
-    plan_start = store.get_plan_start_date()
+def _resolve_plan_start(store: UserStore, exercise_id: str, history: list[SessionResult]) -> str:
+    plan_start = store.get_plan_start_date(exercise_id)
     if plan_start is None:
         if history:
             first_dt = datetime.strptime(history[0].date, "%Y-%m-%d")
@@ -263,25 +254,22 @@ def init_profile(
         rest_preference=rest_preference,
     )
 
+    store = UserStore(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    if exercises:
-        for ex_id in exercises:
-            _store(data_dir, ex_id).init()
-        _store(data_dir, exercises[0]).save_profile(profile, bodyweight_kg)
-    else:
-        save_store = HistoryStore(data_dir / "_profile.jsonl", exercise_id="")
-        save_store.save_profile(profile, bodyweight_kg)
+    for ex_id in exercises:
+        store.init_exercise(ex_id)
+    store.save_profile(profile, bodyweight_kg)
 
     return get_profile(data_dir)
 
 
-def get_profile(data_dir: Path, exercise_id: str = "pull_up") -> dict | None:
+def get_profile(data_dir: Path) -> dict | None:
     """
     Return the current user profile as a dict, or None if not initialised.
 
     The dict includes all UserProfile fields plus ``current_bodyweight_kg``.
     """
-    store = _store(data_dir, exercise_id)
+    store = UserStore(data_dir)
     profile = store.load_profile()
     if profile is None:
         return None
@@ -291,9 +279,11 @@ def get_profile(data_dir: Path, exercise_id: str = "pull_up") -> dict | None:
     return d
 
 
-def update_bodyweight(data_dir: Path, exercise_id: str, bodyweight_kg: float) -> None:
+def update_bodyweight(data_dir: Path, bodyweight_kg: float) -> None:
     """Update the current bodyweight in profile.json."""
-    store = _require_store(data_dir, exercise_id)
+    if bodyweight_kg <= 0:
+        raise ValueError("bodyweight_kg must be positive")
+    store = _require_profile_store(data_dir)
     store.update_bodyweight(bodyweight_kg)
 
 
@@ -307,36 +297,44 @@ def update_language(data_dir: Path, lang: str) -> None:
     from ..core.i18n import available_languages
     if lang != "en" and lang not in available_languages():
         raise ValueError(f"Unsupported language '{lang}'. Available: {available_languages()}")
-    # Use a profile-only store (any exercise_id works for language updates)
-    store = _store(data_dir, "pull_up")
-    if not store.profile_path.exists():
-        raise ProfileNotFoundError(
-            f"Profile not found at {store.profile_path}. Call init_profile() first."
-        )
+    store = _require_profile_store(data_dir)
     store.update_language(lang)
 
 
-def update_equipment(data_dir: Path, exercise_id: str, equipment_state: dict) -> None:
+def update_equipment(
+    data_dir: Path,
+    exercise_id: str,
+    *,
+    active_item: str,
+    available_items: list[str],
+    machine_assistance_kg: float | None = None,
+    elevation_height_cm: int | None = None,
+    valid_from: str | None = None,
+) -> None:
     """
     Activate a new equipment configuration for an exercise.
 
-    ``equipment_state`` must be a dict with fields matching ``EquipmentState``:
-    ``exercise_id``, ``available_items`` (list[str]), ``active_item`` (str),
-    ``valid_from`` (ISO date string or None), ``valid_until`` (None — always
-    None for a new entry).
-
     The previous active entry is automatically closed (valid_until = yesterday).
+    Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
     from ..core.models import EquipmentState
-    from ..io.serializers import dict_to_equipment_state
     store = _require_store(data_dir, exercise_id)
-    state_obj: EquipmentState = dict_to_equipment_state(equipment_state)
-    store.update_equipment(state_obj)
+    state = EquipmentState(
+        exercise_id=exercise_id,
+        active_item=active_item,
+        available_items=list(available_items),
+        machine_assistance_kg=machine_assistance_kg,
+        elevation_height_cm=elevation_height_cm,
+        valid_from=valid_from or "",
+    )
+    store.update_equipment(state)
 
 
 def update_profile(
     data_dir: Path,
     *,
+    height_cm: int | None = None,
+    sex: str | None = None,
     preferred_days_per_week: int | None = None,
     rest_preference: str | None = None,
     max_session_duration_minutes: int | None = None,
@@ -353,6 +351,10 @@ def update_profile(
     Raises ``ProfileNotFoundError`` if not yet initialised.
     Raises ``ValueError`` for invalid field values.
     """
+    if height_cm is not None and height_cm <= 0:
+        raise ValueError(f"height_cm must be positive, got {height_cm}")
+    if sex is not None and sex not in ("male", "female"):
+        raise ValueError(f"sex must be 'male' or 'female', got {sex!r}")
     if rest_preference is not None and rest_preference not in ("short", "normal", "long"):
         raise ValueError(
             f"rest_preference must be 'short', 'normal', or 'long', got {rest_preference!r}"
@@ -364,6 +366,10 @@ def update_profile(
     with open(store.profile_path) as f:
         data = json.load(f)
 
+    if height_cm is not None:
+        data["height_cm"] = height_cm
+    if sex is not None:
+        data["sex"] = sex
     if preferred_days_per_week is not None:
         data["preferred_days_per_week"] = preferred_days_per_week
     if rest_preference is not None:
@@ -496,7 +502,7 @@ def enable_exercise(data_dir: Path, exercise_id: str) -> None:
         with open(store.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    _store(data_dir, exercise_id).init()  # create JSONL if missing (always idempotent)
+    UserStore(data_dir).init_exercise(exercise_id)  # create JSONL if missing (idempotent)
 
 
 def disable_exercise(data_dir: Path, exercise_id: str) -> None:
@@ -555,13 +561,13 @@ def delete_session(data_dir: Path, exercise_id: str, index: int) -> None:
     Raises ``SessionNotFoundError`` if ``index`` is out of range.
     """
     store = _require_store(data_dir, exercise_id)
-    sessions = store.load_history()
+    sessions = store.load_history(exercise_id)
     zero_based = index - 1
     if zero_based < 0 or zero_based >= len(sessions):
         raise SessionNotFoundError(
             f"Session {index} not found (history has {len(sessions)} sessions)."
         )
-    store.delete_session_at(zero_based)
+    store.delete_session_at(exercise_id, zero_based)
 
 
 def get_history(data_dir: Path, exercise_id: str) -> list[dict]:
@@ -569,7 +575,7 @@ def get_history(data_dir: Path, exercise_id: str) -> list[dict]:
     Return the full session history as a list of dicts, sorted by date.
     """
     store = _require_store(data_dir, exercise_id)
-    sessions = store.load_history()
+    sessions = store.load_history(exercise_id)
     return [session_result_to_dict(s) for s in sessions]
 
 
@@ -596,10 +602,10 @@ def get_plan(
     """
     exercise = get_exercise(exercise_id)
     store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state()
+    user_state = store.load_user_state(exercise_id)
 
     with _lang_context(user_state.profile.language):
-        plan_start_date = _resolve_plan_start(store, user_state.history)
+        plan_start_date = _resolve_plan_start(store, exercise_id, user_state.history)
         total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
         ot_severity = overtraining_severity(
@@ -635,7 +641,7 @@ def get_plan(
                 "expected_tm": p.expected_tm,
             }
 
-        old_cache = store.load_plan_cache()
+        old_cache = store.load_plan_cache(exercise_id)
         new_cache = [
             _snapshot(e) for e in timeline
             if e.status in ("next", "planned") and e.planned is not None
@@ -663,7 +669,7 @@ def get_plan(
                     parts.append(f"TM {o['expected_tm']}→{n['expected_tm']}")
                 if parts:
                     plan_changes.append(f"{n['date']} {n['type']}: {', '.join(parts)}")
-        store.save_plan_cache(new_cache)
+        store.save_plan_cache(exercise_id, new_cache)
 
         ff = training_status.fitness_fatigue_state
         return {
@@ -693,11 +699,11 @@ def refresh_plan(data_dir: Path, exercise_id: str = "pull_up") -> dict:
     """
     exercise = get_exercise(exercise_id)
     store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state()
+    user_state = store.load_user_state(exercise_id)
 
     with _lang_context(user_state.profile.language):
         today = datetime.now().strftime("%Y-%m-%d")
-        store.set_plan_start_date(today)
+        store.set_plan_start_date(exercise_id, today)
 
         plans = generate_plan(user_state, today, exercise, weeks_ahead=2)
         next_session = next((p for p in plans if p.date >= today), None)
@@ -726,10 +732,10 @@ def explain_session(
     """
     exercise = get_exercise(exercise_id)
     store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state()
+    user_state = store.load_user_state(exercise_id)
 
     with _lang_context(user_state.profile.language):
-        plan_start_date = _resolve_plan_start(store, user_state.history)
+        plan_start_date = _resolve_plan_start(store, exercise_id, user_state.history)
         total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
         days_per_week = user_state.profile.preferred_days_per_week
@@ -776,7 +782,7 @@ def get_training_status(data_dir: Path, exercise_id: str = "pull_up") -> dict:
     recommendation, and fitness-fatigue state.
     """
     store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state()
+    user_state = store.load_user_state(exercise_id)
     with _lang_context(user_state.profile.language):
         status = _get_training_status(user_state.history, user_state.current_bodyweight_kg)
         ff = status.fitness_fatigue_state
@@ -803,7 +809,7 @@ def get_onerepmax_data(data_dir: Path, exercise_id: str = "pull_up") -> dict | N
     """
     exercise = get_exercise(exercise_id)
     store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state()
+    user_state = store.load_user_state(exercise_id)
     with _lang_context(user_state.profile.language):
         return estimate_1rm(exercise, user_state.current_bodyweight_kg, user_state.history)
 
@@ -821,7 +827,7 @@ def get_volume_data(
     Week 0 = current week, week 1 = last week, etc.
     """
     store = _require_store(data_dir, exercise_id)
-    sessions = store.load_history()
+    sessions = store.load_history(exercise_id)
 
     weekly: dict[int, dict] = {}
     if sessions:
@@ -873,7 +879,7 @@ def get_progress_data(
     from ..core.config import TARGET_MAX_REPS
     exercise_def = get_exercise(exercise_id)
     store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state()
+    user_state = store.load_user_state(exercise_id)
 
     with _lang_context(user_state.profile.language):
         sessions = user_state.history
@@ -968,7 +974,7 @@ def get_overtraining_status(data_dir: Path, exercise_id: str = "pull_up") -> dic
     ``extra_rest_days``. Level 0 = no issue; level 3 = severe.
     """
     store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state()
+    user_state = store.load_user_state(exercise_id)
     with _lang_context(user_state.profile.language):
         return overtraining_severity(
             user_state.history, user_state.profile.preferred_days_per_week

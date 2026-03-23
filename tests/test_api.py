@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from bar_scheduler.api.api import (
+    HistoryNotFoundError,
     ProfileAlreadyExistsError,
     ProfileNotFoundError,
     disable_exercise,
@@ -22,6 +23,8 @@ from bar_scheduler.api.api import (
     log_session,
     set_exercise_days,
     set_exercise_target,
+    update_bodyweight,
+    update_equipment,
     update_profile,
 )
 
@@ -199,6 +202,26 @@ class TestUpdateProfile:
         _init(tmp_path)
         with pytest.raises(ValueError):
             update_profile(tmp_path, preferred_days_per_week=6)
+
+    def test_update_height_cm(self, tmp_path):
+        _init(tmp_path, height_cm=180)
+        result = update_profile(tmp_path, height_cm=182)
+        assert result["height_cm"] == 182
+
+    def test_update_sex(self, tmp_path):
+        _init(tmp_path, sex="male")
+        result = update_profile(tmp_path, sex="female")
+        assert result["sex"] == "female"
+
+    def test_invalid_sex_raises(self, tmp_path):
+        _init(tmp_path)
+        with pytest.raises(ValueError):
+            update_profile(tmp_path, sex="robot")
+
+    def test_invalid_height_raises(self, tmp_path):
+        _init(tmp_path)
+        with pytest.raises(ValueError):
+            update_profile(tmp_path, height_cm=0)
 
 
 # ---------------------------------------------------------------------------
@@ -403,3 +426,52 @@ class TestEndToEnd:
         init_profile(tmp_path, height_cm=180, sex="male", bodyweight_kg=80.0,
                      exercises=["pull_up"])
         assert get_history(tmp_path, "pull_up") == []
+
+
+# ---------------------------------------------------------------------------
+# TestUpdateBodyweight
+# ---------------------------------------------------------------------------
+
+class TestUpdateBodyweight:
+    def test_updates_bodyweight(self, tmp_path):
+        _init(tmp_path, bodyweight_kg=80.0)
+        update_bodyweight(tmp_path, 82.5)
+        assert get_profile(tmp_path)["current_bodyweight_kg"] == 82.5
+
+    def test_raises_profile_not_found(self, tmp_path):
+        with pytest.raises(ProfileNotFoundError):
+            update_bodyweight(tmp_path, 80.0)
+
+    def test_zero_raises(self, tmp_path):
+        _init(tmp_path)
+        with pytest.raises(ValueError):
+            update_bodyweight(tmp_path, 0)
+
+    def test_negative_raises(self, tmp_path):
+        _init(tmp_path)
+        with pytest.raises(ValueError):
+            update_bodyweight(tmp_path, -5.0)
+
+
+# ---------------------------------------------------------------------------
+# TestUpdateEquipment
+# ---------------------------------------------------------------------------
+
+class TestUpdateEquipment:
+    def test_sets_equipment(self, tmp_path):
+        _init(tmp_path)
+        # No exception — exercise JSONL exists (created by init)
+        update_equipment(
+            tmp_path, "pull_up",
+            active_item="BAR_ONLY",
+            available_items=["BAR_ONLY"],
+        )
+
+    def test_uninitialised_exercise_raises(self, tmp_path):
+        _init(tmp_path, exercises=[])
+        with pytest.raises(HistoryNotFoundError):
+            update_equipment(
+                tmp_path, "pull_up",
+                active_item="BAR_ONLY",
+                available_items=["BAR_ONLY"],
+            )
