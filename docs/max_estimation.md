@@ -1,4 +1,4 @@
-# References — Between-Test Max Estimation (Track B)
+# References -- Between-Test Max Estimation (Track B)
 
 Track B estimates a user's current max reps between formal TEST sessions, using data from
 regular training sets.  Two independent methods are computed and shown side-by-side as
@@ -8,7 +8,7 @@ regular training sets.  Two independent methods are computed and shown side-by-s
 
 ## Methods
 
-### FI Method — Fatigue Index (Pekünlü & Atalağ 2013)
+### FI Method -- Fatigue Index (Pekünlü & Atalağ 2013)
 
 **Citation:**
 Pekünlü E, Atalağ O. (2013). *Which fatigue index should be used to assess different protocols
@@ -88,7 +88,7 @@ A high FI (near-failure sets) gives RIR ≈ 0; a low FI (comfortable sets) gives
 
 ---
 
-## PCr Recovery Correction — Bogdanis et al. 1995
+## PCr Recovery Correction -- Bogdanis et al. 1995
 
 **Citation:**
 Bogdanis GC, Nevill ME, Boobis LH, Lakomy HK, Nevill AM. (1995).
@@ -133,6 +133,6 @@ If `rest_before_set1 = 0` (no logged rest), 180 s is assumed as a conservative w
 
 The `eMax` column in the plan table shows:
 
-- **Past TEST rows** — actual max reps (Track A, ground truth)
-- **Past non-TEST rows** — `fi_est/nz_est` (Track B, between-test inference)
-- **Future rows** — plan projection `round(expected_TM / 0.90)`, floored at the latest Track A value
+- **Past TEST rows** -- actual max reps (Track A, ground truth)
+- **Past non-TEST rows** -- `fi_est/nz_est` (Track B, between-test inference)
+- **Future rows** -- plan projection `round(expected_TM / 0.90)`, floored at the latest Track A value

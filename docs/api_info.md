@@ -1,6 +1,6 @@
 # bar-scheduler Python Library API
 
-All public operations live in a single module. Every function takes `data_dir: Path` as its first argument — point different users at different directories for multi-user isolation (e.g. a Telegram bot serving multiple users).
+All public operations live in a single module. Every function takes `data_dir: Path` as its first argument -- point different users at different directories for multi-user isolation (e.g. a Telegram bot serving multiple users).
 
 ## Import cheat sheet
 
@@ -12,26 +12,34 @@ from bar_scheduler.api.api import (
     SessionNotFoundError, ValidationError,
     # Profile & user
     init_profile, get_profile, update_profile,
-    update_bodyweight, update_language, list_languages,
+    update_bodyweight, update_language,
     # Equipment
     update_equipment,
     # Exercises
-    list_exercises, set_exercise_target, set_exercise_days,
-    enable_exercise, disable_exercise,
+    list_exercises, get_exercise_info, get_equipment_catalog,
+    set_exercise_target, set_exercise_days,
+    enable_exercise, disable_exercise, delete_exercise_history,
     # Sessions
     log_session, delete_session, get_history,
     # Planning
     get_plan, refresh_plan, explain_session,
+    # Plan configuration
+    set_plan_start_date, get_plan_weeks, set_plan_weeks, get_plan_cache_entry,
     # Analysis
     get_training_status, get_onerepmax_data,
     get_volume_data, get_progress_data, get_overtraining_status,
+    # Equipment helpers
+    get_current_equipment, check_band_progression,
+    compute_leff, compute_equipment_adjustment, get_assistance_kg,
+    get_next_band_step, get_band_progression, get_bss_elevation_heights,
+    # Utilities
+    get_data_dir, training_max_from_baseline,
+    # Input parsers
+    parse_sets_string, parse_compact_sets,
 )
-from bar_scheduler.io.history_store import get_data_dir   # default ~/.bar-scheduler
 ```
 
-The only additional import you may need: `get_catalog(exercise_id)` from
-`bar_scheduler.core.equipment` when listing available equipment items before calling
-`update_equipment`.
+Everything you need is in `bar_scheduler.api.api`.
 
 ### Multi-user pattern
 
@@ -52,7 +60,7 @@ Pass this `data_dir` to every API call for that user. The directory is created a
 | `HistoryNotFoundError` | exercise functions when the JSONL history file is missing |
 | `SessionNotFoundError` | `delete_session` index out of range |
 | `ValidationError` | malformed stored data |
-| `ValueError` | bad argument — unknown exercise ID, invalid field value, etc. |
+| `ValueError` | bad argument -- unknown exercise ID, invalid field value, etc. |
 
 All exceptions carry a human-readable message. Clients can display `str(exc)` directly.
 
@@ -65,14 +73,14 @@ All exceptions carry a human-readable message. Clients can display `str(exc)` di
 profile = get_profile(data_dir)   # dict | None
 exists = profile is not None
 
-# Create — exercises is optional; add them later with enable_exercise()
+# Create -- exercises is optional; add them later with enable_exercise()
 profile = init_profile(
     data_dir,
     height_cm=180,
     sex="male",                   # "male" | "female"
     bodyweight_kg=82.0,
     days_per_week=3,              # 1–5, default 3
-    language="en",                # "en" | "ru" | "zh"
+    language="en",                # any language code; stored in profile for client use
     rest_preference="normal",     # "short" | "normal" | "long"
     # exercises=["pull_up"],      # optional; defaults to []
 )
@@ -86,7 +94,7 @@ profile = init_profile(
 | `height_cm` | `int` | |
 | `sex` | `str` | `"male"` \| `"female"` |
 | `preferred_days_per_week` | `int` | 1–5, global fallback |
-| `exercise_days` | `dict` | `{"pull_up": 3}` — per-exercise overrides |
+| `exercise_days` | `dict` | `{"pull_up": 3}` -- per-exercise overrides |
 | `exercise_targets` | `dict` | `{"pull_up": {"reps": 25, "weight_kg": 0.0}}` |
 | `exercises_enabled` | `list` | e.g. `["pull_up", "dip"]` |
 | `max_session_duration_minutes` | `int` | default 60 |
@@ -100,7 +108,7 @@ profile = init_profile(
 ## 2. Profile: edit
 
 ```python
-# Update any subset of fields — everything else is preserved
+# Update any subset of fields -- everything else is preserved
 profile = update_profile(
     data_dir,
     height_cm=182,
@@ -115,7 +123,6 @@ profile = update_profile(
 update_bodyweight(data_dir, 83.5)
 
 update_language(data_dir, "ru")    # passing "en" removes the key (restores default)
-langs = list_languages()           # → ["en", "ru", "zh"]
 ```
 
 `update_profile` is surgical: `plan_start_dates`, `equipment`, and other internal keys
@@ -126,14 +133,21 @@ stored in `profile.json` are never touched.
 ## 3. Exercises: list, add, remove, configure
 
 ```python
-# All registered exercises — no data_dir needed
+# All registered exercises -- no data_dir needed
 exercises = list_exercises()
-# each dict: id, display_name, muscle_group, variants,
-#            primary_variant, has_variant_rotation
+# each dict: id, display_name, muscle_group, variants, primary_variant,
+#            has_variant_rotation, bw_fraction, onerm_includes_bodyweight,
+#            session_params, onerm_explanation
+
+# Single exercise by ID (raises ValueError for unknown IDs)
+info = get_exercise_info("pull_up")
+info["session_params"]["S"]["reps_min"]   # e.g. 4
+info["onerm_explanation"]                 # str describing the 1RM formula
 
 # Add / remove
-enable_exercise(data_dir, "dip")      # idempotent; creates JSONL if missing
-disable_exercise(data_dir, "dip")     # no-op if not enabled; history file kept on disk
+enable_exercise(data_dir, "dip")           # idempotent; creates JSONL if missing
+disable_exercise(data_dir, "dip")          # no-op if not enabled; history file kept
+delete_exercise_history(data_dir, "dip")   # permanently delete the JSONL file
 
 # Per-exercise goal
 set_exercise_target(data_dir, "pull_up", reps=25)               # bodyweight-only goal
@@ -147,13 +161,11 @@ Built-in exercise IDs: `"pull_up"`, `"dip"`, `"bss"`. Any other ID raises `Value
 
 ---
 
-## 4. Equipment: configure
+## 4. Equipment: configure & query
 
 ```python
-from bar_scheduler.core.equipment import get_catalog
-
 # Discover available items for an exercise
-catalog = get_catalog("pull_up")
+catalog = get_equipment_catalog("pull_up")
 # → {"BAR_ONLY": {"assistance_kg": 0}, "BAND_LIGHT": {"assistance_kg": 8},
 #    "BAND_MEDIUM": {"assistance_kg": 15}, "BAND_HEAVY": {"assistance_kg": 25},
 #    "MACHINE_ASSISTED": {"assistance_kg": 0}, "WEIGHT_BELT": {"assistance_kg": 0}}
@@ -167,6 +179,24 @@ update_equipment(
     # elevation_height_cm=None     # required for BSS ELEVATION_SURFACE: 30 | 45 | 60
     # valid_from=None              # ISO date; defaults to today
 )
+
+# Read current equipment state (None if never configured)
+eq = get_current_equipment(data_dir, "pull_up")
+# → {"exercise_id", "active_item", "available_items", "machine_assistance_kg",
+#    "elevation_height_cm", "assistance_kg", "is_bss_degraded"}
+
+# Band/load computations (no data_dir -- pure math)
+leff = compute_leff(bw_fraction=1.0, bodyweight_kg=82.0,
+                    added_weight_kg=10.0, assistance_kg=0.0)  # → 92.0
+adj  = compute_equipment_adjustment(old_leff=72.0, new_leff=82.0)
+# → {"reps_factor": 0.80, "description": "..."}
+kg   = get_assistance_kg("pull_up", "BAND_LIGHT")   # → 8.0
+
+# Band progression
+ready = check_band_progression(data_dir, "pull_up", n_sessions=2)  # bool
+next_band = get_next_band_step("BAND_MEDIUM")  # → "BAND_LIGHT"
+get_band_progression()       # → ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]
+get_bss_elevation_heights()  # → [30, 45, 60]
 ```
 
 Equipment history is preserved (append-only). The previous active entry gets
@@ -193,7 +223,7 @@ for s in history:
         cs["rest_seconds_before"]  # int
         cs["rir_reported"]         # int | None
 
-    s["equipment_snapshot"]   # dict | None — equipment active at log time
+    s["equipment_snapshot"]   # dict | None -- equipment active at log time
     s["notes"]                # str | None
 ```
 
@@ -205,7 +235,7 @@ Session types: `S` = Strength, `H` = Hypertrophy, `E` = Endurance, `T` = Techniq
 ## 6. History: log & delete
 
 ```python
-# Log a session — returns the persisted session dict
+# Log a session -- returns the persisted session dict
 result = log_session(data_dir, "pull_up", {
     "date": "2026-03-22",
     "bodyweight_kg": 82.0,
@@ -218,11 +248,12 @@ result = log_session(data_dir, "pull_up", {
         {"actual_reps": 3, "rest_seconds_before": 180, "rir_reported": 0},
     ],
 })
+# equipment_snapshot is auto-attached from the current profile equipment if omitted.
 # A session with the same (date, session_type) replaces the existing entry.
 # Optional set fields: target_reps (default 0), added_weight_kg (default 0.0),
 #                      rir_target (default 2)
 
-# Delete by 1-based index — matches the "id" field returned by get_plan
+# Delete by 1-based index -- matches the "id" field returned by get_plan
 delete_session(data_dir, "pull_up", 3)   # raises SessionNotFoundError if out of range
 ```
 
@@ -244,10 +275,10 @@ plan = get_plan(data_dir, "pull_up", weeks_ahead=4)
 | `is_plateau` | `bool` | |
 | `deload_recommended` | `bool` | |
 | `readiness_z_score` | `float` | autoregulation signal |
-| `fitness` | `float` | G(t) — slow-decay fitness impulse |
-| `fatigue` | `float` | H(t) — fast-decay fatigue impulse |
+| `fitness` | `float` | G(t) -- slow-decay fitness impulse |
+| `fatigue` | `float` | H(t) -- fast-decay fatigue impulse |
 
-### `plan["sessions"]` — unified timeline (past + future)
+### `plan["sessions"]` -- unified timeline (past + future)
 
 ```python
 for s in plan["sessions"]:
@@ -256,8 +287,8 @@ for s in plan["sessions"]:
     s["type"]          # "S" | "H" | "E" | "T" | "TEST"
     s["grip"]          # variant string
     s["week"]          # int, 1-indexed calendar week
-    s["expected_tm"]   # int | None — projected TM at this session
-    s["id"]            # int | None — 1-based history index (use with delete_session)
+    s["expected_tm"]   # int | None -- projected TM at this session
+    s["id"]            # int | None -- 1-based history index (use with delete_session)
 
     for ps in (s["prescribed_sets"] or []):
         ps["reps"], ps["weight_kg"], ps["rest_s"]
@@ -287,11 +318,26 @@ Empty on first call.
 
 ```python
 result = refresh_plan(data_dir, "pull_up")
-result["plan_start_date"]   # "YYYY-MM-DD" — new anchor (today)
+result["plan_start_date"]   # "YYYY-MM-DD" -- new anchor (today)
 result["next_session"]      # {"date": ..., "session_type": ..., "grip": ...} | None
 ```
 
 Call after a break when unlogged sessions have accumulated in the past.
+
+### Plan configuration
+
+```python
+# Persist / recall the plan horizon
+set_plan_weeks(data_dir, 6)
+weeks = get_plan_weeks(data_dir)   # → 6 | None
+
+# Manually reset the plan anchor (e.g. after a long break)
+set_plan_start_date(data_dir, "pull_up", "2026-04-01")
+
+# Pre-populate a session log form with the planned prescription
+entry = get_plan_cache_entry(data_dir, "pull_up", "2026-04-03", "S")
+# → cached session dict | None
+```
 
 ---
 
@@ -330,15 +376,15 @@ ot["level"]            # int 0–3
 ot["description"]      # str
 ot["extra_rest_days"]  # int
 
-# 1-rep max estimate — None if no eligible history
+# 1-rep max estimate -- None if no eligible history
 onerepmax = get_onerepmax_data(data_dir, "pull_up")
 if onerepmax:
     onerepmax["formulas"]             # {"epley": float, "brzycki": float,
                                       #  "lander": float, "lombardi": float, "blended": float}
-    onerepmax["recommended_formula"]  # str — most accurate for this rep count
+    onerepmax["recommended_formula"]  # str -- most accurate for this rep count
     onerepmax["best_reps"]            # int
     onerepmax["best_added_weight_kg"] # float
-    onerepmax["effective_load_kg"]    # float — bodyweight × bw_fraction + added
+    onerepmax["effective_load_kg"]    # float -- bodyweight × bw_fraction + added
     onerepmax["best_date"]            # "YYYY-MM-DD"
 
 # Weekly rep volume
@@ -348,12 +394,12 @@ for w in vol["weeks"]:
     w["week_start"]  # "YYYY-MM-DD" (Monday) | None
     w["total_reps"]  # int
 
-# Progress data for plotting (no chart generation — returns raw data)
+# Progress data for plotting (no chart generation -- returns raw data)
 progress = get_progress_data(data_dir, "pull_up", trajectory_types="z")
 # trajectory_types is a string of letters:
-#   "z" — projected bodyweight reps over time
-#   "g" — projected reps at goal weight
-#   "m" — projected 1RM in added kg
+#   "z" -- projected bodyweight reps over time
+#   "g" -- projected reps at goal weight
+#   "m" -- projected 1RM in added kg
 
 for pt in progress["data_points"]:       # TEST sessions only
     pt["date"], pt["max_reps"]
@@ -374,16 +420,40 @@ for pt in (progress["trajectory_m"] or []):
 
 ```
 ~/.bar-scheduler/                      (or any custom data_dir)
-  profile.json                         — profile + bodyweight + equipment history + plan anchors
-  pull_up_history.jsonl                — one JSON line per session
+  profile.json                         -- profile + bodyweight + equipment history + plan anchors
+  pull_up_history.jsonl                -- one JSON line per session
   dip_history.jsonl
   bss_history.jsonl
-  pull_up_plan_cache.json              — last plan snapshot for change diffing
+  pull_up_plan_cache.json              -- last plan snapshot for change diffing
   dip_plan_cache.json
 ```
 
 ```python
-from bar_scheduler.io.history_store import get_data_dir
-
-get_data_dir()   # Path("~/.bar-scheduler") — default single-user location
+get_data_dir()                     # Path("~/.bar-scheduler") -- default single-user path
+training_max_from_baseline(12)     # → 10  (floor(baseline × 0.9), min 1)
 ```
+
+---
+
+## Input parsing
+
+Parse user-typed sets strings — useful for bots and CLIs collecting session data:
+
+```python
+# Compact format:  "N×reps"  or  "sets×reps/rest_s"  or  "4×1 3×8/60s"
+# Per-set format:  "reps@weight/rest"  or  "reps weight rest"  or  bare "reps"
+
+sets = parse_sets_string("3×5/120s")
+# → [(3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120)]
+#   (5 sets of 3 reps, 120 s rest, 0 kg added weight)
+
+sets = parse_sets_string("5@10/180 4@10/180 3@10")
+# → [(5, 10.0, 180), (4, 10.0, 180), (3, 10.0, 0)]
+
+# Returns None if the string is not in compact format:
+parse_compact_sets("8")         # → None
+parse_compact_sets("3×5/120s")  # → [(3, 0.0, 120), ...]
+```
+
+Each tuple is ``(reps: int, added_weight_kg: float, rest_seconds: int)``.
+``parse_sets_string`` raises ``ValidationError`` on invalid input.

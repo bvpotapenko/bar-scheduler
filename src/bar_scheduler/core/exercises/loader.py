@@ -10,7 +10,7 @@ A user file is deep-merged over the bundled definition, so only changed
 keys need to be listed.  A user file whose exercise_id does not match any
 bundled file is treated as a new exercise and added to the registry.
 
-Usage (internal — called by registry.py):
+Usage (internal -- called by registry.py):
     from .loader import load_exercises_from_yaml
     exercises = load_exercises_from_yaml()   # dict or None on failure
 """
@@ -96,9 +96,7 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
     has_variant_rotation = bool(d.pop("has_variant_rotation", True))
     grip_cycles_raw = d.pop("grip_cycles", {})
     grip_cycles: dict[str, list[str]] = (
-        {k: list(v) for k, v in grip_cycles_raw.items()}
-        if grip_cycles_raw
-        else {}
+        {k: list(v) for k, v in grip_cycles_raw.items()} if grip_cycles_raw else {}
     )
 
     return ExerciseDefinition(
@@ -213,7 +211,7 @@ def load_exercises_from_yaml() -> dict[str, ExerciseDefinition] | None:
                 result[ex.exercise_id] = ex
             except ValueError as exc:
                 warnings.warn(
-                    f"bar-scheduler: skipping exercise '{stem}' — {exc}",
+                    f"bar-scheduler: skipping exercise '{stem}' -- {exc}",
                     stacklevel=2,
                 )
 
@@ -227,7 +225,7 @@ def load_exercises_from_yaml() -> dict[str, ExerciseDefinition] | None:
                 result[ex.exercise_id] = ex
             except ValueError as exc:
                 warnings.warn(
-                    f"bar-scheduler: skipping user exercise '{p.stem}' — {exc}",
+                    f"bar-scheduler: skipping user exercise '{p.stem}' -- {exc}",
                     stacklevel=2,
                 )
 

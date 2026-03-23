@@ -1,7 +1,7 @@
 """
 Timeline: merge planned sessions + logged history into a unified view.
 
-This is pure computation — no Rich, no Typer. The result is a list of
+This is pure computation -- no Rich, no Typer. The result is a list of
 TimelineEntry objects suitable for display by any client (CLI, Telegram, web).
 """
 
@@ -52,11 +52,12 @@ def build_timeline(
     # Anchoring to Monday means Mon-Sun calendar weeks stay together (e.g. sessions
     # on Mon 03.02 and Wed 03.04 both appear as "week 3", not split across weeks).
     first_date: datetime | None = (
-        datetime.strptime(min(s.date for s in history), "%Y-%m-%d")
-        if history else None
+        datetime.strptime(min(s.date for s in history), "%Y-%m-%d") if history else None
     )
     first_monday: datetime | None = (
-        first_date - timedelta(days=first_date.weekday()) if first_date is not None else None
+        first_date - timedelta(days=first_date.weekday())
+        if first_date is not None
+        else None
     )
 
     # Build lookup: date -> list of (original_index, session) pairs
@@ -92,7 +93,7 @@ def build_timeline(
         if matched_idx is not None:
             matched_indices.add(matched_idx)
 
-        # Determine status — "next" is assigned by the second pass below
+        # Determine status -- "next" is assigned by the second pass below
         if matched is not None:
             status: TimelineStatus = "done"
         elif plan.date < today:
@@ -103,10 +104,14 @@ def build_timeline(
         # Compute Track B estimate for past non-TEST sessions with ≥2 sets
         track_b: dict | None = None
         if matched is not None and matched.session_type in ("S", "H"):
-            valid_sets = [s for s in matched.completed_sets if s.actual_reps is not None and s.actual_reps > 0]
+            valid_sets = [
+                s
+                for s in matched.completed_sets
+                if s.actual_reps is not None and s.actual_reps > 0
+            ]
             if len(valid_sets) >= 2:
                 track_b = estimate_max_reps_from_session(
-                    [s.actual_reps for s in valid_sets],       # type: ignore[misc]
+                    [s.actual_reps for s in valid_sets],  # type: ignore[misc]
                     [s.rest_seconds_before for s in valid_sets],
                     [s.rir_reported for s in valid_sets],
                 )

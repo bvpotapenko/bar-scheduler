@@ -1,10 +1,11 @@
 """
 Library-level integration tests for the bar-scheduler planning engine.
 
-These tests call core functions directly — no CLI, no CliRunner, no Typer.
+These tests call core functions directly -- no CLI, no CliRunner, no Typer.
 Each test builds a specific history state and compares exact computed values
 against hand-calculated expectations derived from the documented formulas.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -28,7 +29,9 @@ def make_test_session(date: str, reps: int, bw: float = 80.0) -> SessionResult:
     return SessionResult(date, bw, "pronated", "TEST", "pull_up", completed_sets=[s])
 
 
-def make_user_state(history: list[SessionResult], bw: float = 80.0, days_per_week: int = 3) -> UserState:
+def make_user_state(
+    history: list[SessionResult], bw: float = 80.0, days_per_week: int = 3
+) -> UserState:
     profile = UserProfile(180, "male", preferred_days_per_week=days_per_week)
     return UserState(profile=profile, current_bodyweight_kg=bw, history=history)
 
@@ -39,8 +42,8 @@ def make_user_state(history: list[SessionResult], bw: float = 80.0, days_per_wee
 def test_training_max_formula():
     """TM = floor(0.9 × test_max), clamped to minimum 1."""
     assert training_max([make_test_session("2026-01-01", 12)]) == 10  # floor(10.8)
-    assert training_max([make_test_session("2026-01-01", 10)]) == 9   # floor(9.0)
-    assert training_max([make_test_session("2026-01-01", 1)]) == 1    # floor(0.9) → clamp
+    assert training_max([make_test_session("2026-01-01", 10)]) == 9  # floor(9.0)
+    assert training_max([make_test_session("2026-01-01", 1)]) == 1  # floor(0.9) → clamp
 
 
 def test_strength_session_prescription():
@@ -59,7 +62,9 @@ def test_strength_session_prescription():
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
-    plan = generate_plan(make_user_state(history), "2026-01-02", exercise, weeks_ahead=2)
+    plan = generate_plan(
+        make_user_state(history), "2026-01-02", exercise, weeks_ahead=2
+    )
 
     s_sessions = [p for p in plan if p.session_type == "S"]
     assert s_sessions, "plan must contain S sessions"
@@ -82,11 +87,13 @@ def test_hypertrophy_session_prescription():
       target    = (6+8)//2 = 7
       sets      = (4+6)//2 = 5
       rest      = (120+180)//2 = 150
-      weight    = 0.0 (H uses _build_standard_sets — no added weight)
+      weight    = 0.0 (H uses _build_standard_sets -- no added weight)
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
-    plan = generate_plan(make_user_state(history), "2026-01-02", exercise, weeks_ahead=2)
+    plan = generate_plan(
+        make_user_state(history), "2026-01-02", exercise, weeks_ahead=2
+    )
 
     h_sessions = [p for p in plan if p.session_type == "H"]
     assert h_sessions
@@ -118,7 +125,9 @@ def test_endurance_session_volume_formula():
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
-    plan = generate_plan(make_user_state(history), "2026-01-02", exercise, weeks_ahead=2)
+    plan = generate_plan(
+        make_user_state(history), "2026-01-02", exercise, weeks_ahead=2
+    )
 
     e_sessions = [p for p in plan if p.session_type == "E"]
     assert e_sessions
@@ -138,10 +147,16 @@ def test_added_weight_formula():
     """
     exercise = get_exercise("pull_up")
     # _apply_rounding(x) = round(x * 2) / 2  (Python "round half to even")
-    assert _calculate_added_weight(exercise, 9, 80.0) == 0.0   # at threshold → 0
-    assert _calculate_added_weight(exercise, 10, 80.0) == 1.0  # raw=0.8 → round(1.6)/2=2/2=1.0
-    assert _calculate_added_weight(exercise, 12, 80.0) == 2.5  # raw=2.4 → round(4.8)/2=5/2=2.5
-    assert _calculate_added_weight(exercise, 21, 80.0) == 9.5  # raw=9.6 → round(19.2)/2=19/2=9.5
+    assert _calculate_added_weight(exercise, 9, 80.0) == 0.0  # at threshold → 0
+    assert (
+        _calculate_added_weight(exercise, 10, 80.0) == 1.0
+    )  # raw=0.8 → round(1.6)/2=2/2=1.0
+    assert (
+        _calculate_added_weight(exercise, 12, 80.0) == 2.5
+    )  # raw=2.4 → round(4.8)/2=5/2=2.5
+    assert (
+        _calculate_added_weight(exercise, 21, 80.0) == 9.5
+    )  # raw=9.6 → round(19.2)/2=19/2=9.5
 
 
 def test_grip_rotation_cycles_for_s_sessions():
@@ -155,10 +170,14 @@ def test_grip_rotation_cycles_for_s_sessions():
     history = [make_test_session("2026-01-01", 12)]
     # A TEST is inserted every 3 weeks (test_frequency_weeks=3), which can replace
     # an S slot in week 3 of a 4-week plan. Use weeks_ahead=5 to guarantee ≥4 S sessions.
-    plan = generate_plan(make_user_state(history), "2026-01-02", exercise, weeks_ahead=5)
+    plan = generate_plan(
+        make_user_state(history), "2026-01-02", exercise, weeks_ahead=5
+    )
 
     s_sessions = [p for p in plan if p.session_type == "S"]
-    assert len(s_sessions) >= 4, f"expected ≥4 S sessions in 5-week plan, got {len(s_sessions)}"
+    assert (
+        len(s_sessions) >= 4
+    ), f"expected ≥4 S sessions in 5-week plan, got {len(s_sessions)}"
 
     assert s_sessions[0].grip == "pronated"
     assert s_sessions[1].grip == "neutral"

@@ -91,10 +91,10 @@ def calculate_session_days(
 
     # Fixed day offsets within each 7-day week:
     #   1-day: Mon(0)
-    #   2-day: Mon(0), Thu(3) — evenly spaced
-    #   3-day: Mon(0), Wed(2), Fri(4) — 1 rest day between sessions
-    #   4-day: Mon(0), Tue(1), Thu(3), Sat(5) — compact with 1 rest before T
-    #   5-day: Mon(0), Tue(1), Wed(2), Fri(4), Sat(5) — midweek rest Thu
+    #   2-day: Mon(0), Thu(3) -- evenly spaced
+    #   3-day: Mon(0), Wed(2), Fri(4) -- 1 rest day between sessions
+    #   4-day: Mon(0), Tue(1), Thu(3), Sat(5) -- compact with 1 rest before T
+    #   5-day: Mon(0), Tue(1), Wed(2), Fri(4), Sat(5) -- midweek rest Thu
     if days_per_week == 1:
         day_offsets = [0]
     elif days_per_week == 2:

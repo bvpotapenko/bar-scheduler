@@ -1,4 +1,4 @@
-# exercises.yaml — bar-scheduler model constants and exercise configuration
+# exercises.yaml -- bar-scheduler model constants and exercise configuration
 #
 # This file documents all tunable constants used by the training engine.
 # You can override these values by creating a copy at:
@@ -46,8 +46,8 @@ ewma_max:
 #   R(t) = G(t) - H(t) = readiness
 # =============================================================================
 fitness_fatigue:
-  TAU_FATIGUE: 7.0              # Fatigue time constant (days) — short memory
-  TAU_FITNESS: 42.0             # Fitness time constant (days) — long memory
+  TAU_FATIGUE: 7.0              # Fatigue time constant (days) -- short memory
+  TAU_FITNESS: 42.0             # Fitness time constant (days) -- long memory
   K_FATIGUE: 1.0                # Fatigue gain coefficient
   K_FITNESS: 0.5                # Fitness gain coefficient (slower than fatigue)
   C_READINESS: 0.02             # Readiness→rep-adjustment scaling
@@ -158,7 +158,7 @@ schedule:
 #
 # To override an existing exercise or add a new one, place a matching file in:
 #   ~/.bar-scheduler/exercises/<exercise_id>.yaml
-# Only the keys you want to change need to be listed — the file is deep-merged
+# Only the keys you want to change need to be listed -- the file is deep-merged
 # over the bundled definition.
 # See docs/exercise-structure.md for the full field-by-field reference.
 # =============================================================================

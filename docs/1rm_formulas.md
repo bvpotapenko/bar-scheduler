@@ -6,7 +6,7 @@ The `-t m` trajectory in `plot-max` shows a projected curve of how much **added 
 
 ### Why Not Epley Alone?
 
-The Epley formula (`1RM = w × (1 + r/30)`) is **linear in reps**: `added_kg = bw_load × r / 30`. On a chart with a proportional right axis this means the m-trajectory and z-trajectory (bodyweight reps) always land at **identical grid positions** — the two curves look the same.
+The Epley formula (`1RM = w × (1 + r/30)`) is **linear in reps**: `added_kg = bw_load × r / 30`. On a chart with a proportional right axis this means the m-trajectory and z-trajectory (bodyweight reps) always land at **identical grid positions** -- the two curves look the same.
 
 Non-linear formulas (Lombardi, Brzycki, Lander) give different marginal 1RM per rep at different rep ranges, producing a visually distinct m-curve that **bends and flattens** as reps approach 20.
 
@@ -95,7 +95,7 @@ Based on Nuzzo et al. (2024, PMC10933212):
 
 - Epley B. (1985). *Poundage Chart*. Boyd Epley Workout.
 - Lombardi V. (1989). *Beginning Weight Training*. WCB Publishers.
-- Brzycki M. (1993). *Strength Testing — Predicting a One-Rep Max from Reps-to-Fatigue*. JOPERD.
+- Brzycki M. (1993). *Strength Testing -- Predicting a One-Rep Max from Reps-to-Fatigue*. JOPERD.
 - Lander J. (1985). *Maximums Based on Reps*. NSCA Journal.
 - Nuzzo JL, et al. (2024). *Absolute Strength, the Number of Repetitions Performed at a Given Percentage of 1-Repetition Maximum, and the Percentage of 1-Repetition Maximum at Which Fatigue Occurs*. PMC10933212.
 - Pekünlü E. & Atalağ O. (2013). *Which Equation Is More Accurate in Predicting the 1 RM for the Bench Press?* PMC3827769.

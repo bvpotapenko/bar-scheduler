@@ -1,4 +1,5 @@
 """Tests for the public API layer (src/bar_scheduler/api/api.py)."""
+
 from __future__ import annotations
 
 import json
@@ -11,18 +12,35 @@ from bar_scheduler.api.api import (
     HistoryNotFoundError,
     ProfileAlreadyExistsError,
     ProfileNotFoundError,
+    check_band_progression,
+    compute_equipment_adjustment,
+    compute_leff,
+    delete_exercise_history,
     disable_exercise,
     enable_exercise,
+    get_assistance_kg,
+    get_band_progression,
+    get_bss_elevation_heights,
+    get_current_equipment,
+    get_data_dir,
+    get_exercise_info,
     get_history,
+    get_next_band_step,
     get_overtraining_status,
     get_plan,
+    get_plan_cache_entry,
+    get_plan_weeks,
     get_profile,
     init_profile,
     list_exercises,
-    list_languages,
     log_session,
+    parse_compact_sets,
+    parse_sets_string,
     set_exercise_days,
     set_exercise_target,
+    set_plan_start_date,
+    set_plan_weeks,
+    training_max_from_baseline,
     update_bodyweight,
     update_equipment,
     update_profile,
@@ -32,6 +50,7 @@ from bar_scheduler.api.api import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _init(tmp_path: Path, **kwargs) -> dict:
     """Shorthand for initialising a minimal pull-up profile."""
@@ -64,14 +83,20 @@ def _test_session(date: str | None = None) -> dict:
 # TestInitProfile
 # ---------------------------------------------------------------------------
 
+
 class TestInitProfile:
     def test_creates_profile_json(self, tmp_path):
         _init(tmp_path)
         assert (tmp_path / "profile.json").exists()
 
     def test_creates_jsonl_for_each_exercise(self, tmp_path):
-        init_profile(tmp_path, height_cm=180, sex="male", bodyweight_kg=80.0,
-                     exercises=["pull_up", "dip"])
+        init_profile(
+            tmp_path,
+            height_cm=180,
+            sex="male",
+            bodyweight_kg=80.0,
+            exercises=["pull_up", "dip"],
+        )
         assert (tmp_path / "pull_up_history.jsonl").exists()
         assert (tmp_path / "dip_history.jsonl").exists()
 
@@ -83,8 +108,9 @@ class TestInitProfile:
         assert "pull_up" in result["exercises_enabled"]
 
     def test_empty_exercises_creates_profile_only(self, tmp_path):
-        result = init_profile(tmp_path, height_cm=175, sex="female", bodyweight_kg=65.0,
-                              exercises=[])
+        result = init_profile(
+            tmp_path, height_cm=175, sex="female", bodyweight_kg=65.0, exercises=[]
+        )
         assert (tmp_path / "profile.json").exists()
         assert not (tmp_path / "pull_up_history.jsonl").exists()
         assert result["exercises_enabled"] == []
@@ -102,25 +128,38 @@ class TestInitProfile:
     def test_already_exists_does_not_overwrite(self, tmp_path):
         _init(tmp_path, height_cm=180)
         with pytest.raises(ProfileAlreadyExistsError):
-            init_profile(tmp_path, height_cm=999, sex="female", bodyweight_kg=60.0,
-                         exercises=[])
+            init_profile(
+                tmp_path, height_cm=999, sex="female", bodyweight_kg=60.0, exercises=[]
+            )
         # Original profile unchanged
         assert get_profile(tmp_path)["height_cm"] == 180
 
     def test_unknown_exercise_raises_before_writing(self, tmp_path):
         with pytest.raises(ValueError):
-            init_profile(tmp_path, height_cm=180, sex="male", bodyweight_kg=80.0,
-                         exercises=["unknown_exercise"])
+            init_profile(
+                tmp_path,
+                height_cm=180,
+                sex="male",
+                bodyweight_kg=80.0,
+                exercises=["unknown_exercise"],
+            )
         assert not (tmp_path / "profile.json").exists()
 
     def test_invalid_sex_raises(self, tmp_path):
         with pytest.raises(ValueError):
-            init_profile(tmp_path, height_cm=180, sex="robot", bodyweight_kg=80.0,
-                         exercises=[])
+            init_profile(
+                tmp_path, height_cm=180, sex="robot", bodyweight_kg=80.0, exercises=[]
+            )
 
     def test_language_stored_in_profile(self, tmp_path):
-        init_profile(tmp_path, height_cm=180, sex="male", bodyweight_kg=80.0,
-                     exercises=[], language="ru")
+        init_profile(
+            tmp_path,
+            height_cm=180,
+            sex="male",
+            bodyweight_kg=80.0,
+            exercises=[],
+            language="ru",
+        )
         raw = json.loads((tmp_path / "profile.json").read_text())
         assert raw.get("language") == "ru"
 
@@ -134,6 +173,7 @@ class TestInitProfile:
 # ---------------------------------------------------------------------------
 # TestGetProfile
 # ---------------------------------------------------------------------------
+
 
 class TestGetProfile:
     def test_returns_none_before_init(self, tmp_path):
@@ -153,6 +193,7 @@ class TestGetProfile:
 # ---------------------------------------------------------------------------
 # TestUpdateProfile
 # ---------------------------------------------------------------------------
+
 
 class TestUpdateProfile:
     def test_update_preferred_days_per_week(self, tmp_path):
@@ -233,6 +274,7 @@ class TestUpdateProfile:
 # TestSetExerciseTarget
 # ---------------------------------------------------------------------------
 
+
 class TestSetExerciseTarget:
     def test_set_reps_only(self, tmp_path):
         _init(tmp_path)
@@ -274,6 +316,7 @@ class TestSetExerciseTarget:
 # TestSetExerciseDays
 # ---------------------------------------------------------------------------
 
+
 class TestSetExerciseDays:
     def test_set_days(self, tmp_path):
         _init(tmp_path)
@@ -303,6 +346,7 @@ class TestSetExerciseDays:
 # ---------------------------------------------------------------------------
 # TestEnableDisableExercise
 # ---------------------------------------------------------------------------
+
 
 class TestEnableDisableExercise:
     def test_enable_adds_to_list_and_creates_jsonl(self, tmp_path):
@@ -344,6 +388,7 @@ class TestEnableDisableExercise:
 # TestListExercises
 # ---------------------------------------------------------------------------
 
+
 class TestListExercises:
     def test_returns_list(self):
         result = list_exercises()
@@ -373,25 +418,21 @@ class TestListExercises:
 # TestListLanguages
 # ---------------------------------------------------------------------------
 
-class TestListLanguages:
-    def test_returns_list_including_en(self):
-        langs = list_languages()
-        assert isinstance(langs, list)
-        assert "en" in langs
-
-    def test_no_data_dir_needed(self):
-        result = list_languages()
-        assert result is not None
-
 
 # ---------------------------------------------------------------------------
 # TestEndToEnd
 # ---------------------------------------------------------------------------
 
+
 class TestEndToEnd:
     def test_init_log_get_plan(self, tmp_path):
-        init_profile(tmp_path, height_cm=180, sex="male", bodyweight_kg=80.0,
-                     exercises=["pull_up"])
+        init_profile(
+            tmp_path,
+            height_cm=180,
+            sex="male",
+            bodyweight_kg=80.0,
+            exercises=["pull_up"],
+        )
 
         log_session(tmp_path, "pull_up", _test_session())
 
@@ -401,8 +442,13 @@ class TestEndToEnd:
         assert plan["status"]["training_max"] == 10  # floor(0.9 * 12)
 
     def test_full_profile_lifecycle(self, tmp_path):
-        init_profile(tmp_path, height_cm=175, sex="female", bodyweight_kg=65.0,
-                     exercises=["pull_up"])
+        init_profile(
+            tmp_path,
+            height_cm=175,
+            sex="female",
+            bodyweight_kg=65.0,
+            exercises=["pull_up"],
+        )
 
         update_profile(tmp_path, preferred_days_per_week=4, rest_preference="short")
         set_exercise_target(tmp_path, "pull_up", reps=20)
@@ -421,21 +467,32 @@ class TestEndToEnd:
         assert p["exercise_targets"]["pull_up"]["reps"] == 20
 
     def test_get_overtraining_status_after_init(self, tmp_path):
-        init_profile(tmp_path, height_cm=180, sex="male", bodyweight_kg=80.0,
-                     exercises=["pull_up"])
+        init_profile(
+            tmp_path,
+            height_cm=180,
+            sex="male",
+            bodyweight_kg=80.0,
+            exercises=["pull_up"],
+        )
         ot = get_overtraining_status(tmp_path, "pull_up")
         assert "level" in ot
         assert ot["level"] == 0
 
     def test_get_history_empty_after_init(self, tmp_path):
-        init_profile(tmp_path, height_cm=180, sex="male", bodyweight_kg=80.0,
-                     exercises=["pull_up"])
+        init_profile(
+            tmp_path,
+            height_cm=180,
+            sex="male",
+            bodyweight_kg=80.0,
+            exercises=["pull_up"],
+        )
         assert get_history(tmp_path, "pull_up") == []
 
 
 # ---------------------------------------------------------------------------
 # TestUpdateBodyweight
 # ---------------------------------------------------------------------------
+
 
 class TestUpdateBodyweight:
     def test_updates_bodyweight(self, tmp_path):
@@ -462,12 +519,14 @@ class TestUpdateBodyweight:
 # TestUpdateEquipment
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateEquipment:
     def test_sets_equipment(self, tmp_path):
         _init(tmp_path)
-        # No exception — exercise JSONL exists (created by init)
+        # No exception -- exercise JSONL exists (created by init)
         update_equipment(
-            tmp_path, "pull_up",
+            tmp_path,
+            "pull_up",
             active_item="BAR_ONLY",
             available_items=["BAR_ONLY"],
         )
@@ -476,7 +535,277 @@ class TestUpdateEquipment:
         _init(tmp_path, exercises=[])
         with pytest.raises(HistoryNotFoundError):
             update_equipment(
-                tmp_path, "pull_up",
+                tmp_path,
+                "pull_up",
                 active_item="BAR_ONLY",
                 available_items=["BAR_ONLY"],
             )
+
+
+# ---------------------------------------------------------------------------
+# TestGetDataDir
+# ---------------------------------------------------------------------------
+
+
+class TestGetDataDir:
+    def test_returns_path_in_home(self):
+        result = get_data_dir()
+        assert result == Path.home() / ".bar-scheduler"
+
+
+# ---------------------------------------------------------------------------
+# TestGetExerciseInfo
+# ---------------------------------------------------------------------------
+
+
+class TestGetExerciseInfo:
+    def test_known_id_returns_dict(self):
+        info = get_exercise_info("pull_up")
+        assert info["id"] == "pull_up"
+        assert "bw_fraction" in info
+        assert "onerm_includes_bodyweight" in info
+        assert "display_name" in info
+
+    def test_unknown_id_raises(self):
+        with pytest.raises(ValueError):
+            get_exercise_info("unicorn")
+
+    def test_consistent_with_list_exercises(self):
+        info = get_exercise_info("pull_up")
+        match = next(e for e in list_exercises() if e["id"] == "pull_up")
+        for key in match:
+            assert info[key] == match[key]
+
+
+# ---------------------------------------------------------------------------
+# TestTrainingMaxFromBaseline
+# ---------------------------------------------------------------------------
+
+
+class TestTrainingMaxFromBaseline:
+    def test_baseline_10(self):
+        assert training_max_from_baseline(10) == 9
+
+    def test_baseline_1(self):
+        assert training_max_from_baseline(1) == 1  # floor(0.9) = 0, but min is 1
+
+
+# ---------------------------------------------------------------------------
+# TestLogSessionEquipmentAutoAttach
+# ---------------------------------------------------------------------------
+
+
+class TestLogSessionEquipmentAutoAttach:
+    def test_auto_attaches_snapshot_when_equipment_set(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            active_item="BAR_ONLY",
+            available_items=["BAR_ONLY"],
+        )
+        result = log_session(tmp_path, "pull_up", _test_session())
+        assert result["equipment_snapshot"] is not None
+        assert result["equipment_snapshot"]["active_item"] == "BAR_ONLY"
+
+    def test_no_snapshot_when_no_equipment_configured(self, tmp_path):
+        _init(tmp_path)
+        result = log_session(tmp_path, "pull_up", _test_session())
+        assert result.get("equipment_snapshot") is None
+
+    def test_explicit_snapshot_not_overwritten(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            active_item="BAR_ONLY",
+            available_items=["BAR_ONLY", "BAND_LIGHT"],
+        )
+        session = {**_test_session(), "equipment_snapshot": {"active_item": "BAND_LIGHT", "assistance_kg": 8.0, "elevation_height_cm": None}}
+        result = log_session(tmp_path, "pull_up", session)
+        assert result["equipment_snapshot"]["active_item"] == "BAND_LIGHT"
+
+
+# ---------------------------------------------------------------------------
+# TestPlanConfig
+# ---------------------------------------------------------------------------
+
+
+class TestPlanConfig:
+    def test_set_and_get_plan_weeks(self, tmp_path):
+        _init(tmp_path)
+        set_plan_weeks(tmp_path, 6)
+        assert get_plan_weeks(tmp_path) == 6
+
+    def test_plan_weeks_default_none(self, tmp_path):
+        _init(tmp_path)
+        assert get_plan_weeks(tmp_path) is None
+
+    def test_set_plan_start_date_missing_profile_raises(self, tmp_path):
+        with pytest.raises(ProfileNotFoundError):
+            set_plan_start_date(tmp_path, "pull_up", "2026-01-01")
+
+
+# ---------------------------------------------------------------------------
+# TestPlanCacheEntry
+# ---------------------------------------------------------------------------
+
+
+class TestPlanCacheEntry:
+    def test_returns_none_when_no_cache(self, tmp_path):
+        _init(tmp_path)
+        result = get_plan_cache_entry(tmp_path, "pull_up", "2026-01-01", "S")
+        assert result is None
+
+    def test_returns_entry_after_plan(self, tmp_path):
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        plan = get_plan(tmp_path, "pull_up")
+        # find the first future planned session
+        future = next((s for s in plan["sessions"] if s["status"] in ("next", "planned")), None)
+        if future is None:
+            return  # no planned sessions — skip
+        entry = get_plan_cache_entry(tmp_path, "pull_up", future["date"], future["type"])
+        assert entry is not None
+        assert entry["date"] == future["date"]
+
+
+# ---------------------------------------------------------------------------
+# TestDeleteExerciseHistory
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteExerciseHistory:
+    def test_deletes_jsonl_file(self, tmp_path):
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        jsonl = tmp_path / "pull_up_history.jsonl"
+        assert jsonl.exists()
+        delete_exercise_history(tmp_path, "pull_up")
+        assert not jsonl.exists()
+
+    def test_delete_nonexistent_is_noop(self, tmp_path):
+        _init(tmp_path, exercises=[])
+        delete_exercise_history(tmp_path, "pull_up")  # no error
+
+
+# ---------------------------------------------------------------------------
+# TestGetCurrentEquipment
+# ---------------------------------------------------------------------------
+
+
+class TestGetCurrentEquipment:
+    def test_returns_none_when_no_equipment(self, tmp_path):
+        _init(tmp_path)
+        assert get_current_equipment(tmp_path, "pull_up") is None
+
+    def test_returns_dict_with_expected_keys(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path, "pull_up",
+            active_item="BAR_ONLY",
+            available_items=["BAR_ONLY"],
+        )
+        eq = get_current_equipment(tmp_path, "pull_up")
+        assert eq is not None
+        for key in ("exercise_id", "active_item", "available_items",
+                    "assistance_kg", "is_bss_degraded"):
+            assert key in eq
+        assert eq["active_item"] == "BAR_ONLY"
+        assert isinstance(eq["is_bss_degraded"], bool)
+
+
+# ---------------------------------------------------------------------------
+# TestCheckBandProgression
+# ---------------------------------------------------------------------------
+
+
+class TestCheckBandProgression:
+    def test_returns_false_with_no_history(self, tmp_path):
+        _init(tmp_path)
+        assert check_band_progression(tmp_path, "pull_up") is False
+
+
+# ---------------------------------------------------------------------------
+# TestEquipmentComputations
+# ---------------------------------------------------------------------------
+
+
+class TestEquipmentComputations:
+    def test_compute_leff_basic(self):
+        assert compute_leff(1.0, 80.0, 0.0, 0.0) == 80.0
+
+    def test_compute_leff_with_assistance(self):
+        assert compute_leff(1.0, 80.0, 0.0, 8.0) == 72.0
+
+    def test_equipment_adjustment_load_increase(self):
+        result = compute_equipment_adjustment(70.0, 80.0)
+        assert result["reps_factor"] == 0.80
+        assert "description" in result
+
+    def test_get_next_band_step(self):
+        assert get_next_band_step("BAND_HEAVY") == "BAND_MEDIUM"
+        assert get_next_band_step("BAR_ONLY") is None
+
+    def test_get_band_progression_and_elevation_heights(self):
+        bp = get_band_progression()
+        assert "BAND_HEAVY" in bp
+        assert "BAR_ONLY" in bp
+        heights = get_bss_elevation_heights()
+        assert 30 in heights and 60 in heights
+
+    def test_get_assistance_kg_band(self):
+        kg = get_assistance_kg("pull_up", "BAND_LIGHT")
+        assert kg > 0
+
+
+# ---------------------------------------------------------------------------
+# TestExerciseInfoExtended
+# ---------------------------------------------------------------------------
+
+
+class TestExerciseInfoExtended:
+    def test_session_params_in_info(self):
+        info = get_exercise_info("pull_up")
+        assert "session_params" in info
+        assert "S" in info["session_params"]
+        assert info["session_params"]["S"]["reps_min"] == 4
+
+    def test_onerm_explanation_in_info(self):
+        info = get_exercise_info("pull_up")
+        assert "onerm_explanation" in info
+        assert isinstance(info["onerm_explanation"], str)
+        assert len(info["onerm_explanation"]) > 0
+
+    def test_session_params_in_list_exercises(self):
+        items = list_exercises()
+        pu = next(e for e in items if e["id"] == "pull_up")
+        assert "session_params" in pu
+        assert "onerm_explanation" in pu
+
+
+# ---------------------------------------------------------------------------
+# TestParseSets
+# ---------------------------------------------------------------------------
+
+
+class TestParseSets:
+    def test_parse_sets_string_basic(self):
+        result = parse_sets_string("8")
+        assert len(result) == 1
+        reps, weight, rest = result[0]
+        assert reps == 8
+
+    def test_parse_sets_string_compact(self):
+        # "3×5" = 5 sets of 3 reps (sets×reps format)
+        result = parse_sets_string("3×5/120s")
+        assert len(result) == 5
+        assert all(r == 3 for r, _, _ in result)
+
+    def test_parse_compact_sets_returns_none_for_bare_int(self):
+        assert parse_compact_sets("8") is None
+
+    def test_parse_compact_sets_recognises_compact(self):
+        result = parse_compact_sets("3×5/120s")
+        assert result is not None
+        assert len(result) == 5

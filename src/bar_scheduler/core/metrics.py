@@ -91,7 +91,7 @@ def bodyweight_normalized_reps(
     if reference_bodyweight_kg <= 0:
         return reps
     l_rel = total_load / reference_bodyweight_kg
-    return reps * (l_rel ** GAMMA_BW)
+    return reps * (l_rel**GAMMA_BW)
 
 
 def grip_factor(grip: str, variant_factors: dict[str, float] | None = None) -> float:
@@ -146,8 +146,12 @@ def standardized_reps(
 
     # Step 2: Bodyweight normalization (includes assistance)
     bw_norm = bodyweight_normalized_reps(
-        rest_norm, session_bodyweight_kg, reference_bodyweight_kg,
-        added_load_kg, bw_fraction, assistance_kg,
+        rest_norm,
+        session_bodyweight_kg,
+        reference_bodyweight_kg,
+        added_load_kg,
+        bw_fraction,
+        assistance_kg,
     )
 
     # Step 3: Variant/grip normalization
@@ -165,7 +169,9 @@ def session_max_reps(session: SessionResult) -> int:
         Max reps from bodyweight-only sets, or 0 if none
     """
     bw_only_sets = [
-        s for s in session.completed_sets if s.actual_reps is not None and s.added_weight_kg == 0
+        s
+        for s in session.completed_sets
+        if s.actual_reps is not None and s.added_weight_kg == 0
     ]
 
     if not bw_only_sets:
@@ -184,7 +190,9 @@ def session_total_reps(session: SessionResult) -> int:
     Returns:
         Sum of actual reps
     """
-    return sum(s.actual_reps for s in session.completed_sets if s.actual_reps is not None)
+    return sum(
+        s.actual_reps for s in session.completed_sets if s.actual_reps is not None
+    )
 
 
 def session_avg_rest(session: SessionResult) -> float:
@@ -200,7 +208,9 @@ def session_avg_rest(session: SessionResult) -> float:
     if not session.completed_sets:
         return 0.0
 
-    return sum(s.rest_seconds_before for s in session.completed_sets) / len(session.completed_sets)
+    return sum(s.rest_seconds_before for s in session.completed_sets) / len(
+        session.completed_sets
+    )
 
 
 def get_test_sessions(history: list[SessionResult]) -> list[SessionResult]:
@@ -308,7 +318,7 @@ def lombardi_1rm(total_load_kg: float, reps: int) -> float:
     """1RM = w × r^0.10  (Lombardi; non-linear, handles higher-rep sets better than Epley)."""
     if reps <= 0:
         return 0.0
-    return total_load_kg * (reps ** 0.10)
+    return total_load_kg * (reps**0.10)
 
 
 def brzycki_1rm(total_load_kg: float, reps: int) -> float:
@@ -409,7 +419,7 @@ def _recommended_formula(reps: int) -> str:
 
 
 def estimate_1rm(
-    exercise,  # ExerciseDefinition — avoid circular import by not type-hinting here
+    exercise,  # ExerciseDefinition -- avoid circular import by not type-hinting here
     bodyweight_kg: float,
     history: list[SessionResult],
     window_sessions: int = 5,
@@ -468,7 +478,11 @@ def estimate_1rm(
                 brzycki = round(brzycki_1rm(eff_load, reps), 1) if reps < 37 else None
                 lander = round(lander_1rm(eff_load, reps), 1) if reps < 37 else None
                 blended_added = blended_1rm_added(eff_load, reps)
-                blended = round(eff_load + blended_added, 1) if blended_added is not None else None
+                blended = (
+                    round(eff_load + blended_added, 1)
+                    if blended_added is not None
+                    else None
+                )
 
                 best_info = {
                     "1rm_kg": round(est, 1),
@@ -593,7 +607,9 @@ def compliance_ratio(
         Ratio of actual to planned reps (0.0 to 1.0+)
     """
     planned_total = sum(s.target_reps for s in planned_sets)
-    actual_total = sum(s.actual_reps for s in completed_sets if s.actual_reps is not None)
+    actual_total = sum(
+        s.actual_reps for s in completed_sets if s.actual_reps is not None
+    )
 
     if planned_total == 0:
         return 1.0 if actual_total == 0 else float("inf")

@@ -7,7 +7,7 @@ look up an ExerciseDefinition by its exercise_id string.
 Exercises are loaded from per-exercise YAML files in the bundled
 ``src/bar_scheduler/exercises/`` directory at import time.  If YAML
 loading fails for any reason (missing PyYAML, parse error, missing
-field), a RuntimeError is raised — the application cannot start without
+field), a RuntimeError is raised -- the application cannot start without
 valid exercise definitions.
 
 User overrides: place matching files in ``~/.bar-scheduler/exercises/``.

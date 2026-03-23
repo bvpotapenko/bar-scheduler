@@ -252,9 +252,7 @@ def get_training_status(
     from .metrics import latest_test_max, training_max
 
     # Build fitness-fatigue state
-    ff_state = build_fitness_fatigue_state(
-        history, current_bodyweight_kg, baseline_max
-    )
+    ff_state = build_fitness_fatigue_state(history, current_bodyweight_kg, baseline_max)
 
     # Get test max
     test_max = latest_test_max(history)
@@ -342,7 +340,7 @@ def overtraining_severity(
 
     Looks at the last 7 calendar days of sessions and compares the actual
     session density to the expected spacing based on days_per_week.
-    Unlogged days are implicitly treated as rest — no explicit REST records needed.
+    Unlogged days are implicitly treated as rest -- no explicit REST records needed.
 
     Args:
         history:       Training session history.
@@ -356,17 +354,22 @@ def overtraining_severity(
         extra_rest_days (int): estimated additional rest days needed
         description (str):     human-readable summary, e.g. "3 sessions in 4 days"
     """
-    _empty = {"level": 0, "sessions": 0, "span_days": 0, "extra_rest_days": 0, "description": ""}
+    _empty = {
+        "level": 0,
+        "sessions": 0,
+        "span_days": 0,
+        "extra_rest_days": 0,
+        "description": "",
+    }
     if not history:
         return _empty
 
-    ref = (reference_date or datetime.now()).replace(hour=0, minute=0, second=0, microsecond=0)
+    ref = (reference_date or datetime.now()).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     cutoff = ref - timedelta(days=6)  # 7-day window ending today
 
-    recent = [
-        s for s in history
-        if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff
-    ]
+    recent = [s for s in history if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff]
     n = len(recent)
     if n < 2:
         return _empty

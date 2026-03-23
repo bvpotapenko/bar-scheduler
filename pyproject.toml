@@ -1,7 +1,7 @@
 [project]
 name = "bar-scheduler"
-version = "0.4.0"
-description = "Evidence-informed bodyweight strength training planner — Python library and planning engine"
+version = "0.4.1"
+description = "Evidence-informed bodyweight strength training planner -- Python library and planning engine"
 readme = "README.md"
 requires-python = ">=3.14"
 license = {text = "CC BY-NC 4.0"}

@@ -4,22 +4,44 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
-## [0.4.0] — 2026-03-23
+## [0.4.1] -- 2026-03-23
 
 ### Breaking changes
 
-- **CLI extracted** — the interactive command-line interface has been moved to a separate project ([cli_bar](https://github.com/bvpotapenko/cli_bar)). This package is now a pure Python library; no entry points are installed.
-- **`HistoryStore` → `UserStore`** — `io/history_store.py` class renamed and redesigned as a profile-centric store. Constructor changed from `(history_path, exercise_id)` to `(data_dir)`. All exercise-specific methods now take `exercise_id` as an explicit parameter. A `HistoryStore = UserStore` alias is provided for external consumers.
-- **`update_bodyweight` signature** — `exercise_id` parameter removed. Bodyweight is user-level, not per-exercise. New signature: `update_bodyweight(data_dir, bodyweight_kg)`.
-- **`update_equipment` signature** — dict parameter replaced with explicit named keyword arguments: `active_item`, `available_items`, `machine_assistance_kg`, `elevation_height_cm`, `valid_from`.
-- **REST session type removed** — `session_type="REST"` no longer exists. `SessionType` is now `Literal["S", "H", "E", "T", "TEST"]`. Calendar gaps serve as implicit rest.
-- **Per-exercise plan cache** — plan cache files renamed from `plan_cache.json` (shared) to `{exercise_id}_plan_cache.json` (per-exercise).
+- **i18n removed** -- `core/i18n.py` and all locale YAML files (`en.yaml`, `ru.yaml`, `zh.yaml`) deleted. The library engine is English-only internally. `profile.language` remains a plain string, stored as a hint for clients. Clients (CLI, bots) own their own translation layer.
+- **`list_languages` removed** -- function no longer exists. Clients manage their own language lists.
+- **`update_language` now accepts any non-empty string** -- previously validated against `available_languages()`; validation is now the client's responsibility.
 
 ### Added
 
-- **Public API module** (`src/bar_scheduler/api/api.py`) — complete `data_dir`-isolated facade over the planning engine. All functions return JSON-serialisable dicts; no internal imports required by consumers. New public functions:
+- **15 new API functions** eliminating the need for any direct `UserStore` or `core.equipment` imports by consumers:
+  - Store operations: `set_plan_start_date`, `get_plan_weeks`, `set_plan_weeks`, `get_plan_cache_entry`, `delete_exercise_history`
+  - Equipment queries: `get_current_equipment`, `check_band_progression`
+  - Pure computations: `compute_leff`, `compute_equipment_adjustment`, `get_assistance_kg`, `get_next_band_step`, `get_band_progression`, `get_bss_elevation_heights`
+  - Input parsers: `parse_sets_string`, `parse_compact_sets`
+- **`exercises` optional in `init_profile`** -- defaults to `[]`; exercises added later via `enable_exercise`.
+- **`get_exercise_info` / `list_exercises`** now return `session_params` (per session-type params dict) and `onerm_explanation` string.
+- **`log_session` auto-attaches equipment snapshot** -- reads current equipment from profile when no snapshot is provided.
+- **`get_data_dir()`** moved to `api.py` as a public utility (was private in `io/user_store.py`).
+
+---
+
+## [0.4.0] -- 2026-03-23
+
+### Breaking changes
+
+- **CLI extracted** -- the interactive command-line interface has been moved to a separate project ([cli_bar](https://github.com/bvpotapenko/cli_bar)). This package is now a pure Python library; no entry points are installed.
+- **`HistoryStore` → `UserStore`** -- `io/history_store.py` class renamed and redesigned as a profile-centric store. Constructor changed from `(history_path, exercise_id)` to `(data_dir)`. All exercise-specific methods now take `exercise_id` as an explicit parameter. A `HistoryStore = UserStore` alias is provided for external consumers.
+- **`update_bodyweight` signature** -- `exercise_id` parameter removed. Bodyweight is user-level, not per-exercise. New signature: `update_bodyweight(data_dir, bodyweight_kg)`.
+- **`update_equipment` signature** -- dict parameter replaced with explicit named keyword arguments: `active_item`, `available_items`, `machine_assistance_kg`, `elevation_height_cm`, `valid_from`.
+- **REST session type removed** -- `session_type="REST"` no longer exists. `SessionType` is now `Literal["S", "H", "E", "T", "TEST"]`. Calendar gaps serve as implicit rest.
+- **Per-exercise plan cache** -- plan cache files renamed from `plan_cache.json` (shared) to `{exercise_id}_plan_cache.json` (per-exercise).
+
+### Added
+
+- **Public API module** (`src/bar_scheduler/api/api.py`) -- complete `data_dir`-isolated facade over the planning engine. All functions return JSON-serialisable dicts; no internal imports required by consumers. New public functions:
   - `init_profile`, `get_profile`, `update_profile` (now includes `height_cm`, `sex`)
-  - `update_bodyweight`, `update_language`, `list_languages`
+  - `update_bodyweight`, `update_language`
   - `update_equipment`
   - `list_exercises`, `set_exercise_target`, `set_exercise_days`
   - `enable_exercise`, `disable_exercise`
@@ -27,22 +49,21 @@ All notable changes to bar-scheduler are documented here.
   - `get_plan`, `refresh_plan`, `explain_session`
   - `get_training_status`, `get_onerepmax_data`, `get_volume_data`, `get_progress_data`, `get_overtraining_status`
 - **Typed exceptions**: `ProfileAlreadyExistsError`, `ProfileNotFoundError`, `HistoryNotFoundError`, `SessionNotFoundError`.
-- **Multi-user support** — every API function takes `data_dir: Path`; point different users at different directories.
-- **`_lang_context`** — per-call language isolation: API functions automatically use `profile.language`, restoring the previous language on exit (safe for sequential multi-user calls).
+- **Multi-user support** -- every API function takes `data_dir: Path`; point different users at different directories.
 
 ### Documentation
 
-- `docs/api_info.md` — fully rewritten to document the public API; no internal imports in any example.
-- `docs/features.md` — updated to reflect library-only scope; CLI-specific features removed.
-- `README.md` — rewritten as a library README with links to docs and the CLI project.
+- `docs/api_info.md` -- fully rewritten to document the public API; no internal imports in any example.
+- `docs/features.md` -- updated to reflect library-only scope; CLI-specific features removed.
+- `README.md` -- rewritten as a library README with links to docs and the CLI project.
 
 ---
 
-## [0.3.0] — 2026-03-04
+## [0.3.0] -- 2026-03-04
 
-### Added (i18n — multilingual interface)
+### Added (i18n -- multilingual interface)
 
-- `core/i18n.py` — `t(key, **kwargs)`, `set_language()`, `available_languages()`; YAML locale files in `src/bar_scheduler/locales/`
+- `core/i18n.py` -- `t(key, **kwargs)`, `set_language()`, `available_languages()`; YAML locale files in `src/bar_scheduler/locales/`
 - Three bundled locales: **en** (English), **ru** (Russian), **zh** (Chinese Mandarin)
 - `--lang` / `-l` flag on the root command for per-session language override (does not persist)
 - Language stored in `profile.json` under `"language"` key; omitted when English (backward compat with old profiles)
@@ -52,10 +73,10 @@ All notable changes to bar-scheduler are documented here.
 
 All profile-management commands are now grouped under `bar-scheduler profile`:
 
-- `profile init` — create / update user profile
-- `profile update-weight <kg>` — update bodyweight (positional argument, not a flag)
-- `profile update-equipment` — manage training equipment per exercise
-- `profile update-language <lang>` — save display language to `profile.json`
+- `profile init` -- create / update user profile
+- `profile update-weight <kg>` -- update bodyweight (positional argument, not a flag)
+- `profile update-equipment` -- manage training equipment per exercise
+- `profile update-language <lang>` -- save display language to `profile.json`
 
 Interactive menu: `[l]` shortcut calls `_menu_update_language()` helper directly.
 `HistoryStore.update_language()` writes / removes the `"language"` key in `profile.json`.
@@ -64,7 +85,7 @@ Interactive menu: `[l]` shortcut calls `_menu_update_language()` helper directly
 
 ---
 
-### Fixed (plan prescription stability — retroactive prescription change on session log)
+### Fixed (plan prescription stability -- retroactive prescription change on session log)
 
 **Bug:** Logging a session at date D retroactively changed the prescription for D and
 earlier dates. Concrete example: `03.01 Tec: 2x5/120s` before logging → `03.01 Tec: 4x3+1kg/295s`
@@ -85,7 +106,7 @@ so logging at D changed adaptive rest for D itself.
 
 **Fix:** Two targeted changes in `_plan_core()` (`core/planner.py`):
 
-1. **`history_for_init`** — filter to sessions with `date < start_date` for all initial state:
+1. **`history_for_init`** -- filter to sessions with `date < start_date` for all initial state:
    - `get_training_status(effective_init, …)` → TM + ff_state
    - `get_next_session_type_index(effective_init, schedule)` → rotation
    - `_init_grip_counts(effective_init, exercise)` → grip counts
@@ -93,11 +114,11 @@ so logging at D changed adaptive rest for D itself.
    - `last_test_weight` from `effective_init` (BSS)
    - `effective_init = history_for_init if history_for_init else history` (brand-new user fallback)
 
-2. **Per-slot date filter** — `recent_same_type` now filtered to `date < slot_date`:
+2. **Per-slot date filter** -- `recent_same_type` now filtered to `date < slot_date`:
    ```python
    recent_same_type = [s for s in history_by_type[session_type] if s.date < date_str][-5:]
    ```
-   Future slots (D2 > D1) still benefit from sessions logged at D1 — only current/past slots
+   Future slots (D2 > D1) still benefit from sessions logged at D1 -- only current/past slots
    are protected.
 
 **Tests:** `TestPlanStability` removed (tested obsolete auto-advance formula). Replaced with
@@ -115,7 +136,7 @@ grip rotation stable.
 
 ---
 
-### — 2026-03-03
+### -- 2026-03-03
 
 ### Fixed (backward-skip REST deletion when `plan_start < from_date`)
 
@@ -140,9 +161,9 @@ When `plan_start = 03.01` and `from_date = 03.02` and `shift = −1`:
 
 | Scenario | REST range (old, buggy) | REST range (new, correct) |
 |---|---|---|
-| plan_start=03.01, from_date=03.02, shift=−1 | [02.28, 03.02) — deletes 02.28! | [03.01, 03.02) — nothing |
-| plan_start=03.06, from_date=03.06, shift=−6 | [02.28, 03.06) — same | [02.28, 03.06) — same |
-| plan_start=03.01, from_date=03.05, shift=−3 | [02.26, 03.05) | [03.02, 03.05) — undo fwd skip |
+| plan_start=03.01, from_date=03.02, shift=−1 | [02.28, 03.02) -- deletes 02.28! | [03.01, 03.02) -- nothing |
+| plan_start=03.06, from_date=03.06, shift=−6 | [02.28, 03.06) -- same | [02.28, 03.06) -- same |
+| plan_start=03.01, from_date=03.05, shift=−3 | [02.26, 03.05) | [03.02, 03.05) -- undo fwd skip |
 
 **Tests:** All skip tests replaced with comprehensive expected-behavior tests
 (`TestSkipForwardExpected` + `TestSkipBackwardExpected`, 16 tests total).
@@ -158,7 +179,7 @@ TestSkipForwardPlanStartOffset.
 
 ---
 
-### — 2026-03-02
+### -- 2026-03-02
 
 ### Fixed (backward-skip no-op when `from_date ≠ plan_start`)
 
@@ -171,7 +192,7 @@ The plan appeared unchanged after the backward skip.
 When `from_date > plan_start`, the target could equal (or be above) `plan_start`,
 leaving the anchor unchanged.
 
-**Fix:** `target = plan_start_date + shift_days` — always shifts the anchor by
+**Fix:** `target = plan_start_date + shift_days` -- always shifts the anchor by
 exactly `|shift_days|` calendar days, symmetric with forward skip. The `from_date`
 is kept only as the upper bound for plan-REST removal.
 
@@ -180,13 +201,13 @@ is kept only as the upper bound for plan-REST removal.
 | `target_dt = plan_start_dt + timedelta(days=shift_days)` | `cli/commands/planning.py` backward path |
 | Existing `TestSkipBackward` tests updated to set `plan_start = from_date` | `tests/test_plan_integration.py` |
 
-**Tests added:** `TestSkipBackwardFromDateOffset` (3 tests) — covers:
+**Tests added:** `TestSkipBackwardFromDateOffset` (3 tests) -- covers:
 from_date 1 day ahead of plan_start; from_date 2 days ahead; regression guard
 for from_date = plan_start (both formulas agree).
 
 ---
 
-### — 2026-03-01
+### -- 2026-03-01
 
 ### Fixed (forward-skip calendar-day invariant when `plan_start < from_date`)
 
@@ -207,15 +228,15 @@ When `plan_start < from_date`, this formula jumps `plan_start` by
 | Auto-advance block removed from `plan()` | `cli/commands/planning.py` | `skip()` is now sole owner of plan_start advancement; the old auto-advance would override the correct value set by skip |
 
 **Tests added:** `TestSkipForwardPlanStartOffset` (3 tests) in
-`tests/test_plan_integration.py` — covers: +1 from non-plan_start shifts all
+`tests/test_plan_integration.py` -- covers: +1 from non-plan_start shifts all
 sessions by exactly 1 day; session types preserved; regression guard for the
 original pull_up scenario (plan_start == from_date still works).
 
 ---
 
-### — 2026-02-27
+### -- 2026-02-27
 
-### Fixed (explain accuracy — 6 bugs in `explain_plan_entry()`)
+### Fixed (explain accuracy -- 6 bugs in `explain_plan_entry()`)
 
 | # | Bug | Fix |
 |---|-----|-----|
@@ -229,7 +250,7 @@ original pull_up scenario (plan_start == from_date still works).
 ### Added (rest-adherence feedback in `calculate_adaptive_rest()`)
 
 - Reads `rest_seconds_before` from all completed sets across the last 5 same-type sessions
-  (values of 0 excluded — first set of each session).
+  (values of 0 excluded -- first set of each session).
 - Fires when `len(actual_rests) >= 3`:
   - avg actual rest < `rest_min × 0.85` → prescription −20 s
   - avg actual rest > `rest_max × 1.10` → prescription +20 s
@@ -239,14 +260,14 @@ original pull_up scenario (plan_start == from_date still works).
 
 ### Added (YAML exercise definitions)
 
-- `exercises:` block added to `src/bar_scheduler/exercises.yaml` — all three exercises
+- `exercises:` block added to `src/bar_scheduler/exercises.yaml` -- all three exercises
   (pull_up, dip, bss) fully defined in YAML with all `ExerciseDefinition` fields.
-- `core/exercises/loader.py` — `exercise_from_dict()` + `_validate_session_params()` with
+- `core/exercises/loader.py` -- `exercise_from_dict()` + `_validate_session_params()` with
   missing-field detection; `load_exercises_from_yaml()` returns `None` (not raises) on any failure.
-- `core/exercises/registry.py` — `_build_registry()` tries YAML first, falls back silently to
+- `core/exercises/registry.py` -- `_build_registry()` tries YAML first, falls back silently to
   Python constants (pull_up.py / dip.py / bss.py) if PyYAML is absent, YAML is malformed, or
   any required field is missing.
-- `docs/exercise-structure.md` — full field-by-field schema for `ExerciseDefinition` and
+- `docs/exercise-structure.md` -- full field-by-field schema for `ExerciseDefinition` and
   `SessionTypeParams`, `grip_cycles` rules, validator behaviour, user-override guide, and
   complete worked example for adding a new "ring_row" exercise.
 - 6 new tests in `TestYamlExerciseLoading` covering field validation, registry fallback,
@@ -256,7 +277,7 @@ original pull_up scenario (plan_start == from_date still works).
 
 - **`_plan_core()` generator** extracted as the single source of truth for all plan logic.
   Yields `(SessionPlan, _SessionTrace)` per session.  Both `generate_plan()` and
-  `explain_plan_entry()` delegate here — the explanation is now mathematically guaranteed
+  `explain_plan_entry()` delegate here -- the explanation is now mathematically guaranteed
   to match the plan.
 - **`_SessionTrace` dataclass** captures every intermediate value (TM, grip counts, weekly_log,
   adj_sets/reps/rest, recent_same_type, etc.) at yield time.  No recomputation in the formatter.
@@ -268,42 +289,42 @@ original pull_up scenario (plan_start == from_date still works).
 
 ---
 
-### — 2026-02-26
+### -- 2026-02-26
 
 ### Refactored (codebase cleanup)
 
 #### Dead code removal
 - Deleted `format_plan_table`, `print_plan`, `print_plan_with_context`, and
-  `format_plan_table_with_marker` from `cli/views.py` — all four were superseded by
+  `format_plan_table_with_marker` from `cli/views.py` -- all four were superseded by
   `print_unified_plan` + `build_timeline` and had zero callers outside the file.
 
-#### `build_timeline` — index-based history matching
+#### `build_timeline` -- index-based history matching
 - Replaced `id()`-based object-identity tracking (`history_id_map`, `matched_history`)
   with direct original-index tracking (`matched_indices`).
   Same semantics; eliminates reliance on CPython memory-address stability.
 
-#### `planning.py` — DRY helpers
+#### `planning.py` -- DRY helpers
 - Added `_resolve_plan_start(store, user_state, default_offset_days)` helper.
 - Added `_total_weeks(plan_start_date, weeks_ahead)` helper.
 - Removed 4 inline copies of the plan-start resolution + weeks-clamping blocks from
   `plan()`, `explain()`, `_menu_explain()`, and `skip()`.
 
-#### `planner.py` — O(1) recent-session lookup
+#### `planner.py` -- O(1) recent-session lookup
 - `generate_plan()` now builds a `history_by_type` dict before the session loop.
   Replaces a per-iteration O(n) history scan for `recent_same_type` with an O(1) dict lookup.
 
-#### `metrics.py` — single-pass linear regression
+#### `metrics.py` -- single-pass linear regression
 - `linear_trend_max_reps()` replaced four separate `sum()` generator passes with a
-  single accumulator loop — same result, one pass over the data.
+  single accumulator loop -- same result, one pass over the data.
 
-#### `views.py` — decomposed `print_unified_plan`
+#### `views.py` -- decomposed `print_unified_plan`
 - Extracted four private helper functions from the 224-line `print_unified_plan`:
   `_print_equipment_header`, `_emax_cell`, `_grip_legend_str`, `_print_band_progression`.
 - Moved `get_exercise` import from lazy local import to module-level.
 
 ---
 
-### — 2026-02-24
+### -- 2026-02-24
 
 ### Added (task.md completion batch)
 
@@ -312,10 +333,10 @@ original pull_up scenario (plan_start == from_date still works).
   Pull-Up (`bw_fraction=1.0`), Parallel Bar Dip (`bw_fraction=0.92`), and BSS
   (`bw_fraction=0.71`) all share one planning engine, parameterised by
   `ExerciseDefinition`.
-- **Per-exercise history files** — `pull_up_history.jsonl`, `dip_history.jsonl`,
+- **Per-exercise history files** -- `pull_up_history.jsonl`, `dip_history.jsonl`,
   `bss_history.jsonl`; backward-compatible with old `history.jsonl`.
 - **`--exercise` / `-e` flag** on all CLI commands (default: `pull_up`).
-- **BSS unilateral display** — `_fmt_prescribed()` appends "(per leg)" for BSS.
+- **BSS unilateral display** -- `_fmt_prescribed()` appends "(per leg)" for BSS.
 
 #### 1RM display (`bar-scheduler 1rm`)
 - Epley formula: `1RM = Leff × (1 + reps/30)`.
@@ -324,15 +345,15 @@ original pull_up scenario (plan_start == from_date still works).
 - `--json` output includes `1rm_kg`, `best_reps`, `best_date`, `effective_load_kg`.
 
 #### Assessment test protocols
-- `docs/assessment_protocols.md` — pull-up, dip, BSS protocols.
+- `docs/assessment_protocols.md` -- pull-up, dip, BSS protocols.
 - Per-exercise `test_frequency_weeks` field (`pull_up=3`, `dip=3`, `bss=4`).
 - Planner auto-inserts TEST sessions at configured intervals via
   `_insert_test_sessions()`.
 
 #### YAML config (#14)
-- `src/bar_scheduler/exercises.yaml` — all model constants documented in YAML
+- `src/bar_scheduler/exercises.yaml` -- all model constants documented in YAML
   with section headers and inline comments.
-- `core/engine/config_loader.py` — loads bundled YAML; merges user override
+- `core/engine/config_loader.py` -- loads bundled YAML; merges user override
   from `~/.bar-scheduler/exercises.yaml` via deep-merge.
 - `PyYAML>=6.0` added as an optional dependency (`pip install bar-scheduler[yaml]`
   or `pip install PyYAML`).
@@ -353,7 +374,7 @@ original pull_up scenario (plan_start == from_date still works).
 - Covers all stages: Day 1, Weeks 1–2, Weeks 3–4, Weeks 6–8, Weeks 12+.
 
 #### Equipment-aware system
-- `core/equipment.py` — `PULL_UP_EQUIPMENT`, `DIP_EQUIPMENT`, `BSS_EQUIPMENT`
+- `core/equipment.py` -- `PULL_UP_EQUIPMENT`, `DIP_EQUIPMENT`, `BSS_EQUIPMENT`
   catalogs; `BAND_PROGRESSION`; `compute_leff()`, `check_band_progression()`,
   `compute_equipment_adjustment()`.
 - `EquipmentSnapshot` / `EquipmentState` dataclasses in `models.py`.
@@ -362,7 +383,7 @@ original pull_up scenario (plan_start == from_date still works).
   `valid_from` / `valid_until` for history.
 
 #### Track B max estimator
-- `core/max_estimator.py` — FI method (Pekünlü & Atalağ 2013) and Nuzzo method
+- `core/max_estimator.py` -- FI method (Pekünlü & Atalağ 2013) and Nuzzo method
   (Nuzzo et al. 2024) for estimating max reps from multi-set sessions.
 - `eMax` column in unified plan shows actual (TEST), fi/nz estimate (past), or
   TM projection (future).
@@ -387,14 +408,14 @@ original pull_up scenario (plan_start == from_date still works).
 
 ### Documentation
 
-- `docs/adaptation_guide.md` — complete adaptation timeline guide.
-- `docs/training_model.md` — added: ExerciseDefinition schema, bw_fraction table,
+- `docs/adaptation_guide.md` -- complete adaptation timeline guide.
+- `docs/training_model.md` -- added: ExerciseDefinition schema, bw_fraction table,
   1RM section (Epley, BW-inclusion rules), Plan Regeneration section (immutable
   history), YAML config reference table replacing old Python-only table.
-- `docs/assessment_protocols.md` — pull-up, dip, BSS test protocols.
-- `docs/exercises/pull_up.md`, `dip.md`, `bss.md` — per-exercise biomechanics
+- `docs/assessment_protocols.md` -- pull-up, dip, BSS test protocols.
+- `docs/exercises/pull_up.md`, `dip.md`, `bss.md` -- per-exercise biomechanics
   and variant details.
-- `README.md` — added: Profile Configuration section, Config Customisation
+- `README.md` -- added: Profile Configuration section, Config Customisation
   section, Adaptation Timeline summary, FAQ: Plan Changes, `help-adaptation`
   in command table, updated Project Structure.
 

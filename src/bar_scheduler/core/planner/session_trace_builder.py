@@ -23,8 +23,11 @@ def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
     All values come from the trace built by _plan_core().
     """
     TYPE_NAMES = {
-        "S": "Strength", "H": "Hypertrophy", "E": "Endurance",
-        "T": "Technique", "TEST": "Max Test",
+        "S": "Strength",
+        "H": "Hypertrophy",
+        "E": "Endurance",
+        "T": "Technique",
+        "TEST": "Max Test",
     }
 
     ex = trace.exercise
@@ -179,7 +182,7 @@ def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
         bwf = ex.bw_fraction
         if ex.load_type == "external_only":
             L.append(
-                f"  External-load exercise — dumbbell weight from last TEST session"
+                f"  External-load exercise -- dumbbell weight from last TEST session"
                 f" ({trace.last_test_weight:.1f} kg)."
             )
         elif trace.current_tm > thr:
@@ -196,11 +199,13 @@ def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
                 f" → [bold green]{trace.added_weight:.1f} kg[/bold green]."
             )
         else:
-            L.append(f"  TM = {trace.current_tm} ≤ {thr} → bodyweight only (0 kg added).")
+            L.append(
+                f"  TM = {trace.current_tm} ≤ {thr} → bodyweight only (0 kg added)."
+            )
     elif session_type == "E":
         ke = endurance_volume_multiplier(trace.current_tm)
         total_target = int(ke * trace.current_tm)
-        L.append("\n[bold]VOLUME (Endurance — descending ladder)[/bold]")
+        L.append("\n[bold]VOLUME (Endurance -- descending ladder)[/bold]")
         L.append(
             f"  kE(TM={trace.current_tm}) = 3.0 + 2.0"
             f" × clip(({trace.current_tm}-5)/25, 0, 1) = {ke:.2f}."
@@ -217,7 +222,7 @@ def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
             f" or {params.sets_max} sets reached."
         )
 
-    # REST — rebuild rest_adj_notes from trace.recent_same_type using the same
+    # REST -- rebuild rest_adj_notes from trace.recent_same_type using the same
     # logic as calculate_adaptive_rest() so the display stays in sync.
     rest_adj_notes: list[str] = []
     same_type_sessions = trace.recent_same_type
@@ -241,9 +246,8 @@ def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
     if trace.ff_state is not None:
         readiness_val = trace.ff_state.fitness - trace.ff_state.fatigue
         readiness_var_val = max(trace.ff_state.readiness_var, 0.01)
-        z_rest = (
-            (readiness_val - trace.ff_state.readiness_mean)
-            / _math.sqrt(readiness_var_val)
+        z_rest = (readiness_val - trace.ff_state.readiness_mean) / _math.sqrt(
+            readiness_var_val
         )
         if z_rest < READINESS_Z_LOW:
             rest_adj_notes.append(

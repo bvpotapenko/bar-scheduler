@@ -178,7 +178,7 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
 
     # Compact new format: derive the missing field
     if actual_reps is not None and target_reps is None:
-        target_reps = actual_reps   # completed set
+        target_reps = actual_reps  # completed set
     # planned set: actual_reps stays None
 
     validate_non_negative(target_reps or 0, "target_reps")
@@ -193,7 +193,9 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
         rest_seconds_before=int(data.get("rest_seconds_before", 0)),
         added_weight_kg=float(data.get("added_weight_kg", 0.0)),
         rir_target=int(data.get("rir_target", 2)),
-        rir_reported=int(data["rir_reported"]) if data.get("rir_reported") is not None else None,
+        rir_reported=(
+            int(data["rir_reported"]) if data.get("rir_reported") is not None else None
+        ),
     )
 
 
@@ -336,7 +338,9 @@ def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     }
     # Only include planned_sets when non-empty (meaningful prescription data from cache)
     if session.planned_sets:
-        d["planned_sets"] = [_planned_set_result_to_dict(s) for s in session.planned_sets]
+        d["planned_sets"] = [
+            _planned_set_result_to_dict(s) for s in session.planned_sets
+        ]
     # Only include equipment_snapshot when present
     if session.equipment_snapshot is not None:
         d["equipment_snapshot"] = equipment_snapshot_to_dict(session.equipment_snapshot)
@@ -444,7 +448,9 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
     validate_positive(data.get("height_cm", 0), "height_cm")
 
     if data.get("sex") not in ("male", "female"):
-        raise ValidationError(f"Invalid sex: {data.get('sex')}. Must be 'male' or 'female'")
+        raise ValidationError(
+            f"Invalid sex: {data.get('sex')}. Must be 'male' or 'female'"
+        )
 
     if data.get("preferred_days_per_week") not in (1, 2, 3, 4, 5):
         raise ValidationError(
@@ -521,7 +527,7 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
     Format: [groups] [+Wkg] [/ Rs]
     Each group is either:
       NxM  (N reps × M sets, any x/X/× accepted)
-      N    (1 set of N reps — bare integer)
+      N    (1 set of N reps -- bare integer)
 
     All sets in a compact expression share the same weight and rest.
 
@@ -580,7 +586,7 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
         if m:
             result.append((int(m.group(1)), weight, rest))
             continue
-        # Unknown group — not compact format
+        # Unknown group -- not compact format
         return None
 
     return result if result else None

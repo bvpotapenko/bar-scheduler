@@ -3,20 +3,20 @@ Track B between-test max estimator.
 
 Uses two independent methods:
 
-  FI Method — Pekünlü & Atalağ 2013 (PMC3827769):
+  FI Method -- Pekünlü & Atalağ 2013 (PMC3827769):
     Fatigue Index characterises within-session fatigue profile.
     FI_reps = 1 − mean(R₂…Rₙ) / R₁
     High FI → person was working close to failure.
     Low FI  → person had reserve (RIR > 0).
 
-  Nuzzo Method — Nuzzo et al. 2024 (PMC10933212):
+  Nuzzo Method -- Nuzzo et al. 2024 (PMC10933212):
     REPS~%1RM meta-regression bench press table inverted.
     If you can do R reps at failure, the table says R corresponds to
     roughly X% of your 1RM capacity.  Because bodyweight is fixed,
     "1RM capacity" maps to your fresh single-set maximum.
     nuzzo_est = reps_to_failure / pct_1rm_fraction
 
-  PCr recovery — Bogdanis et al. 1995 (J Appl Physiol 78(2):782-791):
+  PCr recovery -- Bogdanis et al. 1995 (J Appl Physiol 78(2):782-791):
     Table of PCr resynthesis fraction as a function of rest duration.
     Used to adjust estimates for incomplete inter-set recovery.
 
@@ -26,35 +26,35 @@ See docs/references/max_estimation.md for full citations and formulae.
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Nuzzo 2024 — REPS~%1RM meta-regression (bench press)
+# Nuzzo 2024 -- REPS~%1RM meta-regression (bench press)
 # Table: (pct_1rm, mean_reps, sd_reps)
 # Source: PMC10933212, Table 2 / Fig 3 weighted mean regression
 # ---------------------------------------------------------------------------
 NUZZO_BENCH_TABLE: list[tuple[int, float, float]] = [
-    (100,  1.0,  0.0),
-    ( 95,  3.0,  1.5),
-    ( 90,  5.3,  2.0),
-    ( 85,  7.7,  2.5),
-    ( 80, 11.0,  4.0),
-    ( 75, 13.4,  5.0),
-    ( 70, 17.0,  6.0),
-    ( 65, 21.0,  7.5),
-    ( 60, 25.0,  9.0),
-    ( 55, 29.7,  9.5),
-    ( 50, 35.0, 10.0),
+    (100, 1.0, 0.0),
+    (95, 3.0, 1.5),
+    (90, 5.3, 2.0),
+    (85, 7.7, 2.5),
+    (80, 11.0, 4.0),
+    (75, 13.4, 5.0),
+    (70, 17.0, 6.0),
+    (65, 21.0, 7.5),
+    (60, 25.0, 9.0),
+    (55, 29.7, 9.5),
+    (50, 35.0, 10.0),
 ]
 
 # ---------------------------------------------------------------------------
-# Bogdanis 1995 — PCr resynthesis during recovery
+# Bogdanis 1995 -- PCr resynthesis during recovery
 # Table: (rest_seconds, fraction_recovered)
 # Source: J Appl Physiol 78(2):782-791, Fig 4 (estimated from graph)
 # ---------------------------------------------------------------------------
 PCR_RECOVERY: list[tuple[int, float]] = [
-    (  0, 0.00),
-    ( 10, 0.25),
-    ( 30, 0.50),
-    ( 60, 0.75),
-    ( 90, 0.87),
+    (0, 0.00),
+    (10, 0.25),
+    (30, 0.50),
+    (60, 0.75),
+    (90, 0.87),
     (120, 0.93),
     (180, 0.97),
     (240, 0.99),
@@ -65,6 +65,7 @@ PCR_RECOVERY: list[tuple[int, float]] = [
 # ---------------------------------------------------------------------------
 # Lookup helpers
 # ---------------------------------------------------------------------------
+
 
 def _pcr_recovery_factor(rest_seconds: float) -> float:
     """Linear interpolation of PCr recovery fraction (0–1)."""
@@ -97,7 +98,7 @@ def _reps_to_pct_1rm(reps_to_failure: float) -> float:
             alpha = (reps_to_failure - r0) / (r1 - r0)
             pct = pct0 + alpha * (pct1 - pct0)
             return pct / 100.0
-    # Beyond table range — extrapolate linearly from last two rows
+    # Beyond table range -- extrapolate linearly from last two rows
     pct_last, r_last, _ = NUZZO_BENCH_TABLE[-1]
     pct_prev, r_prev, _ = NUZZO_BENCH_TABLE[-2]
     slope = (pct_last - pct_prev) / (r_last - r_prev)  # negative (pct decreases)
@@ -108,6 +109,7 @@ def _reps_to_pct_1rm(reps_to_failure: float) -> float:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def estimate_max_reps_from_session(
     actual_reps_per_set: list[int],
@@ -126,10 +128,10 @@ def estimate_max_reps_from_session(
 
     Returns:
         Dict with keys:
-          fi_est      — FI-method fresh-max estimate (int)
-          nuzzo_est   — Nuzzo-method fresh-max estimate (int)
-          fi_reps     — computed fatigue index 0–1 (float, rounded 3 dp)
-          confidence  — "high" | "medium" | "low"
+          fi_est      -- FI-method fresh-max estimate (int)
+          nuzzo_est   -- Nuzzo-method fresh-max estimate (int)
+          fi_reps     -- computed fatigue index 0–1 (float, rounded 3 dp)
+          confidence  -- "high" | "medium" | "low"
         Returns None if there are fewer than 2 sets with reps > 0.
     """
     # Filter to valid sets only

@@ -44,9 +44,9 @@ and get the most out of the model.
 
 ## What Happens Inside
 
-### Day 1 — Baseline only
+### Day 1 -- Baseline only
 
-At initialisation (`bar-scheduler init`), you provide a **baseline max** — the
+At initialisation (`bar-scheduler init`), you provide a **baseline max** -- the
 number of strict reps you can do today.  The planner:
 
 - Sets your **Training Max (TM)** = `floor(0.9 × baseline_max)`.
@@ -54,17 +54,17 @@ number of strict reps you can do today.  The planner:
 - Prescribes bodyweight-only sets (no added weight until TM > 9).
 - Generates a basic fitness-fatigue state with near-zero fitness and fatigue.
 
-### Weeks 1–2 — EWMA calibration
+### Weeks 1–2 -- EWMA calibration
 
 Each logged session updates an **EWMA max estimate** (`m_hat`), a running
 weighted average of your performance.  After 3–8 sessions:
 
 - `m_hat` converges to a reliable estimate of your current max.
-- **Rest normalization** adjusts standardised reps — a set with 90 s rest
+- **Rest normalization** adjusts standardised reps -- a set with 90 s rest
   counts less than the same reps with 180 s rest.
 - **Autoregulation is not yet active** (requires ≥ 10 sessions as a gate).
 
-### Weeks 3–4 — Autoregulation unlocks
+### Weeks 3–4 -- Autoregulation unlocks
 
 After **10 sessions**, autoregulation activates:
 
@@ -78,7 +78,7 @@ After **10 sessions**, autoregulation activates:
 This is also a good time for your **first periodic re-test** (TEST session),
 which anchors the EWMA estimate precisely.
 
-### Weeks 6–8 — Individual fatigue profile
+### Weeks 6–8 -- Individual fatigue profile
 
 With 24–32 sessions:
 
@@ -88,7 +88,7 @@ With 24–32 sessions:
 - **Deload recommendations** are reliable (plateau detection + fatigue score
   both need sufficient history to avoid false positives).
 
-### Weeks 12+ — Full profile
+### Weeks 12+ -- Full profile
 
 After 48+ sessions the model is operating at peak accuracy:
 

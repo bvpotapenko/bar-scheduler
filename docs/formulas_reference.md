@@ -188,9 +188,9 @@ S_load = ((bw * bw_fraction + load) / bw_ref)^GAMMA_LOAD
 | `GAMMA_LOAD` | 1.5 | Superlinear; added weight stresses the system more than proportionally |
 
 `bw_fraction` is an exercise-level parameter passed in from `ExerciseDefinition`:
-- `1.0` — Pull-up (full bodyweight is loaded)
-- `0.92` — Parallel Bar Dip (bodyweight partially unloaded by shoulders)
-- `0.0` — BSS (bodyweight not counted; only external load matters for 1RM purposes)
+- `1.0` -- Pull-up (full bodyweight is loaded)
+- `0.92` -- Parallel Bar Dip (bodyweight partially unloaded by shoulders)
+- `0.0` -- BSS (bodyweight not counted; only external load matters for 1RM purposes)
 
 ---
 
@@ -322,7 +322,7 @@ Default `consecutive_required = 2`.
 
 ## 21. Deload Triggers (`adaptation.py`)
 
-**should_deload** — fires if ANY of:
+**should_deload** -- fires if ANY of:
 ```
 1. detect_plateau(history) AND readiness_z_score < FATIGUE_Z_THRESHOLD
 2. check_underperformance(history, ff_state)

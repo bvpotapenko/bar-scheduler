@@ -75,9 +75,9 @@ WEEKLY_VOLUME_INCREASE_RATE: Final[float] = 0.10  # Max weekly increase (10%)
 DELOAD_VOLUME_REDUCTION: Final[float] = 0.40  # Volume reduction during deload
 
 # Science-backed per-session ceilings (Bayesian meta-regression, diminishing returns)
-# Actual working sets will be lower due to fatigue / autoregulation — these are hard ceilings.
-MAX_DAILY_REPS: Final[int] = 45   # Reps above this yield no additional adaptation signal
-MAX_DAILY_SETS: Final[int] = 10   # Sets above this hit diminishing returns
+# Actual working sets will be lower due to fatigue / autoregulation -- these are hard ceilings.
+MAX_DAILY_REPS: Final[int] = 45  # Reps above this yield no additional adaptation signal
+MAX_DAILY_SETS: Final[int] = 10  # Sets above this hit diminishing returns
 
 # =============================================================================
 # TRAINING MAX CALCULATION (Section 7.3)
@@ -133,7 +133,9 @@ COMPLIANCE_THRESHOLD: Final[float] = 0.70  # Minimum compliance ratio
 # AUTOREGULATION GATING
 # =============================================================================
 
-MIN_SESSIONS_FOR_AUTOREG: Final[int] = 10  # Minimum sessions before autoregulation is applied
+MIN_SESSIONS_FOR_AUTOREG: Final[int] = (
+    10  # Minimum sessions before autoregulation is applied
+)
 
 # =============================================================================
 # READINESS GATING (Section 7.4)
@@ -173,7 +175,7 @@ def expected_reps_per_week(training_max: int, target: int = TARGET_MAX_REPS) -> 
 
     fraction_to_goal = 1 - (training_max / target)
     delta = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESSION_MIN) * (
-        fraction_to_goal ** ETA_PROGRESSION
+        fraction_to_goal**ETA_PROGRESSION
     )
     return delta
 

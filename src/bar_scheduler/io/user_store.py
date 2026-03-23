@@ -28,7 +28,7 @@ class UserStore:
 
     One UserStore per user (data_dir). Profile operations need no exercise context.
     Exercise-specific operations (history, plan dates, equipment) accept exercise_id
-    as a parameter — no per-exercise store objects, no dummy IDs.
+    as a parameter -- no per-exercise store objects, no dummy IDs.
     """
 
     def __init__(self, data_dir: str | Path):
@@ -130,7 +130,9 @@ class UserStore:
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def lookup_plan_cache_entry(self, exercise_id: str, date: str, session_type: str) -> dict | None:
+    def lookup_plan_cache_entry(
+        self, exercise_id: str, date: str, session_type: str
+    ) -> dict | None:
         """Find the cached plan prescription for a given (date, session_type), or None."""
         cache = self.load_plan_cache(exercise_id)
         if not cache:
@@ -271,7 +273,9 @@ class UserStore:
 
         bodyweight = self.load_bodyweight()
         if bodyweight is None:
-            raise ValidationError("Bodyweight not set in profile. Run 'init' with --bodyweight-kg.")
+            raise ValidationError(
+                "Bodyweight not set in profile. Run 'init' with --bodyweight-kg."
+            )
 
         history = self.load_history(exercise_id)
 
@@ -361,9 +365,7 @@ class UserStore:
         sessions = self.load_history(exercise_id)
         target = datetime.strptime(date, "%Y-%m-%d")
 
-        return [
-            s for s in sessions if datetime.strptime(s.date, "%Y-%m-%d") > target
-        ]
+        return [s for s in sessions if datetime.strptime(s.date, "%Y-%m-%d") > target]
 
     def delete_session_at(self, exercise_id: str, index: int) -> None:
         """
@@ -378,7 +380,9 @@ class UserStore:
         """
         sessions = self.load_history(exercise_id)
         if index < 0 or index >= len(sessions):
-            raise IndexError(f"Session index {index} out of range (0–{len(sessions) - 1})")
+            raise IndexError(
+                f"Session index {index} out of range (0–{len(sessions) - 1})"
+            )
         del sessions[index]
         self._write_sessions(exercise_id, sessions)
 
@@ -503,24 +507,3 @@ class UserStore:
             path.write_text("")
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatibility alias
-# ---------------------------------------------------------------------------
-
-HistoryStore = UserStore
-
-
-def get_data_dir() -> Path:
-    """Return the base data directory where all bar-scheduler data is stored."""
-    return Path.home() / ".bar-scheduler"
-
-
-def get_profile_store() -> "UserStore":
-    """
-    Return a UserStore for the default data directory.
-
-    Suitable for profile-only operations when no specific exercise is needed.
-    """
-    data_dir = get_data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return UserStore(data_dir)

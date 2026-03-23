@@ -21,7 +21,7 @@ src/bar_scheduler/core/exercises/
 
 At import time `registry.py` calls `load_exercises_from_yaml()`. If the YAML
 is valid and PyYAML is installed, YAML values win. If anything fails, the
-Python constants in `pull_up.py` / `dip.py` / `bss.py` are used instead — the
+Python constants in `pull_up.py` / `dip.py` / `bss.py` are used instead -- the
 application never crashes due to a bad YAML file.
 
 ---
@@ -36,7 +36,7 @@ Every exercise block in `exercises.yaml` must contain these fields.
 | `display_name` | `str` | Human-readable label shown in the UI |
 | `muscle_group` | `str` | Informational tag (e.g. `upper_pull`, `lower`) |
 | `bw_fraction` | `float` | Fraction of bodyweight that is the working load (1.0 = full BW, 0.71 = BSS lead-leg fraction) |
-| `load_type` | `str` | `bw_plus_external` — weight belt / vest adds to BW load; `external_only` — only dumbbell weight, not BW |
+| `load_type` | `str` | `bw_plus_external` -- weight belt / vest adds to BW load; `external_only` -- only dumbbell weight, not BW |
 | `variants` | `list[str]` | All valid movement variants |
 | `primary_variant` | `str` | Used for standardised testing (must be in `variants`) |
 | `variant_factors` | `dict[str, float]` | Relative difficulty per variant (1.0 = neutral) |
@@ -106,15 +106,15 @@ or set it to `{}` to keep the YAML tidy.
 
 `loader.py` validates both levels:
 
-1. **Missing required exercise field** — raises `ValueError` listing the absent keys.
+1. **Missing required exercise field** -- raises `ValueError` listing the absent keys.
    The registry catches this, emits a `warnings.warn`, and uses Python defaults.
 
-2. **Missing required SessionTypeParams field** — same: `ValueError` → warning → fallback.
+2. **Missing required SessionTypeParams field** -- same: `ValueError` → warning → fallback.
 
-3. **PyYAML not installed** — `load_exercises_from_yaml()` returns `None` silently;
+3. **PyYAML not installed** -- `load_exercises_from_yaml()` returns `None` silently;
    Python defaults are used. No crash.
 
-4. **YAML parse error** — `_load_yaml_file()` returns `{}`, so `load_exercises_from_yaml()`
+4. **YAML parse error** -- `_load_yaml_file()` returns `{}`, so `load_exercises_from_yaml()`
    returns `None`; Python defaults are used.
 
 The application will always start successfully regardless of YAML state.
@@ -128,7 +128,7 @@ edit) `~/.bar-scheduler/exercises.yaml` and add an `exercises:` block. It is
 **deep-merged** per-exercise-id over the bundled definitions, so you only need
 to list the keys you want to change.
 
-Example — raise the pull-up test frequency to every 4 weeks and lower the
+Example -- raise the pull-up test frequency to every 4 weeks and lower the
 strength-session minimum rest to 2 minutes:
 
 ```yaml
@@ -264,4 +264,4 @@ bar-scheduler explain next -e ring_row
 ```
 
 The exercise will appear in the plan table with correct variant rotation and
-session parameters immediately — no code changes required.
+session parameters immediately -- no code changes required.

@@ -1,9 +1,11 @@
 # bar-scheduler
 
-Evidence-informed training planner for bodyweight and weighted strength exercises — **Pull-Up**, **Parallel Bar Dip**, **Bulgarian Split Squat (DB)** - can be extended to more via YAML config.
+Evidence-informed training planner for bodyweight and weighted strength exercises -- **Pull-Up**, **Parallel Bar Dip**, **Bulgarian Split Squat (DB)** - can be extended to more via YAML config.
 
 
-A Python library and planning engine. Suitable for direct use in scripts, bots, and web services. For an interactive command-line interface see [cli_bar](https://github.com/bvpotapenko/cli_bar). 
+A Python library and planning engine. Suitable for direct use in scripts, bots, and web services. 
+
+For an interactive command-line interface see [cli_bar](https://github.com/bvpotapenko/cli_bar). 
 
 There is an aplpha in progres for a telegram bot -- stay tuned, more details on my telegram channel: [@RoboRice](https://t.me/roborice)!
 
@@ -28,8 +30,7 @@ uv sync
 
 ```python
 from pathlib import Path
-from bar_scheduler.api.api import init_profile, get_plan, log_session
-from bar_scheduler.io.history_store import get_data_dir
+from bar_scheduler.api.api import init_profile, get_plan, log_session, get_data_dir
 
 data_dir = get_data_dir()   # ~/.bar-scheduler
                             # or Path("...") / str(user_id) for multi-user setups
@@ -57,7 +58,7 @@ uv run pytest
 
 ## License
 
-CC BY-NC 4.0 — non-commercial use with attribution. See [LICENSE](LICENSE).
+CC BY-NC 4.0 -- non-commercial use with attribution. See [LICENSE](LICENSE).
 
 Author: Potapenko Bogdan  
 *ML / AI Engineer @ Shenzhen, 2026*     

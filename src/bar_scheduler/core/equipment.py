@@ -2,8 +2,8 @@
 Equipment-aware load system.
 
 Each exercise has a catalog of equipment options that affect the effective load
-(Leff) applied to the working muscles.  The planner uses Leff — not raw
-bodyweight — as the common unit for progression tracking across equipment changes.
+(Leff) applied to the working muscles.  The planner uses Leff -- not raw
+bodyweight -- as the common unit for progression tracking across equipment changes.
 
 Leff formula
 ------------
@@ -58,7 +58,7 @@ PULL_UP_EQUIPMENT: dict[str, dict] = {
     },
     "WEIGHT_BELT": {
         "label": "Weight belt / vest (for added load)",
-        "assistance_kg": 0.0,  # additive — weight comes from added_weight_kg
+        "assistance_kg": 0.0,  # additive -- weight comes from added_weight_kg
     },
 }
 
@@ -89,7 +89,7 @@ DIP_EQUIPMENT: dict[str, dict] = {
     },
 }
 
-# For BSS all items are either neutral or additive — no band-assist concept.
+# For BSS all items are either neutral or additive -- no band-assist concept.
 # ELEVATION_SURFACE is required for true Bulgarian Split Squat (rear foot
 # elevated); without it the exercise degrades to a flat split squat.
 BSS_EQUIPMENT: dict[str, dict] = {
@@ -133,6 +133,7 @@ BAND_PROGRESSION: list[str] = ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_O
 # Public helpers
 # ---------------------------------------------------------------------------
 
+
 def get_catalog(exercise_id: str) -> dict[str, dict]:
     """Return the equipment catalog for the given exercise."""
     return _CATALOGS.get(exercise_id, {})
@@ -163,7 +164,9 @@ def get_assistance_kg(
     a = catalog[item_id]["assistance_kg"]
     if a is None:
         # MACHINE_ASSISTED: user-entered value
-        return float(machine_assistance_kg) if machine_assistance_kg is not None else 0.0
+        return (
+            float(machine_assistance_kg) if machine_assistance_kg is not None else 0.0
+        )
     return float(a)
 
 
@@ -252,7 +255,7 @@ def machine_to_nearest_band(machine_kg: float) -> str:
 
 
 def check_band_progression(
-    history: list,  # list[SessionResult] — avoid circular import
+    history: list,  # list[SessionResult] -- avoid circular import
     exercise_id: str,
     session_params: dict,  # exercise.session_params
     n_sessions: int = 2,
@@ -274,8 +277,7 @@ def check_band_progression(
         True if band progression is recommended
     """
     non_test = [
-        s for s in history
-        if s.session_type != "TEST" and s.exercise_id == exercise_id
+        s for s in history if s.session_type != "TEST" and s.exercise_id == exercise_id
     ]
     if len(non_test) < n_sessions:
         return False
@@ -287,7 +289,11 @@ def check_band_progression(
             continue
         reps_max = session_params[stype].reps_max
         max_actual = max(
-            (s.actual_reps for s in session.completed_sets if s.actual_reps is not None),
+            (
+                s.actual_reps
+                for s in session.completed_sets
+                if s.actual_reps is not None
+            ),
             default=0,
         )
         if max_actual < reps_max:
@@ -312,7 +318,7 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
         {"reps_factor": float, "description": str}
     """
     if old_leff <= 0:
-        return {"reps_factor": 1.0, "description": "no previous Leff — no adjustment"}
+        return {"reps_factor": 1.0, "description": "no previous Leff -- no adjustment"}
 
     ratio = new_leff / old_leff
 
@@ -330,4 +336,7 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
             "description": f"Leff decreased ~{round((1-ratio)*100)}% → increasing reps ~{pct}% to maintain stimulus",
         }
     else:
-        return {"reps_factor": 1.0, "description": "minor Leff change (< 10%) — no adjustment"}
+        return {
+            "reps_factor": 1.0,
+            "description": "minor Leff change (< 10%) -- no adjustment",
+        }

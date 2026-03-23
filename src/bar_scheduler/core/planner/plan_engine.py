@@ -2,7 +2,7 @@
 Plan generation orchestrator.
 
 Coordinates all planning submodules to produce a deterministic multi-week
-training plan.  Contains no domain rules itself — delegates to specialised
+training plan.  Contains no domain rules itself -- delegates to specialised
 components for schedule construction, state computation, load calculation,
 set prescription, grip rotation, test injection, and trace formatting.
 """
@@ -44,6 +44,7 @@ from .set_prescriptor import calculate_set_prescription
 from .test_session_inserter import _insert_test_sessions
 from .training_state_calculator import compute_training_state
 from .types import _SessionTrace
+
 
 def create_synthetic_test_session(
     date: str,
@@ -95,7 +96,7 @@ def _plan_core(
     history_init_cutoff: str | None = None,
 ) -> Generator[tuple[SessionPlan, _SessionTrace], None, None]:
     """
-    Core plan generator — single source of truth for all plan logic.
+    Core plan generator -- single source of truth for all plan logic.
 
     Yields (SessionPlan, _SessionTrace) for every planned session.
     Both generate_plan() and explain_plan_entry() delegate here so that
@@ -109,10 +110,7 @@ def _plan_core(
     Raises ValueError if there is no history and no baseline_max.
     """
     # Filter history: this exercise only
-    history = [
-        s for s in user_state.history
-        if s.exercise_id == exercise.exercise_id
-    ]
+    history = [s for s in user_state.history if s.exercise_id == exercise.exercise_id]
 
     if not history and baseline_max is None:
         raise ValueError(
@@ -174,24 +172,27 @@ def _plan_core(
 
     # Stable week-number anchor: first session in ALL history for this exercise
     original_history = [
-        s for s in user_state.history
-        if s.exercise_id == exercise.exercise_id
+        s for s in user_state.history if s.exercise_id == exercise.exercise_id
     ]
     first_date: datetime | None = (
-        datetime.strptime(original_history[0].date, "%Y-%m-%d") if original_history else None
+        datetime.strptime(original_history[0].date, "%Y-%m-%d")
+        if original_history
+        else None
     )
     week_offset = (start - first_date).days // 7 if first_date is not None else 0
     # Display weeks are anchored to the Monday of the week containing first_date
     # so that Mon-Sun calendar weeks stay together (e.g. Mon 03.02 and Wed 03.04
     # are both "week 3", not split across week 2 / week 3).
     first_monday: datetime | None = (
-        first_date - timedelta(days=first_date.weekday()) if first_date is not None else None
+        first_date - timedelta(days=first_date.weekday())
+        if first_date is not None
+        else None
     )
 
     # Grip rotation: initialise from pre-plan history (effective_init) so that
     # logging sessions during the plan period does not shift grip assignments.
     grip_counts = _init_grip_counts(effective_init, exercise)
-    grip_history_counts = dict(grip_counts)   # snapshot of history-only counts
+    grip_history_counts = dict(grip_counts)  # snapshot of history-only counts
 
     # Pre-index FULL history by session type for per-slot date-filtered lookups.
     # The filter (date < slot_date) is applied at read time in the loop below,
@@ -229,7 +230,8 @@ def _plan_core(
         cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
 
         week_num = (
-            (date - first_monday).days // 7 + 1 if first_monday is not None
+            (date - first_monday).days // 7 + 1
+            if first_monday is not None
             else session_week_idx + 1
         )
 
@@ -237,11 +239,14 @@ def _plan_core(
         params = exercise.session_params[session_type]
         reps_low = max(params.reps_min, int(current_tm * params.reps_fraction_low))
         reps_high = min(params.reps_max, int(current_tm * params.reps_fraction_high))
-        base_reps = max(params.reps_min, min(params.reps_max, (reps_low + reps_high) // 2))
+        base_reps = max(
+            params.reps_min, min(params.reps_max, (reps_low + reps_high) // 2)
+        )
         base_sets = (params.sets_min + params.sets_max) // 2
         has_autoreg = len(effective_init) >= MIN_SESSIONS_FOR_AUTOREG
 
         from ..adaptation import apply_autoregulation
+
         if has_autoreg:
             adj_sets, adj_reps = apply_autoregulation(base_sets, base_reps, ff_state)
         else:
@@ -250,10 +255,11 @@ def _plan_core(
         # Only sessions strictly before this slot's date: logging at D must not
         # change adaptive rest for D or any earlier slot.
         recent_same_type = [
-            s for s in history_by_type.get(session_type, [])
-            if s.date < date_str
+            s for s in history_by_type.get(session_type, []) if s.date < date_str
         ][-5:]
-        adj_rest = calculate_adaptive_rest(session_type, recent_same_type, ff_state, exercise)
+        adj_rest = calculate_adaptive_rest(
+            session_type, recent_same_type, ff_state, exercise
+        )
         added_weight = _calculate_added_weight(
             exercise, current_tm, user_state.current_bodyweight_kg, last_test_weight
         )
@@ -277,8 +283,13 @@ def _plan_core(
             adjusted_sets = []
             for ps in sets:
                 new_rest = min(params.rest_max, ps.rest_seconds_before + rest_boost)
-                new_reps = max(params.reps_min, ps.target_reps - (1 if overtraining_level >= 3 else 0))
-                adjusted_sets.append(_dc_replace(ps, rest_seconds_before=new_rest, target_reps=new_reps))
+                new_reps = max(
+                    params.reps_min,
+                    ps.target_reps - (1 if overtraining_level >= 3 else 0),
+                )
+                adjusted_sets.append(
+                    _dc_replace(ps, rest_seconds_before=new_rest, target_reps=new_reps)
+                )
             if overtraining_level >= 2 and len(adjusted_sets) > 2:
                 adjusted_sets = adjusted_sets[:-1]  # drop one set, floor at 2
             sets = adjusted_sets
@@ -308,7 +319,7 @@ def _plan_core(
             initial_tm=initial_tm,
             current_tm=current_tm,
             tm_float=tm_float,
-            weekly_log=list(weekly_log),    # snapshot at yield time
+            weekly_log=list(weekly_log),  # snapshot at yield time
             base_sets=base_sets,
             base_reps=base_reps,
             adj_sets=adj_sets,
@@ -363,12 +374,19 @@ def generate_plan(
     Returns:
         List of SessionPlan for the planning horizon
     """
-    return [plan for plan, _ in _plan_core(
-        user_state, start_date, exercise,
-        weeks_ahead=weeks_ahead, baseline_max=baseline_max,
-        overtraining_level=overtraining_level, overtraining_rest_days=overtraining_rest_days,
-        history_init_cutoff=history_init_cutoff,
-    )]
+    return [
+        plan
+        for plan, _ in _plan_core(
+            user_state,
+            start_date,
+            exercise,
+            weeks_ahead=weeks_ahead,
+            baseline_max=baseline_max,
+            overtraining_level=overtraining_level,
+            overtraining_rest_days=overtraining_rest_days,
+            history_init_cutoff=history_init_cutoff,
+        )
+    ]
 
 
 def explain_plan_entry(
@@ -409,9 +427,13 @@ def explain_plan_entry(
     last_weeks_ahead: int | None = None
     try:
         for plan, trace in _plan_core(
-            user_state, plan_start_date, exercise,
-            weeks_ahead=weeks_ahead, baseline_max=baseline_max,
-            overtraining_level=overtraining_level, overtraining_rest_days=overtraining_rest_days,
+            user_state,
+            plan_start_date,
+            exercise,
+            weeks_ahead=weeks_ahead,
+            baseline_max=baseline_max,
+            overtraining_level=overtraining_level,
+            overtraining_rest_days=overtraining_rest_days,
             history_init_cutoff=history_init_cutoff,
         ):
             last_weeks_ahead = trace.weeks_ahead
@@ -422,9 +444,9 @@ def explain_plan_entry(
 
     # Fallback 1: date is within the plan horizon → scheduled rest day
     try:
-        start_dt  = datetime.strptime(plan_start_date, "%Y-%m-%d")
+        start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
         target_dt = datetime.strptime(target_date, "%Y-%m-%d")
-        end_dt    = start_dt + timedelta(weeks=(last_weeks_ahead or 4))
+        end_dt = start_dt + timedelta(weeks=(last_weeks_ahead or 4))
         if start_dt <= target_dt <= end_dt:
             return (
                 f"[dim]Rest day  ·  {target_date}[/dim]\n"
@@ -437,7 +459,8 @@ def explain_plan_entry(
     # Fallback 2: past date found in history → brief session summary
     ex_id = exercise.exercise_id
     past_sessions = [
-        s for s in user_state.history
+        s
+        for s in user_state.history
         if s.date == target_date and s.exercise_id == ex_id
     ]
     if past_sessions:
