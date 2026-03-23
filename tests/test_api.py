@@ -89,6 +89,11 @@ class TestInitProfile:
         assert not (tmp_path / "pull_up_history.jsonl").exists()
         assert result["exercises_enabled"] == []
 
+    def test_exercises_defaults_to_empty(self, tmp_path):
+        result = init_profile(tmp_path, height_cm=175, sex="male", bodyweight_kg=80.0)
+        assert result["exercises_enabled"] == []
+        assert not (tmp_path / "pull_up_history.jsonl").exists()
+
     def test_already_exists_raises(self, tmp_path):
         _init(tmp_path)
         with pytest.raises(ProfileAlreadyExistsError):

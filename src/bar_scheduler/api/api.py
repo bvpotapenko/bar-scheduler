@@ -218,7 +218,7 @@ def init_profile(
     sex: str,
     bodyweight_kg: float,
     *,
-    exercises: list[str],
+    exercises: list[str] = [],
     days_per_week: int = 3,
     language: str = "en",
     rest_preference: str = "normal",
@@ -226,9 +226,8 @@ def init_profile(
     """
     Create a new user profile in ``data_dir``.
 
-    ``exercises`` is required — pass the list of exercise IDs the user wants
-    to train (e.g. ``["pull_up"]`` or ``["pull_up", "dip"]``).  May be empty
-    ``[]`` if exercises will be added later via ``enable_exercise()``.
+    ``exercises`` defaults to ``[]`` — a profile can be created without any
+    exercises and populated later via ``enable_exercise()``.
 
     Raises ``ProfileAlreadyExistsError`` if profile.json already exists.
     Raises ``ValueError`` for unknown exercise IDs or invalid field values.

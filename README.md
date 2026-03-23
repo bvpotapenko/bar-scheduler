@@ -1,98 +1,64 @@
 # bar-scheduler
 
-Evidence-informed training planner for bodyweight strength exercises.
-Supports **Pull-Up**, **Parallel Bar Dip**, and **Bulgarian Split Squat (DB)** — all sharing one planning engine.
+Evidence-informed training planner for bodyweight and weighted strength exercises — **Pull-Up**, **Parallel Bar Dip**, **Bulgarian Split Squat (DB)** - can be extended to more via YAML config.
 
-![Training Log](./img/training_log.png)
-![Weekly Volume](./img/weekly_volume.png)
 
-## Quickstart
+A Python library and planning engine. Suitable for direct use in scripts, bots, and web services. For an interactive command-line interface see [cli_bar](https://github.com/bvpotapenko/cli_bar). 
+
+There is an aplpha in progres for a telegram bot -- stay tuned, more details on my telegram channel: [@RoboRice](https://t.me/roborice)!
+
+
+> **From the author:**
+>
+> I started this project to motivate myself to do pull-ups more consistently. I also wanted to try a more “science-backed” approach and see whether it actually delivers results.
+>
+> What began with pull-ups quickly grew into a broader routine -- I added dips and Bulgarian split squats, and now I’m considering incline dumbbell presses since I recently got a bench and a set of dumbbells.
+>
+> I hope this small project can inspire others to get in better shape and make steady progress toward their strength and physique goals.
+>
+> If you’d like to contribute or fork the project -- feel free. Have fun.
+
+
+## Install
 
 ```bash
 git clone <repo-url> && cd bar-scheduler
-uv sync --extra dev       # install deps (dev includes test tools)
-uv run bar-scheduler      # open interactive menu
+uv sync
 ```
 
-**Global install** (no `uv run` prefix needed):
-```bash
-uv tool install -e .
+```python
+from pathlib import Path
+from bar_scheduler.api.api import init_profile, get_plan, log_session
+from bar_scheduler.io.history_store import get_data_dir
+
+data_dir = get_data_dir()   # ~/.bar-scheduler
+                            # or Path("...") / str(user_id) for multi-user setups
 ```
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `profile init` | Create / update profile; requires `--height-cm`, `--sex`, `--bodyweight-kg` |
-| `profile update-weight 85.5` | Update current bodyweight |
-| `profile update-equipment` | Configure bands, machine, or BSS surface |
-| `profile update-language ru` | Save display language to profile |
-| `plan` | Unified history + upcoming plan table; `--weeks N`; `--json` |
-| `refresh-plan` | Reset plan anchor to today after a break; `--json` |
-| `log-session` | Log a completed session (one-liner or interactive) |
-| `show-history` | Display training history; `--limit N`; `--json` |
-| `plot-max` | ASCII chart of max reps; `-t z/g/m` trajectory overlays |
-| `status` | Current TM, readiness, plateau/deload flags; `--json` |
-| `volume` | Weekly rep volume chart; `--weeks N`; `--json` |
-| `explain DATE\|next` | Step-by-step breakdown of how a session was planned |
-| `1rm` | Estimate 1-rep max (5 formulas with ★ recommendation) |
-| `delete-record N` | Delete history entry #N |
-| `help-adaptation` | Adaptation timeline: what the model can predict at each stage |
-
-All data commands accept `--exercise / -e` (default: `pull_up`). Add `--json` for machine-readable output.
-
-## Interactive Menu
-
-Run `bar-scheduler` without arguments:
-
-```
-[1] Show training log & plan
-[2] Log today's session
-[3] Show full history
-[4] Progress chart
-[5] Current status
-[6] Update bodyweight
-[7] Weekly volume chart
-[e] Explain how a session was planned
-[r] Estimate 1-rep max
-[f] Reset plan to today (after a break)
-[u] Update training equipment
-[l] Change display language
-[i] Setup / edit profile & training days
-[d] Delete a session by ID
-[a] How the planner adapts over time
-[0] Quit
-```
-
-## Multi-Exercise & Language
-
-```bash
-bar-scheduler -e dip          # open menu with dip pre-selected
-bar-scheduler -e bss plan     # run plan command for BSS
-bar-scheduler --lang ru       # Russian interface for this session
-bar-scheduler profile update-language zh   # save Chinese as default
-```
-
-Separate history files per exercise: `~/.bar-scheduler/pull_up_history.jsonl`, `dip_history.jsonl`, `bss_history.jsonl`.
-
-Available languages (auto-discovered from `locales/*.yaml`): **en**, **ru**, **zh**.
 
 ## Documentation
 
-- [CLI Examples](docs/cli_examples.md) — commands, sets format, output examples
-- [JSON API](docs/api_info.md) — full JSON schemas for `--json` output
-- [Training Model](docs/training_model.md) — adaptation logic summary (Russian)
-- [Formula Reference](docs/formulas_reference.md) — all formulas with config knobs
-- [Exercise Structure](docs/exercise-structure.md) — how to add a custom exercise
-- [Plan Logic](docs/plan_logic.md) — technical reference: prescription stability, skip mechanism
-- [Adaptation Guide](docs/adaptation_guide.md) — what to expect at each stage
+| Document | Contents |
+|---|---|
+| [Python API](docs/api_info.md) | All public functions, signatures, and return-value shapes |
+| [Features](docs/features.md) | Complete feature inventory |
+| [Training Model](docs/training_model.md) | Adaptation and periodisation logic |
+| [Formula Reference](docs/formulas_reference.md) | All formulas with config knobs |
+| [Exercise Structure](docs/exercise-structure.md) | How to add a custom exercise |
+| [Plan Logic](docs/plan_logic.md) | Prescription stability invariant, plan anchor mechanics |
+| [Adaptation Guide](docs/adaptation_guide.md) | What to expect at each training stage |
+| [References](REFERENCES.md) | The scientific publications and evidence-based sources used to design the training formulas, fatigue model, and progression rules in the planner core engine. |
 
 ## Running Tests
 
 ```bash
+uv sync --extra dev
 uv run pytest
 ```
 
 ## License
 
 CC BY-NC 4.0 — non-commercial use with attribution. See [LICENSE](LICENSE).
+
+Author: Potapenko Bogdan  
+*ML / AI Engineer @ Shenzhen, 2026*     
+Telegram: https://t.me/roborice

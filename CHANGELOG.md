@@ -4,6 +4,40 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.4.0] — 2026-03-23
+
+### Breaking changes
+
+- **CLI extracted** — the interactive command-line interface has been moved to a separate project ([cli_bar](https://github.com/bvpotapenko/cli_bar)). This package is now a pure Python library; no entry points are installed.
+- **`HistoryStore` → `UserStore`** — `io/history_store.py` class renamed and redesigned as a profile-centric store. Constructor changed from `(history_path, exercise_id)` to `(data_dir)`. All exercise-specific methods now take `exercise_id` as an explicit parameter. A `HistoryStore = UserStore` alias is provided for external consumers.
+- **`update_bodyweight` signature** — `exercise_id` parameter removed. Bodyweight is user-level, not per-exercise. New signature: `update_bodyweight(data_dir, bodyweight_kg)`.
+- **`update_equipment` signature** — dict parameter replaced with explicit named keyword arguments: `active_item`, `available_items`, `machine_assistance_kg`, `elevation_height_cm`, `valid_from`.
+- **REST session type removed** — `session_type="REST"` no longer exists. `SessionType` is now `Literal["S", "H", "E", "T", "TEST"]`. Calendar gaps serve as implicit rest.
+- **Per-exercise plan cache** — plan cache files renamed from `plan_cache.json` (shared) to `{exercise_id}_plan_cache.json` (per-exercise).
+
+### Added
+
+- **Public API module** (`src/bar_scheduler/api/api.py`) — complete `data_dir`-isolated facade over the planning engine. All functions return JSON-serialisable dicts; no internal imports required by consumers. New public functions:
+  - `init_profile`, `get_profile`, `update_profile` (now includes `height_cm`, `sex`)
+  - `update_bodyweight`, `update_language`, `list_languages`
+  - `update_equipment`
+  - `list_exercises`, `set_exercise_target`, `set_exercise_days`
+  - `enable_exercise`, `disable_exercise`
+  - `log_session`, `delete_session`, `get_history`
+  - `get_plan`, `refresh_plan`, `explain_session`
+  - `get_training_status`, `get_onerepmax_data`, `get_volume_data`, `get_progress_data`, `get_overtraining_status`
+- **Typed exceptions**: `ProfileAlreadyExistsError`, `ProfileNotFoundError`, `HistoryNotFoundError`, `SessionNotFoundError`.
+- **Multi-user support** — every API function takes `data_dir: Path`; point different users at different directories.
+- **`_lang_context`** — per-call language isolation: API functions automatically use `profile.language`, restoring the previous language on exit (safe for sequential multi-user calls).
+
+### Documentation
+
+- `docs/api_info.md` — fully rewritten to document the public API; no internal imports in any example.
+- `docs/features.md` — updated to reflect library-only scope; CLI-specific features removed.
+- `README.md` — rewritten as a library README with links to docs and the CLI project.
+
+---
+
 ## [0.3.0] — 2026-03-04
 
 ### Added (i18n — multilingual interface)
