@@ -24,6 +24,8 @@ own write semantics; no extra locking is added here).
 
 from __future__ import annotations
 
+import contextlib
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -42,7 +44,13 @@ from ..core.models import SessionResult, SetResult
 from ..core.planner import explain_plan_entry, generate_plan
 from ..core.timeline import TimelineEntry, build_timeline
 from ..io.history_store import HistoryStore, get_default_history_path
-from ..io.serializers import ValidationError, session_result_to_dict, user_profile_to_dict
+from ..io.serializers import (
+    ValidationError,
+    dict_to_user_profile,
+    exercise_target_to_dict,
+    session_result_to_dict,
+    user_profile_to_dict,
+)
 
 __all__ = [
     # Exceptions
@@ -50,11 +58,21 @@ __all__ = [
     "HistoryNotFoundError",
     "SessionNotFoundError",
     "ValidationError",
+    "ProfileAlreadyExistsError",
     # User management
+    "init_profile",
     "get_profile",
     "update_bodyweight",
     "update_language",
     "update_equipment",
+    "update_profile",
+    "list_languages",
+    # Exercise management
+    "list_exercises",
+    "set_exercise_target",
+    "set_exercise_days",
+    "enable_exercise",
+    "disable_exercise",
     # Session management
     "log_session",
     "delete_session",
@@ -89,9 +107,25 @@ class SessionNotFoundError(IndexError):
     """Raised when a session index is out of range."""
 
 
+class ProfileAlreadyExistsError(FileExistsError):
+    """Raised when init_profile is called on an already-initialized directory."""
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _lang_context(lang: str):
+    """Temporarily set the active translation language, restoring the previous value on exit."""
+    from ..core import i18n as _i18n
+    prev = _i18n._current_lang
+    _i18n.set_language(lang)
+    try:
+        yield
+    finally:
+        _i18n.set_language(prev)
 
 
 def _store(data_dir: Path, exercise_id: str) -> HistoryStore:
@@ -109,6 +143,16 @@ def _require_store(data_dir: Path, exercise_id: str) -> HistoryStore:
     if not store.history_path.exists():
         raise HistoryNotFoundError(
             f"History file not found at {store.history_path}. Call init_profile() first."
+        )
+    return store
+
+
+def _require_profile_store(data_dir: Path) -> HistoryStore:
+    """Return a HistoryStore that only checks profile.json exists (not any exercise JSONL)."""
+    store = _store(data_dir, "pull_up")
+    if not store.profile_path.exists():
+        raise ProfileNotFoundError(
+            f"Profile not found at {store.profile_path}. Call init_profile() first."
         )
     return store
 
@@ -177,6 +221,60 @@ def _timeline_entry_to_dict(e: TimelineEntry) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def init_profile(
+    data_dir: Path,
+    height_cm: int,
+    sex: str,
+    bodyweight_kg: float,
+    *,
+    exercises: list[str],
+    days_per_week: int = 3,
+    language: str = "en",
+    rest_preference: str = "normal",
+) -> dict:
+    """
+    Create a new user profile in ``data_dir``.
+
+    ``exercises`` is required — pass the list of exercise IDs the user wants
+    to train (e.g. ``["pull_up"]`` or ``["pull_up", "dip"]``).  May be empty
+    ``[]`` if exercises will be added later via ``enable_exercise()``.
+
+    Raises ``ProfileAlreadyExistsError`` if profile.json already exists.
+    Raises ``ValueError`` for unknown exercise IDs or invalid field values.
+    Returns the profile dict (same shape as ``get_profile()``).
+    """
+    from ..core.models import UserProfile
+
+    profile_path = data_dir / "profile.json"
+    if profile_path.exists():
+        raise ProfileAlreadyExistsError(
+            f"Profile already exists at {profile_path}. Use update_profile() to change fields."
+        )
+
+    for ex_id in exercises:
+        get_exercise(ex_id)  # raises ValueError for unknown ids, before touching filesystem
+
+    profile = UserProfile(
+        height_cm=height_cm,
+        sex=sex,
+        preferred_days_per_week=days_per_week,
+        exercises_enabled=list(exercises),
+        language=language,
+        rest_preference=rest_preference,
+    )
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    if exercises:
+        for ex_id in exercises:
+            _store(data_dir, ex_id).init()
+        _store(data_dir, exercises[0]).save_profile(profile, bodyweight_kg)
+    else:
+        save_store = HistoryStore(data_dir / "_profile.jsonl", exercise_id="")
+        save_store.save_profile(profile, bodyweight_kg)
+
+    return get_profile(data_dir)
+
+
 def get_profile(data_dir: Path, exercise_id: str = "pull_up") -> dict | None:
     """
     Return the current user profile as a dict, or None if not initialised.
@@ -234,6 +332,192 @@ def update_equipment(data_dir: Path, exercise_id: str, equipment_state: dict) ->
     store = _require_store(data_dir, exercise_id)
     state_obj: EquipmentState = dict_to_equipment_state(equipment_state)
     store.update_equipment(state_obj)
+
+
+def update_profile(
+    data_dir: Path,
+    *,
+    preferred_days_per_week: int | None = None,
+    rest_preference: str | None = None,
+    max_session_duration_minutes: int | None = None,
+    injury_notes: str | None = None,
+) -> dict:
+    """
+    Update general profile fields.
+
+    Only the fields you pass are changed; all others are preserved.
+    Also preserves ``plan_start_dates``, ``equipment``, and other keys
+    stored alongside the profile in profile.json.
+
+    Returns the updated profile dict (same shape as ``get_profile()``).
+    Raises ``ProfileNotFoundError`` if not yet initialised.
+    Raises ``ValueError`` for invalid field values.
+    """
+    if rest_preference is not None and rest_preference not in ("short", "normal", "long"):
+        raise ValueError(
+            f"rest_preference must be 'short', 'normal', or 'long', got {rest_preference!r}"
+        )
+    if preferred_days_per_week is not None and preferred_days_per_week not in (1, 2, 3, 4, 5):
+        raise ValueError(f"preferred_days_per_week must be 1–5, got {preferred_days_per_week}")
+
+    store = _require_profile_store(data_dir)
+    with open(store.profile_path) as f:
+        data = json.load(f)
+
+    if preferred_days_per_week is not None:
+        data["preferred_days_per_week"] = preferred_days_per_week
+    if rest_preference is not None:
+        data["rest_preference"] = rest_preference
+    if max_session_duration_minutes is not None:
+        data["max_session_duration_minutes"] = max_session_duration_minutes
+    if injury_notes is not None:
+        data["injury_notes"] = injury_notes
+
+    dict_to_user_profile(data)  # validate — raises ValidationError if inconsistent
+
+    with open(store.profile_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    return get_profile(data_dir)
+
+
+def list_languages() -> list[str]:
+    """
+    Return the list of supported language codes, e.g. ``["en", "ru", "zh"]``.
+
+    Clients can present this list to users and then persist the chosen language
+    via ``update_language()``.
+    """
+    from ..core.i18n import available_languages
+    return available_languages()
+
+
+# ---------------------------------------------------------------------------
+# Exercise management
+# ---------------------------------------------------------------------------
+
+
+def list_exercises() -> list[dict]:
+    """
+    Return metadata for all registered exercises.
+
+    Returns a list of dicts with keys: ``id``, ``display_name``,
+    ``muscle_group``, ``variants``, ``primary_variant``,
+    ``has_variant_rotation``.
+    """
+    from ..core.exercises.registry import EXERCISE_REGISTRY
+    return [
+        {
+            "id": ex.exercise_id,
+            "display_name": ex.display_name,
+            "muscle_group": ex.muscle_group,
+            "variants": list(ex.variants),
+            "primary_variant": ex.primary_variant,
+            "has_variant_rotation": ex.has_variant_rotation,
+        }
+        for ex in EXERCISE_REGISTRY.values()
+    ]
+
+
+def set_exercise_target(
+    data_dir: Path,
+    exercise_id: str,
+    reps: int,
+    weight_kg: float = 0.0,
+) -> None:
+    """
+    Set the user's personal goal for an exercise.
+
+    ``reps`` is the target rep count (must be > 0).
+    ``weight_kg`` is additional load on top of bodyweight (0 = bodyweight-only goal).
+    Raises ``ValueError`` for unknown ``exercise_id`` or invalid values.
+    """
+    from ..core.models import ExerciseTarget
+    get_exercise(exercise_id)
+    target = ExerciseTarget(reps=reps, weight_kg=weight_kg)  # validates reps > 0, weight >= 0
+
+    store = _require_profile_store(data_dir)
+    with open(store.profile_path) as f:
+        data = json.load(f)
+
+    if "exercise_targets" not in data:
+        data["exercise_targets"] = {}
+    data["exercise_targets"][exercise_id] = exercise_target_to_dict(target)
+
+    with open(store.profile_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def set_exercise_days(
+    data_dir: Path,
+    exercise_id: str,
+    days_per_week: int,
+) -> None:
+    """
+    Set per-exercise training frequency, overriding the global ``preferred_days_per_week``.
+
+    ``days_per_week`` must be 1–5.
+    Raises ``ValueError`` for unknown ``exercise_id`` or out-of-range days.
+    """
+    get_exercise(exercise_id)
+    if days_per_week not in (1, 2, 3, 4, 5):
+        raise ValueError(f"days_per_week must be 1–5, got {days_per_week}")
+
+    store = _require_profile_store(data_dir)
+    with open(store.profile_path) as f:
+        data = json.load(f)
+
+    if "exercise_days" not in data:
+        data["exercise_days"] = {}
+    data["exercise_days"][exercise_id] = days_per_week
+
+    with open(store.profile_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def enable_exercise(data_dir: Path, exercise_id: str) -> None:
+    """
+    Add an exercise to the user's active list and create its history file.
+
+    Idempotent — safe to call even if the exercise is already enabled.
+    Raises ``ValueError`` for unknown ``exercise_id``.
+    Raises ``ProfileNotFoundError`` if the profile has not been initialised.
+    """
+    get_exercise(exercise_id)
+    store = _require_profile_store(data_dir)
+
+    with open(store.profile_path) as f:
+        data = json.load(f)
+
+    enabled = list(data.get("exercises_enabled", []))
+    if exercise_id not in enabled:
+        enabled.append(exercise_id)
+        data["exercises_enabled"] = enabled
+        with open(store.profile_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    _store(data_dir, exercise_id).init()  # create JSONL if missing (always idempotent)
+
+
+def disable_exercise(data_dir: Path, exercise_id: str) -> None:
+    """
+    Remove an exercise from the user's active list.
+
+    No-op if the exercise is not currently enabled.
+    The history file is preserved (data is never deleted automatically).
+    Raises ``ProfileNotFoundError`` if the profile has not been initialised.
+    """
+    store = _require_profile_store(data_dir)
+
+    with open(store.profile_path) as f:
+        data = json.load(f)
+
+    enabled = list(data.get("exercises_enabled", []))
+    if exercise_id in enabled:
+        enabled.remove(exercise_id)
+        data["exercises_enabled"] = enabled
+        with open(store.profile_path, "w") as f:
+            json.dump(data, f, indent=2)
 
 
 # ---------------------------------------------------------------------------
@@ -314,88 +598,89 @@ def get_plan(
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state()
 
-    plan_start_date = _resolve_plan_start(store, user_state.history)
-    total_weeks = _total_weeks(plan_start_date, weeks_ahead)
+    with _lang_context(user_state.profile.language):
+        plan_start_date = _resolve_plan_start(store, user_state.history)
+        total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
-    ot_severity = overtraining_severity(
-        user_state.history, user_state.profile.preferred_days_per_week
-    )
-    ot_level = ot_severity["level"]
+        ot_severity = overtraining_severity(
+            user_state.history, user_state.profile.preferred_days_per_week
+        )
+        ot_level = ot_severity["level"]
 
-    plans = generate_plan(
-        user_state, plan_start_date, exercise,
-        weeks_ahead=total_weeks,
-        overtraining_level=ot_level,
-    )
+        plans = generate_plan(
+            user_state, plan_start_date, exercise,
+            weeks_ahead=total_weeks,
+            overtraining_level=ot_level,
+        )
 
-    training_status = _get_training_status(
-        user_state.history,
-        user_state.current_bodyweight_kg,
-    )
+        training_status = _get_training_status(
+            user_state.history,
+            user_state.current_bodyweight_kg,
+        )
 
-    timeline = build_timeline(plans, user_state.history)
+        timeline = build_timeline(plans, user_state.history)
 
-    # Plan change detection
-    def _snapshot(e: TimelineEntry) -> dict:
-        p = e.planned
-        if p is None:
-            return {}
-        first_set = p.sets[0] if p.sets else None
+        # Plan change detection
+        def _snapshot(e: TimelineEntry) -> dict:
+            p = e.planned
+            if p is None:
+                return {}
+            first_set = p.sets[0] if p.sets else None
+            return {
+                "date": p.date, "type": p.session_type,
+                "sets": len(p.sets),
+                "reps": first_set.target_reps if first_set else 0,
+                "weight": first_set.added_weight_kg if first_set else 0.0,
+                "rest": first_set.rest_seconds_before if first_set else 0,
+                "expected_tm": p.expected_tm,
+            }
+
+        old_cache = store.load_plan_cache()
+        new_cache = [
+            _snapshot(e) for e in timeline
+            if e.status in ("next", "planned") and e.planned is not None
+        ]
+        plan_changes: list[str] = []
+        if old_cache is not None:
+            old_idx = {(s["date"], s["type"]): s for s in old_cache if s}
+            new_idx = {(s["date"], s["type"]): s for s in new_cache if s}
+            for key, snap in new_idx.items():
+                if key not in old_idx:
+                    plan_changes.append(f"New: {snap['date']} {snap['type']}")
+            for key, snap in old_idx.items():
+                if key not in new_idx:
+                    plan_changes.append(f"Removed: {snap['date']} {snap['type']}")
+            for key in sorted(set(old_idx) & set(new_idx)):
+                o, n = old_idx[key], new_idx[key]
+                parts: list[str] = []
+                if o["sets"] != n["sets"]:
+                    parts.append(f"{o['sets']}→{n['sets']} sets")
+                if o["reps"] != n["reps"]:
+                    parts.append(f"{o['reps']}→{n['reps']} reps")
+                if abs(o.get("weight", 0.0) - n.get("weight", 0.0)) > 0.01:
+                    parts.append(f"+{o['weight']:.1f}→+{n['weight']:.1f} kg")
+                if o["expected_tm"] != n["expected_tm"]:
+                    parts.append(f"TM {o['expected_tm']}→{n['expected_tm']}")
+                if parts:
+                    plan_changes.append(f"{n['date']} {n['type']}: {', '.join(parts)}")
+        store.save_plan_cache(new_cache)
+
+        ff = training_status.fitness_fatigue_state
         return {
-            "date": p.date, "type": p.session_type,
-            "sets": len(p.sets),
-            "reps": first_set.target_reps if first_set else 0,
-            "weight": first_set.added_weight_kg if first_set else 0.0,
-            "rest": first_set.rest_seconds_before if first_set else 0,
-            "expected_tm": p.expected_tm,
+            "status": {
+                "training_max": training_status.training_max,
+                "latest_test_max": training_status.latest_test_max,
+                "trend_slope_per_week": round(training_status.trend_slope, 4),
+                "is_plateau": training_status.is_plateau,
+                "deload_recommended": training_status.deload_recommended,
+                "readiness_z_score": round(ff.readiness_z_score(), 4),
+                "fitness": round(ff.fitness, 4),
+                "fatigue": round(ff.fatigue, 4),
+            },
+            "sessions": [_timeline_entry_to_dict(e) for e in timeline],
+            "plan_changes": plan_changes,
+            "overtraining": ot_severity,
         }
-
-    old_cache = store.load_plan_cache()
-    new_cache = [
-        _snapshot(e) for e in timeline
-        if e.status in ("next", "planned") and e.planned is not None
-    ]
-    plan_changes: list[str] = []
-    if old_cache is not None:
-        old_idx = {(s["date"], s["type"]): s for s in old_cache if s}
-        new_idx = {(s["date"], s["type"]): s for s in new_cache if s}
-        for key, snap in new_idx.items():
-            if key not in old_idx:
-                plan_changes.append(f"New: {snap['date']} {snap['type']}")
-        for key, snap in old_idx.items():
-            if key not in new_idx:
-                plan_changes.append(f"Removed: {snap['date']} {snap['type']}")
-        for key in sorted(set(old_idx) & set(new_idx)):
-            o, n = old_idx[key], new_idx[key]
-            parts: list[str] = []
-            if o["sets"] != n["sets"]:
-                parts.append(f"{o['sets']}→{n['sets']} sets")
-            if o["reps"] != n["reps"]:
-                parts.append(f"{o['reps']}→{n['reps']} reps")
-            if abs(o.get("weight", 0.0) - n.get("weight", 0.0)) > 0.01:
-                parts.append(f"+{o['weight']:.1f}→+{n['weight']:.1f} kg")
-            if o["expected_tm"] != n["expected_tm"]:
-                parts.append(f"TM {o['expected_tm']}→{n['expected_tm']}")
-            if parts:
-                plan_changes.append(f"{n['date']} {n['type']}: {', '.join(parts)}")
-    store.save_plan_cache(new_cache)
-
-    ff = training_status.fitness_fatigue_state
-    return {
-        "status": {
-            "training_max": training_status.training_max,
-            "latest_test_max": training_status.latest_test_max,
-            "trend_slope_per_week": round(training_status.trend_slope, 4),
-            "is_plateau": training_status.is_plateau,
-            "deload_recommended": training_status.deload_recommended,
-            "readiness_z_score": round(ff.readiness_z_score(), 4),
-            "fitness": round(ff.fitness, 4),
-            "fatigue": round(ff.fatigue, 4),
-        },
-        "sessions": [_timeline_entry_to_dict(e) for e in timeline],
-        "plan_changes": plan_changes,
-        "overtraining": ot_severity,
-    }
 
 
 def refresh_plan(data_dir: Path, exercise_id: str = "pull_up") -> dict:
@@ -410,20 +695,21 @@ def refresh_plan(data_dir: Path, exercise_id: str = "pull_up") -> dict:
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state()
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    store.set_plan_start_date(today)
+    with _lang_context(user_state.profile.language):
+        today = datetime.now().strftime("%Y-%m-%d")
+        store.set_plan_start_date(today)
 
-    plans = generate_plan(user_state, today, exercise, weeks_ahead=2)
-    next_session = next((p for p in plans if p.date >= today), None)
+        plans = generate_plan(user_state, today, exercise, weeks_ahead=2)
+        next_session = next((p for p in plans if p.date >= today), None)
 
-    return {
-        "plan_start_date": today,
-        "next_session": {
-            "date": next_session.date,
-            "session_type": next_session.session_type,
-            "grip": next_session.grip,
-        } if next_session else None,
-    }
+        return {
+            "plan_start_date": today,
+            "next_session": {
+                "date": next_session.date,
+                "session_type": next_session.session_type,
+                "grip": next_session.grip,
+            } if next_session else None,
+        }
 
 
 def explain_session(
@@ -442,38 +728,39 @@ def explain_session(
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state()
 
-    plan_start_date = _resolve_plan_start(store, user_state.history)
-    total_weeks = _total_weeks(plan_start_date, weeks_ahead)
+    with _lang_context(user_state.profile.language):
+        plan_start_date = _resolve_plan_start(store, user_state.history)
+        total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
-    days_per_week = user_state.profile.preferred_days_per_week
-    ot_severity = overtraining_severity(user_state.history, days_per_week)
-    ot_level = ot_severity["level"]
-    ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
+        days_per_week = user_state.profile.preferred_days_per_week
+        ot_severity = overtraining_severity(user_state.history, days_per_week)
+        ot_level = ot_severity["level"]
+        ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
 
-    today_dt = datetime.now()
-    ot_cutoff = (today_dt + timedelta(days=max(ot_rest + 14, 14))).strftime("%Y-%m-%d")
+        today_dt = datetime.now()
+        ot_cutoff = (today_dt + timedelta(days=max(ot_rest + 14, 14))).strftime("%Y-%m-%d")
 
-    if date.lower() == "next":
-        plans = generate_plan(
-            user_state, plan_start_date, exercise,
+        if date.lower() == "next":
+            plans = generate_plan(
+                user_state, plan_start_date, exercise,
+                weeks_ahead=total_weeks,
+                overtraining_level=ot_level, overtraining_rest_days=ot_rest,
+            )
+            today_str = today_dt.strftime("%Y-%m-%d")
+            nxt = next((p for p in plans if p.date >= today_str), None)
+            if nxt is None:
+                raise ValueError("No upcoming sessions found in the plan horizon.")
+            date = nxt.date
+
+        if date > ot_cutoff:
+            ot_level, ot_rest = 0, 0
+
+        return explain_plan_entry(
+            user_state, plan_start_date, date, exercise,
             weeks_ahead=total_weeks,
-            overtraining_level=ot_level, overtraining_rest_days=ot_rest,
+            overtraining_level=ot_level,
+            overtraining_rest_days=ot_rest,
         )
-        today_str = today_dt.strftime("%Y-%m-%d")
-        nxt = next((p for p in plans if p.date >= today_str), None)
-        if nxt is None:
-            raise ValueError("No upcoming sessions found in the plan horizon.")
-        date = nxt.date
-
-    if date > ot_cutoff:
-        ot_level, ot_rest = 0, 0
-
-    return explain_plan_entry(
-        user_state, plan_start_date, date, exercise,
-        weeks_ahead=total_weeks,
-        overtraining_level=ot_level,
-        overtraining_rest_days=ot_rest,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -490,18 +777,19 @@ def get_training_status(data_dir: Path, exercise_id: str = "pull_up") -> dict:
     """
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state()
-    status = _get_training_status(user_state.history, user_state.current_bodyweight_kg)
-    ff = status.fitness_fatigue_state
-    return {
-        "training_max": status.training_max,
-        "latest_test_max": status.latest_test_max,
-        "trend_slope_per_week": round(status.trend_slope, 4),
-        "is_plateau": status.is_plateau,
-        "deload_recommended": status.deload_recommended,
-        "readiness_z_score": round(ff.readiness_z_score(), 4),
-        "fitness": round(ff.fitness, 4),
-        "fatigue": round(ff.fatigue, 4),
-    }
+    with _lang_context(user_state.profile.language):
+        status = _get_training_status(user_state.history, user_state.current_bodyweight_kg)
+        ff = status.fitness_fatigue_state
+        return {
+            "training_max": status.training_max,
+            "latest_test_max": status.latest_test_max,
+            "trend_slope_per_week": round(status.trend_slope, 4),
+            "is_plateau": status.is_plateau,
+            "deload_recommended": status.deload_recommended,
+            "readiness_z_score": round(ff.readiness_z_score(), 4),
+            "fitness": round(ff.fitness, 4),
+            "fatigue": round(ff.fatigue, 4),
+        }
 
 
 def get_onerepmax_data(data_dir: Path, exercise_id: str = "pull_up") -> dict | None:
@@ -516,7 +804,8 @@ def get_onerepmax_data(data_dir: Path, exercise_id: str = "pull_up") -> dict | N
     exercise = get_exercise(exercise_id)
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state()
-    return estimate_1rm(exercise, user_state.current_bodyweight_kg, user_state.history)
+    with _lang_context(user_state.profile.language):
+        return estimate_1rm(exercise, user_state.current_bodyweight_kg, user_state.history)
 
 
 def get_volume_data(
@@ -586,88 +875,89 @@ def get_progress_data(
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state()
 
-    sessions = user_state.history
-    test_sessions = get_test_sessions(sessions)
+    with _lang_context(user_state.profile.language):
+        sessions = user_state.history
+        test_sessions = get_test_sessions(sessions)
 
-    data_points = [
-        {"date": s.date, "max_reps": _session_max_reps(s)}
-        for s in test_sessions
-        if _session_max_reps(s) > 0
-    ]
+        data_points = [
+            {"date": s.date, "max_reps": _session_max_reps(s)}
+            for s in test_sessions
+            if _session_max_reps(s) > 0
+        ]
 
-    traj_types = set(trajectory_types.lower())
-    traj_z = None
-    traj_g = None
-    traj_m = None
+        traj_types = set(trajectory_types.lower())
+        traj_z = None
+        traj_g = None
+        traj_m = None
 
-    if traj_types and test_sessions:
-        bw = user_state.current_bodyweight_kg
-        bw_load = bw * exercise_def.bw_fraction
-        traj_target = TARGET_MAX_REPS
-        target_weight_kg = 0.0
+        if traj_types and test_sessions:
+            bw = user_state.current_bodyweight_kg
+            bw_load = bw * exercise_def.bw_fraction
+            traj_target = TARGET_MAX_REPS
+            target_weight_kg = 0.0
 
-        try:
-            profile = store.load_profile()
-            ex_target = profile.target_for_exercise(exercise_id) if profile else None
-            if ex_target is not None:
-                target_weight_kg = ex_target.weight_kg
-                if ex_target.weight_kg > 0:
-                    full_load = bw_load + ex_target.weight_kg
-                    one_rm = full_load * (1 + ex_target.reps / 30)
-                    traj_target = max(int(round(30 * (one_rm / bw_load - 1))), 1)
+            try:
+                profile = store.load_profile()
+                ex_target = profile.target_for_exercise(exercise_id) if profile else None
+                if ex_target is not None:
+                    target_weight_kg = ex_target.weight_kg
+                    if ex_target.weight_kg > 0:
+                        full_load = bw_load + ex_target.weight_kg
+                        one_rm = full_load * (1 + ex_target.reps / 30)
+                        traj_target = max(int(round(30 * (one_rm / bw_load - 1))), 1)
+                    else:
+                        traj_target = ex_target.reps
+            except Exception:
+                pass
+
+            # Build base trajectory points
+            base_pts: list[tuple[datetime, float]] = []
+            latest_test = test_sessions[-1]
+            start_dt = datetime.strptime(latest_test.date, "%Y-%m-%d")
+            initial_tm = training_max_from_baseline(_session_max_reps(latest_test))
+            tm_target = int(traj_target * TM_FACTOR)
+            d, tm_f = start_dt, float(initial_tm)
+            while tm_f < tm_target and d <= start_dt + timedelta(weeks=104):
+                base_pts.append((d, tm_f / TM_FACTOR))
+                tm_f = min(
+                    tm_f + expected_reps_per_week(int(tm_f), tm_target),
+                    float(tm_target),
+                )
+                d += timedelta(weeks=1)
+            base_pts.append((d, float(traj_target)))
+
+            if "z" in traj_types and base_pts:
+                traj_z = [
+                    {"date": pt.strftime("%Y-%m-%d"), "projected_bw_reps": round(val, 2)}
+                    for pt, val in base_pts
+                ]
+
+            if "g" in traj_types and base_pts:
+                if target_weight_kg > 0:
+                    f = bw_load / (bw_load + target_weight_kg)
+                    pts_g = [(dt_, max(0.0, f * z + 30.0 * (f - 1.0))) for dt_, z in base_pts]
                 else:
-                    traj_target = ex_target.reps
-        except Exception:
-            pass
+                    pts_g = list(base_pts)
+                traj_g = [
+                    {"date": pt.strftime("%Y-%m-%d"), "projected_goal_reps": round(val, 2)}
+                    for pt, val in pts_g
+                ]
 
-        # Build base trajectory points
-        base_pts: list[tuple[datetime, float]] = []
-        latest_test = test_sessions[-1]
-        start_dt = datetime.strptime(latest_test.date, "%Y-%m-%d")
-        initial_tm = training_max_from_baseline(_session_max_reps(latest_test))
-        tm_target = int(traj_target * TM_FACTOR)
-        d, tm_f = start_dt, float(initial_tm)
-        while tm_f < tm_target and d <= start_dt + timedelta(weeks=104):
-            base_pts.append((d, tm_f / TM_FACTOR))
-            tm_f = min(
-                tm_f + expected_reps_per_week(int(tm_f), tm_target),
-                float(tm_target),
-            )
-            d += timedelta(weeks=1)
-        base_pts.append((d, float(traj_target)))
+            if "m" in traj_types and base_pts and bw_load > 0:
+                m_pts = []
+                for pt, reps in base_pts:
+                    r = min(int(round(reps)), 20)
+                    added = blended_1rm_added(bw_load, max(r, 1))
+                    if added is not None:
+                        m_pts.append({"date": pt.strftime("%Y-%m-%d"), "projected_1rm_added_kg": round(added, 2)})
+                traj_m = m_pts or None
 
-        if "z" in traj_types and base_pts:
-            traj_z = [
-                {"date": pt.strftime("%Y-%m-%d"), "projected_bw_reps": round(val, 2)}
-                for pt, val in base_pts
-            ]
-
-        if "g" in traj_types and base_pts:
-            if target_weight_kg > 0:
-                f = bw_load / (bw_load + target_weight_kg)
-                pts_g = [(dt_, max(0.0, f * z + 30.0 * (f - 1.0))) for dt_, z in base_pts]
-            else:
-                pts_g = list(base_pts)
-            traj_g = [
-                {"date": pt.strftime("%Y-%m-%d"), "projected_goal_reps": round(val, 2)}
-                for pt, val in pts_g
-            ]
-
-        if "m" in traj_types and base_pts and bw_load > 0:
-            m_pts = []
-            for pt, reps in base_pts:
-                r = min(int(round(reps)), 20)
-                added = blended_1rm_added(bw_load, max(r, 1))
-                if added is not None:
-                    m_pts.append({"date": pt.strftime("%Y-%m-%d"), "projected_1rm_added_kg": round(added, 2)})
-            traj_m = m_pts or None
-
-    return {
-        "data_points": data_points,
-        "trajectory_z": traj_z,
-        "trajectory_g": traj_g,
-        "trajectory_m": traj_m,
-    }
+        return {
+            "data_points": data_points,
+            "trajectory_z": traj_z,
+            "trajectory_g": traj_g,
+            "trajectory_m": traj_m,
+        }
 
 
 def get_overtraining_status(data_dir: Path, exercise_id: str = "pull_up") -> dict:
@@ -679,6 +969,7 @@ def get_overtraining_status(data_dir: Path, exercise_id: str = "pull_up") -> dic
     """
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state()
-    return overtraining_severity(
-        user_state.history, user_state.profile.preferred_days_per_week
-    )
+    with _lang_context(user_state.profile.language):
+        return overtraining_severity(
+            user_state.history, user_state.profile.preferred_days_per_week
+        )
