@@ -31,7 +31,7 @@ from bar_scheduler.api.api import (
     # Equipment helpers
     get_current_equipment, check_band_progression,
     compute_leff, compute_equipment_adjustment, get_assistance_kg,
-    get_next_band_step, get_band_progression, get_bss_elevation_heights,
+    get_next_band_step, get_assist_progression,
     # Utilities
     get_data_dir, training_max_from_baseline,
     # Input parsers
@@ -188,9 +188,9 @@ kg   = get_assistance_kg("pull_up", "BAND_LIGHT")   # → 8.0
 
 # Band progression
 ready = check_band_progression(data_dir, "pull_up", n_sessions=2)  # bool
-next_band = get_next_band_step("BAND_MEDIUM")  # → "BAND_LIGHT"
-get_band_progression()       # → ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]
-get_bss_elevation_heights()  # → [30, 45, 60]
+next_item = get_next_band_step("BAND_MEDIUM", "pull_up")  # → "BAND_LIGHT"
+get_assist_progression("pull_up")  # → ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]
+get_assist_progression("bss")      # → []  (BSS has no fixed-assistance progression)
 ```
 
 Equipment history is preserved (append-only). The previous active entry gets

@@ -73,3 +73,12 @@ class ExerciseDefinition:
 
     # Grip/variant rotation per session type (only used when has_variant_rotation=True)
     grip_cycles: dict[str, list[str]] = field(default_factory=dict)
+
+    # Equipment catalog: item_id → {label, assistance_kg}.
+    # assistance_kg > 0 = assistive; None = user-entered (MACHINE_ASSISTED); 0 = neutral/additive.
+    equipment: dict[str, dict] = field(default_factory=dict)
+
+    # Ordered progression from most-assistive to unassisted (e.g. [BAND_HEAVY, …, BAR_ONLY]).
+    # Used for automatic step-down when the user is consistently hitting the rep ceiling.
+    # Exercises without fixed-assistance options (e.g. BSS) leave this empty.
+    assist_progression: list[str] = field(default_factory=list)

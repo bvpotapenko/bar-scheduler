@@ -5,6 +5,10 @@ Each exercise has a catalog of equipment options that affect the effective load
 (Leff) applied to the working muscles.  The planner uses Leff -- not raw
 bodyweight -- as the common unit for progression tracking across equipment changes.
 
+Equipment data (catalogs, assist_progression) lives in per-exercise YAML files
+(src/bar_scheduler/exercises/<id>.yaml) and is loaded via the exercise registry.
+Use get_catalog(exercise_id) or get_exercise(exercise_id).equipment directly.
+
 Leff formula
 ------------
   Pull-up / Dip  :  Leff = BW × bw_fraction + added_weight_kg − assistance_kg
@@ -25,109 +29,8 @@ user-spec v2026-02-24.
 from __future__ import annotations
 
 from .exercises.base import ExerciseDefinition
+from .exercises.registry import get_exercise
 from .models import EquipmentState, EquipmentSnapshot
-
-
-# ---------------------------------------------------------------------------
-# Equipment catalogs
-# Each item: {label, assistance_kg}
-#   assistance_kg > 0 → assistive (band/machine reduces Leff)
-#   assistance_kg = None → user enters value (MACHINE_ASSISTED)
-#   assistance_kg = 0 → neutral / additive (BAR_ONLY, WEIGHT_BELT, BSS items)
-# ---------------------------------------------------------------------------
-
-PULL_UP_EQUIPMENT: dict[str, dict] = {
-    "BAR_ONLY": {
-        "label": "Pull-up bar (bodyweight)",
-        "assistance_kg": 0.0,
-    },
-    "BAND_LIGHT": {
-        "label": "Resistance band – Light (~10–25 kg assistance)",
-        "assistance_kg": 17.0,
-    },
-    "BAND_MEDIUM": {
-        "label": "Resistance band – Medium (~25–45 kg assistance)",
-        "assistance_kg": 35.0,
-    },
-    "BAND_HEAVY": {
-        "label": "Resistance band – Heavy (~45–70 kg assistance)",
-        "assistance_kg": 57.0,
-    },
-    "MACHINE_ASSISTED": {
-        "label": "Assisted pull-up machine (direct kg offset)",
-        "assistance_kg": None,  # user enters machine_assistance_kg
-    },
-    "WEIGHT_BELT": {
-        "label": "Weight belt / vest (for added load)",
-        "assistance_kg": 0.0,  # additive -- weight comes from added_weight_kg
-    },
-}
-
-DIP_EQUIPMENT: dict[str, dict] = {
-    "PARALLEL_BARS": {
-        "label": "Parallel bars (bodyweight)",
-        "assistance_kg": 0.0,
-    },
-    "BAND_LIGHT": {
-        "label": "Resistance band – Light (~10–25 kg assistance)",
-        "assistance_kg": 17.0,
-    },
-    "BAND_MEDIUM": {
-        "label": "Resistance band – Medium (~25–45 kg assistance)",
-        "assistance_kg": 35.0,
-    },
-    "BAND_HEAVY": {
-        "label": "Resistance band – Heavy (~45–70 kg assistance)",
-        "assistance_kg": 57.0,
-    },
-    "MACHINE_ASSISTED": {
-        "label": "Assisted dip machine (direct kg offset)",
-        "assistance_kg": None,
-    },
-    "WEIGHT_BELT": {
-        "label": "Weight belt / vest (for added load)",
-        "assistance_kg": 0.0,
-    },
-}
-
-# For BSS all items are either neutral or additive -- no band-assist concept.
-# ELEVATION_SURFACE is required for true Bulgarian Split Squat (rear foot
-# elevated); without it the exercise degrades to a flat split squat.
-BSS_EQUIPMENT: dict[str, dict] = {
-    "BODYWEIGHT": {
-        "label": "Bodyweight only",
-        "assistance_kg": 0.0,
-    },
-    "DUMBBELLS": {
-        "label": "Dumbbells / Kettlebells",
-        "assistance_kg": 0.0,
-    },
-    "BARBELL": {
-        "label": "Barbell (back or front rack)",
-        "assistance_kg": 0.0,
-    },
-    "RESISTANCE_BAND": {
-        "label": "Resistance band (added tension at the top)",
-        "assistance_kg": 0.0,  # additive for BSS
-    },
-    "ELEVATION_SURFACE": {
-        "label": "Bench / chair / box for rear foot",
-        "assistance_kg": 0.0,
-    },
-}
-
-# Map exercise_id → catalog
-_CATALOGS: dict[str, dict[str, dict]] = {
-    "pull_up": PULL_UP_EQUIPMENT,
-    "dip": DIP_EQUIPMENT,
-    "bss": BSS_EQUIPMENT,
-}
-
-# BSS elevation height options (cm)
-BSS_ELEVATION_HEIGHTS: list[int] = [30, 45, 60]
-
-# Band progression order: index 0 = most assistive → last = no band
-BAND_PROGRESSION: list[str] = ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +39,15 @@ BAND_PROGRESSION: list[str] = ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_O
 
 
 def get_catalog(exercise_id: str) -> dict[str, dict]:
-    """Return the equipment catalog for the given exercise."""
-    return _CATALOGS.get(exercise_id, {})
+    """Return the equipment catalog for the given exercise.
+
+    The catalog is loaded from the per-exercise YAML file via the exercise
+    registry.  Returns {} for unknown exercise IDs.
+    """
+    try:
+        return get_exercise(exercise_id).equipment
+    except ValueError:
+        return {}
 
 
 def get_assistance_kg(
@@ -228,20 +138,22 @@ def recommend_equipment_item(
 
     Selection priority:
     1. WEIGHT_BELT — when TM is above the weight threshold and user has one.
-    2. Current band level from history — step down if check_band_progression passes.
-    3. Initial selection — heaviest available assistive item in the exercise catalog.
-    4. Fallback — "BAR_ONLY" or the first item in the exercise catalog.
+    2. Current assist level from history — step down if check_band_progression passes.
+    3. Initial selection — MACHINE_ASSISTED first, then follow assist_progression
+       from most-assistive onward.
+    4. Fallback — first item in the exercise catalog that the user has.
 
     Args:
         available_items: Items the user owns (from EquipmentState).
         exercise: ExerciseDefinition for the current exercise.
         current_tm: Current training max (reps).
-        recent_history: Recent sessions used for band-progression check.
+        recent_history: Recent sessions used for assist-progression check.
 
     Returns:
         Item ID string (e.g. "WEIGHT_BELT", "BAND_MEDIUM", "BAR_ONLY").
     """
     catalog = get_catalog(exercise.exercise_id)
+    assist_progression = exercise.assist_progression
 
     # 1. Weighted phase: use WEIGHT_BELT when TM has crossed the weight threshold
     if (
@@ -251,23 +163,24 @@ def recommend_equipment_item(
     ):
         return "WEIGHT_BELT"
 
-    # 2. Band progression: find last band item used and check if ready to step down
-    last_band: str | None = None
+    # 2. Assist progression: find last item used and check if ready to step down
+    last_assist: str | None = None
     for session in reversed(recent_history):
         snap = getattr(session, "equipment_snapshot", None)
-        if snap and snap.active_item in BAND_PROGRESSION:
-            last_band = snap.active_item
+        if snap and snap.active_item in assist_progression:
+            last_assist = snap.active_item
             break
 
-    if last_band is not None and last_band in available_items:
+    if last_assist is not None and last_assist in available_items:
         if check_band_progression(recent_history, exercise.exercise_id, exercise.session_params):
-            next_item = get_next_band_step(last_band)
+            next_item = get_next_band_step(last_assist, assist_progression)
             if next_item is not None and next_item in available_items and next_item in catalog:
                 return next_item
-        return last_band
+        return last_assist
 
-    # 3. Initial selection: heaviest available assistive item
-    for candidate in ["MACHINE_ASSISTED", "BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]:
+    # 3. Initial selection: MACHINE_ASSISTED first, then most-assistive in progression
+    candidates = ["MACHINE_ASSISTED"] + list(assist_progression)
+    for candidate in candidates:
         if candidate in available_items and candidate in catalog:
             return candidate
 
@@ -276,7 +189,7 @@ def recommend_equipment_item(
         if item in available_items:
             return item
 
-    return "BAR_ONLY"
+    return list(assist_progression)[-1] if assist_progression else "BAR_ONLY"
 
 
 def bss_is_degraded(state: EquipmentState) -> bool:
@@ -289,19 +202,25 @@ def bss_is_degraded(state: EquipmentState) -> bool:
     return "ELEVATION_SURFACE" not in state.available_items
 
 
-def get_next_band_step(item_id: str) -> str | None:
+def get_next_band_step(item_id: str, assist_progression: list[str]) -> str | None:
     """
-    Return the next-less-assistive band class, or None if already unassisted.
+    Return the next-less-assistive item in the progression, or None if already at the end.
 
-    BAND_HEAVY → BAND_MEDIUM → BAND_LIGHT → BAR_ONLY → None
+    Args:
+        item_id: Current equipment item ID.
+        assist_progression: Ordered list from most-assistive to unassisted
+                            (from ExerciseDefinition.assist_progression).
+
+    Returns:
+        Next item ID, or None if item_id is already the last step (unassisted).
     """
-    if item_id not in BAND_PROGRESSION:
+    if item_id not in assist_progression:
         return None
-    idx = BAND_PROGRESSION.index(item_id)
+    idx = assist_progression.index(item_id)
     next_idx = idx + 1
-    if next_idx >= len(BAND_PROGRESSION):
+    if next_idx >= len(assist_progression):
         return None
-    return BAND_PROGRESSION[next_idx]
+    return assist_progression[next_idx]
 
 
 def machine_to_nearest_band(machine_kg: float) -> str:
@@ -327,7 +246,7 @@ def check_band_progression(
 ) -> bool:
     """
     Return True if the last n_sessions suggest the user is ready to step down
-    one band class (i.e. they are consistently hitting the reps_max ceiling).
+    one assist level (i.e. they are consistently hitting the reps_max ceiling).
 
     Criterion: last n non-TEST sessions of the exercise each have at least one
     set where actual_reps >= reps_max for that session type.
@@ -339,7 +258,7 @@ def check_band_progression(
         n_sessions: How many consecutive sessions must hit the ceiling
 
     Returns:
-        True if band progression is recommended
+        True if assist step-down is recommended
     """
     non_test = [
         s for s in history if s.session_type != "TEST" and s.exercise_id == exercise_id

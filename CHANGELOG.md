@@ -4,6 +4,32 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.4.3] -- 2026-03-24
+
+### Breaking changes
+
+- **`exercise_id` default removed** -- the following 7 API functions no longer default to `"pull_up"`. Callers must supply `exercise_id` explicitly:
+  `get_plan`, `refresh_plan`, `get_training_status`, `get_onerepmax_data`, `get_volume_data`, `get_progress_data`, `get_overtraining_status`.
+- **`get_band_progression()` renamed to `get_assist_progression(exercise_id)`** -- name reflects that the concept applies to any assistive equipment (bands, machine), not bands only. The function now takes a required `exercise_id` parameter and reads the progression from the exercise's YAML definition.
+- **`get_next_band_step(item_id)` signature changed** -- now `get_next_band_step(item_id, exercise_id)`. The progression order is read from the exercise's YAML definition.
+- **`get_bss_elevation_heights()` removed** -- BSS elevation height is assumed to be present (like a bar for pull-ups) and is not tuned by the planner. No replacement.
+
+### Added
+
+- **`equipment` block in per-exercise YAML files** -- `pull_up.yaml`, `dip.yaml`, and `bss.yaml` now each contain an `equipment:` section defining all valid equipment items (label, assistance_kg) for that exercise. Equipment data is no longer hardcoded in Python.
+- **`assist_progression` in per-exercise YAML files** -- exercises that support assistive equipment (`pull_up`, `dip`) define an `assist_progression` list ordered from most-assistive to unassisted. Used for automatic step-down logic. Exercises without fixed-assistance options (`bss`) omit this field (defaults to `[]`).
+- **`ExerciseDefinition.equipment`** -- new optional field (`dict[str, dict]`, default `{}`).
+- **`ExerciseDefinition.assist_progression`** -- new optional field (`list[str]`, default `[]`).
+- **`get_assist_progression(exercise_id) -> list[str]`** in public API -- returns the exercise's assist progression list.
+
+### Removed
+
+- `PULL_UP_EQUIPMENT`, `DIP_EQUIPMENT`, `BSS_EQUIPMENT`, `_CATALOGS` module-level constants from `core/equipment.py`. Use `get_catalog(exercise_id)` (now reads from the registry) or `get_exercise(exercise_id).equipment` directly.
+- `BAND_PROGRESSION` module-level constant from `core/equipment.py`. Use `get_exercise(exercise_id).assist_progression`.
+- `BSS_ELEVATION_HEIGHTS` module-level constant from `core/equipment.py`. Elevation height options are not tracked by the planner.
+
+---
+
 ## [0.4.2] -- 2026-03-24
 
 ### Breaking changes

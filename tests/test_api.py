@@ -19,8 +19,7 @@ from bar_scheduler.api.api import (
     disable_exercise,
     enable_exercise,
     get_assistance_kg,
-    get_band_progression,
-    get_bss_elevation_heights,
+    get_assist_progression,
     get_current_equipment,
     get_data_dir,
     get_exercise_info,
@@ -674,15 +673,14 @@ class TestEquipmentComputations:
         assert "description" in result
 
     def test_get_next_band_step(self):
-        assert get_next_band_step("BAND_HEAVY") == "BAND_MEDIUM"
-        assert get_next_band_step("BAR_ONLY") is None
+        assert get_next_band_step("BAND_HEAVY", "pull_up") == "BAND_MEDIUM"
+        assert get_next_band_step("BAR_ONLY", "pull_up") is None
 
-    def test_get_band_progression_and_elevation_heights(self):
-        bp = get_band_progression()
+    def test_get_assist_progression(self):
+        bp = get_assist_progression("pull_up")
         assert "BAND_HEAVY" in bp
         assert "BAR_ONLY" in bp
-        heights = get_bss_elevation_heights()
-        assert 30 in heights and 60 in heights
+        assert bp.index("BAND_HEAVY") < bp.index("BAR_ONLY")
 
     def test_get_assistance_kg_band(self):
         kg = get_assistance_kg("pull_up", "BAND_LIGHT")
@@ -881,3 +879,150 @@ class TestWeightPrescriptionEpley:
         exercise = get_exercise("pull_up")  # threshold=9
         assert _calculate_added_weight(exercise, 9, 80.0, [], "S") == 0.0
         assert _calculate_added_weight(exercise, 8, 80.0, [], "H") == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Equipment catalog loaded from YAML (not hardcoded Python constants)
+# ---------------------------------------------------------------------------
+
+
+class TestEquipmentFromYaml:
+    """Verify that equipment catalogs are read from per-exercise YAML files."""
+
+    def test_get_catalog_pull_up_has_bar_only(self):
+        from bar_scheduler.core.equipment import get_catalog
+
+        catalog = get_catalog("pull_up")
+        assert "BAR_ONLY" in catalog
+        assert catalog["BAR_ONLY"]["assistance_kg"] == 0.0
+
+    def test_get_catalog_pull_up_has_band_items(self):
+        from bar_scheduler.core.equipment import get_catalog
+
+        catalog = get_catalog("pull_up")
+        assert "BAND_LIGHT" in catalog
+        assert "BAND_MEDIUM" in catalog
+        assert "BAND_HEAVY" in catalog
+        assert catalog["BAND_MEDIUM"]["assistance_kg"] == 35.0
+
+    def test_get_catalog_pull_up_machine_assisted_none(self):
+        """MACHINE_ASSISTED has assistance_kg=None (user-entered)."""
+        from bar_scheduler.core.equipment import get_catalog
+
+        catalog = get_catalog("pull_up")
+        assert "MACHINE_ASSISTED" in catalog
+        assert catalog["MACHINE_ASSISTED"]["assistance_kg"] is None
+
+    def test_get_catalog_dip_has_parallel_bars(self):
+        from bar_scheduler.core.equipment import get_catalog
+
+        catalog = get_catalog("dip")
+        assert "PARALLEL_BARS" in catalog
+        assert catalog["PARALLEL_BARS"]["assistance_kg"] == 0.0
+
+    def test_get_catalog_bss_has_elevation_surface(self):
+        from bar_scheduler.core.equipment import get_catalog
+
+        catalog = get_catalog("bss")
+        assert "ELEVATION_SURFACE" in catalog
+        assert "DUMBBELLS" in catalog
+
+    def test_get_catalog_unknown_exercise_returns_empty(self):
+        from bar_scheduler.core.equipment import get_catalog
+
+        assert get_catalog("unknown_exercise") == {}
+
+    def test_assist_progression_pull_up_from_yaml(self):
+        """assist_progression is loaded from YAML, not a hardcoded Python constant."""
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        ex = get_exercise("pull_up")
+        ap = ex.assist_progression
+        assert ap[0] == "BAND_HEAVY"
+        assert ap[-1] == "BAR_ONLY"
+        assert "BAND_MEDIUM" in ap
+
+    def test_assist_progression_bss_is_empty(self):
+        """BSS has no assist_progression (no fixed-assistance equipment)."""
+        from bar_scheduler.core.exercises.registry import get_exercise
+
+        ex = get_exercise("bss")
+        assert ex.assist_progression == []
+
+    def test_get_assist_progression_api(self):
+        ap = get_assist_progression("pull_up")
+        assert "BAND_HEAVY" in ap
+        assert "BAR_ONLY" in ap
+        assert ap.index("BAND_HEAVY") < ap.index("BAR_ONLY")
+
+    def test_get_assist_progression_unknown_returns_empty(self):
+        assert get_assist_progression("unknown_exercise") == []
+
+    def test_get_bss_elevation_heights_removed(self):
+        """get_bss_elevation_heights was removed in 0.4.3 (not tuned by planner)."""
+        import bar_scheduler.api.api as api_module
+
+        assert not hasattr(api_module, "get_bss_elevation_heights")
+
+
+# ---------------------------------------------------------------------------
+# exercise_id is now required in 7 API functions (no "pull_up" default)
+# ---------------------------------------------------------------------------
+
+
+class TestExerciseIdRequired:
+    def test_get_plan_requires_exercise_id(self, tmp_path):
+        import inspect
+
+        from bar_scheduler.api.api import get_plan
+
+        sig = inspect.signature(get_plan)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+    def test_refresh_plan_requires_exercise_id(self):
+        import inspect
+
+        from bar_scheduler.api.api import refresh_plan
+
+        sig = inspect.signature(refresh_plan)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+    def test_get_training_status_requires_exercise_id(self):
+        import inspect
+
+        from bar_scheduler.api.api import get_training_status
+
+        sig = inspect.signature(get_training_status)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+    def test_get_onerepmax_data_requires_exercise_id(self):
+        import inspect
+
+        from bar_scheduler.api.api import get_onerepmax_data
+
+        sig = inspect.signature(get_onerepmax_data)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+    def test_get_volume_data_requires_exercise_id(self):
+        import inspect
+
+        from bar_scheduler.api.api import get_volume_data
+
+        sig = inspect.signature(get_volume_data)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+    def test_get_progress_data_requires_exercise_id(self):
+        import inspect
+
+        from bar_scheduler.api.api import get_progress_data
+
+        sig = inspect.signature(get_progress_data)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+    def test_get_overtraining_status_requires_exercise_id(self):
+        import inspect
+
+        from bar_scheduler.api.api import get_overtraining_status
+
+        sig = inspect.signature(get_overtraining_status)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty

@@ -42,8 +42,8 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 3.7 | Band progression readiness check (n consecutive sessions on current band) | `check_band_progression` |
 | 3.8 | Equipment adjustment factor when switching bands (reps_factor, description) | `compute_equipment_adjustment` |
 | 3.9 | Assistance kg for any item (including machine-assisted) | `get_assistance_kg` |
-| 3.10 | Next band step in progression order | `get_next_band_step` |
-| 3.11 | Full band progression list; BSS elevation heights | `get_band_progression`, `get_bss_elevation_heights` |
+| 3.10 | Next item in assist progression for an exercise | `get_next_band_step(item_id, exercise_id)` |
+| 3.11 | Full assist progression list for an exercise (YAML-driven, per-exercise) | `get_assist_progression(exercise_id)` |
 
 ## 4. Training Log (Session Logging)
 

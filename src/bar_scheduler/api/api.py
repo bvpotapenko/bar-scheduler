@@ -674,7 +674,7 @@ def get_history(data_dir: Path, exercise_id: str) -> list[dict]:
 
 def get_plan(
     data_dir: Path,
-    exercise_id: str = "pull_up",
+    exercise_id: str,
     weeks_ahead: int = 4,
 ) -> dict:
     """
@@ -780,7 +780,7 @@ def get_plan(
     }
 
 
-def refresh_plan(data_dir: Path, exercise_id: str = "pull_up") -> dict:
+def refresh_plan(data_dir: Path, exercise_id: str) -> dict:
     """
     Reset the plan anchor to today.
 
@@ -930,7 +930,7 @@ def get_plan_cache_entry(
 # ---------------------------------------------------------------------------
 
 
-def get_training_status(data_dir: Path, exercise_id: str = "pull_up") -> dict:
+def get_training_status(data_dir: Path, exercise_id: str) -> dict:
     """
     Return current training status metrics.
 
@@ -955,7 +955,7 @@ def get_training_status(data_dir: Path, exercise_id: str = "pull_up") -> dict:
     }
 
 
-def get_onerepmax_data(data_dir: Path, exercise_id: str = "pull_up") -> dict | None:
+def get_onerepmax_data(data_dir: Path, exercise_id: str) -> dict | None:
     """
     Estimate 1-rep max using multiple formulas.
 
@@ -974,7 +974,7 @@ def get_onerepmax_data(data_dir: Path, exercise_id: str = "pull_up") -> dict | N
 
 def get_volume_data(
     data_dir: Path,
-    exercise_id: str = "pull_up",
+    exercise_id: str,
     weeks: int = 4,
 ) -> dict:
     """
@@ -1025,7 +1025,7 @@ def get_volume_data(
 
 def get_progress_data(
     data_dir: Path,
-    exercise_id: str = "pull_up",
+    exercise_id: str,
     trajectory_types: str = "",
 ) -> dict:
     """
@@ -1145,7 +1145,7 @@ def get_progress_data(
     }
 
 
-def get_overtraining_status(data_dir: Path, exercise_id: str = "pull_up") -> dict:
+def get_overtraining_status(data_dir: Path, exercise_id: str) -> dict:
     """
     Return the current overtraining severity assessment.
 
@@ -1266,30 +1266,37 @@ def get_assistance_kg(
     return _get(item_id, exercise_id, machine_assistance_kg)
 
 
-def get_next_band_step(item_id: str) -> str | None:
+def get_next_band_step(item_id: str, exercise_id: str) -> str | None:
     """
-    Return the next-less-assistive band item ID, or ``None`` if already
-    unassisted (``BAR_ONLY``).
+    Return the next-less-assistive item ID for the given exercise, or ``None``
+    if ``item_id`` is already the last step in the progression.
 
-    Progression order: ``BAND_HEAVY → BAND_MEDIUM → BAND_LIGHT → BAR_ONLY → None``.
+    The progression order is defined per exercise in its YAML file
+    (``assist_progression`` field).
     """
     from ..core.equipment import get_next_band_step as _get
+    from ..core.exercises.registry import get_exercise
 
-    return _get(item_id)
-
-
-def get_band_progression() -> list[str]:
-    """Return the ordered band progression list (most to least assistive)."""
-    from ..core.equipment import BAND_PROGRESSION
-
-    return list(BAND_PROGRESSION)
+    try:
+        ap = get_exercise(exercise_id).assist_progression
+    except ValueError:
+        ap = []
+    return _get(item_id, ap)
 
 
-def get_bss_elevation_heights() -> list[int]:
-    """Return the valid BSS elevation heights in cm: ``[30, 45, 60]``."""
-    from ..core.equipment import BSS_ELEVATION_HEIGHTS
+def get_assist_progression(exercise_id: str) -> list[str]:
+    """
+    Return the ordered assist-progression list for the given exercise
+    (most-assistive to unassisted).
 
-    return list(BSS_ELEVATION_HEIGHTS)
+    Empty list if the exercise has no assistive equipment progression.
+    """
+    from ..core.exercises.registry import get_exercise
+
+    try:
+        return list(get_exercise(exercise_id).assist_progression)
+    except ValueError:
+        return []
 
 
 # ---------------------------------------------------------------------------

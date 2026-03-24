@@ -99,6 +99,13 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
         {k: list(v) for k, v in grip_cycles_raw.items()} if grip_cycles_raw else {}
     )
 
+    equipment_raw = d.pop("equipment", {})
+    # Keep assistance_kg as-is (may be None for MACHINE_ASSISTED items)
+    equipment: dict[str, dict] = (
+        {k: dict(v) for k, v in equipment_raw.items()} if equipment_raw else {}
+    )
+    assist_progression: list[str] = list(d.pop("assist_progression", []))
+
     return ExerciseDefinition(
         exercise_id=str(d["exercise_id"]),
         display_name=str(d["display_name"]),
@@ -120,6 +127,8 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
         max_added_weight_kg=float(d["max_added_weight_kg"]),
         has_variant_rotation=has_variant_rotation,
         grip_cycles=grip_cycles,
+        equipment=equipment,
+        assist_progression=assist_progression,
     )
 
 
