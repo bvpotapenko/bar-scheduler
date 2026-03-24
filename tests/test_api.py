@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from bar_scheduler.api.api import (
+from bar_scheduler.api import (
     HistoryNotFoundError,
     ProfileAlreadyExistsError,
     ProfileNotFoundError,
@@ -55,7 +55,7 @@ def _init(tmp_path: Path, exercises=None, days_per_week=3, **kwargs) -> dict:
     """Shorthand for initialising a minimal profile with optional exercises."""
     if exercises is None:
         exercises = ["pull_up"]
-    valid_keys = {"height_cm", "bodyweight_kg", "language", "rest_preference"}
+    valid_keys = {"height_cm", "bodyweight_kg", "language"}
     profile_kwargs = {k: v for k, v in kwargs.items() if k in valid_keys}
     profile_kwargs.setdefault("height_cm", 180)
     profile_kwargs.setdefault("bodyweight_kg", 80.0)
@@ -182,20 +182,10 @@ class TestGetProfile:
 
 
 class TestUpdateProfile:
-    def test_update_rest_preference(self, tmp_path):
-        _init(tmp_path)
-        result = update_profile(tmp_path, rest_preference="short")
-        assert result["rest_preference"] == "short"
-
-    def test_update_injury_notes(self, tmp_path):
-        _init(tmp_path)
-        result = update_profile(tmp_path, injury_notes="sore shoulder")
-        assert result["injury_notes"] == "sore shoulder"
-
     def test_partial_update_preserves_other_fields(self, tmp_path):
         _init(tmp_path, height_cm=182)
-        update_profile(tmp_path, rest_preference="short")
-        assert get_profile(tmp_path)["height_cm"] == 182
+        update_profile(tmp_path, height_cm=184)
+        assert get_profile(tmp_path)["height_cm"] == 184
 
     def test_preserves_plan_start_dates_key(self, tmp_path):
         """Surgical update must not wipe plan_start_dates."""
@@ -205,19 +195,14 @@ class TestUpdateProfile:
         raw["plan_start_dates"] = {"pull_up": "2026-01-01"}
         profile_path.write_text(json.dumps(raw))
 
-        update_profile(tmp_path, injury_notes="test")
+        update_profile(tmp_path, height_cm=180)
 
         raw2 = json.loads(profile_path.read_text())
         assert raw2.get("plan_start_dates", {}).get("pull_up") == "2026-01-01"
 
     def test_raises_profile_not_found(self, tmp_path):
         with pytest.raises(ProfileNotFoundError):
-            update_profile(tmp_path, rest_preference="normal")
-
-    def test_invalid_rest_preference_raises(self, tmp_path):
-        _init(tmp_path)
-        with pytest.raises(ValueError):
-            update_profile(tmp_path, rest_preference="turbo")
+            update_profile(tmp_path, height_cm=180)
 
     def test_update_height_cm(self, tmp_path):
         _init(tmp_path, height_cm=180)
@@ -400,7 +385,6 @@ class TestEndToEnd:
 
     def test_full_profile_lifecycle(self, tmp_path):
         _init(tmp_path, height_cm=175, bodyweight_kg=65.0)
-        update_profile(tmp_path, rest_preference="short")
         set_exercise_target(tmp_path, "pull_up", reps=20)
         set_exercise_days(tmp_path, "pull_up", 4)
 
@@ -413,7 +397,6 @@ class TestEndToEnd:
         assert (tmp_path / "dip_history.jsonl").exists()  # file preserved
 
         p = get_profile(tmp_path)
-        assert p["rest_preference"] == "short"
         assert p["exercise_targets"]["pull_up"]["reps"] == 20
 
     def test_get_overtraining_status_after_init(self, tmp_path):
@@ -960,7 +943,7 @@ class TestEquipmentFromYaml:
 
     def test_get_bss_elevation_heights_removed(self):
         """get_bss_elevation_heights was removed in 0.4.3 (not tuned by planner)."""
-        import bar_scheduler.api.api as api_module
+        import bar_scheduler.api as api_module
 
         assert not hasattr(api_module, "get_bss_elevation_heights")
 
@@ -974,7 +957,7 @@ class TestExerciseIdRequired:
     def test_get_plan_requires_exercise_id(self, tmp_path):
         import inspect
 
-        from bar_scheduler.api.api import get_plan
+        from bar_scheduler.api import get_plan
 
         sig = inspect.signature(get_plan)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
@@ -982,7 +965,7 @@ class TestExerciseIdRequired:
     def test_refresh_plan_requires_exercise_id(self):
         import inspect
 
-        from bar_scheduler.api.api import refresh_plan
+        from bar_scheduler.api import refresh_plan
 
         sig = inspect.signature(refresh_plan)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
@@ -990,7 +973,7 @@ class TestExerciseIdRequired:
     def test_get_training_status_requires_exercise_id(self):
         import inspect
 
-        from bar_scheduler.api.api import get_training_status
+        from bar_scheduler.api import get_training_status
 
         sig = inspect.signature(get_training_status)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
@@ -998,7 +981,7 @@ class TestExerciseIdRequired:
     def test_get_onerepmax_data_requires_exercise_id(self):
         import inspect
 
-        from bar_scheduler.api.api import get_onerepmax_data
+        from bar_scheduler.api import get_onerepmax_data
 
         sig = inspect.signature(get_onerepmax_data)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
@@ -1006,7 +989,7 @@ class TestExerciseIdRequired:
     def test_get_volume_data_requires_exercise_id(self):
         import inspect
 
-        from bar_scheduler.api.api import get_volume_data
+        from bar_scheduler.api import get_volume_data
 
         sig = inspect.signature(get_volume_data)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
@@ -1014,7 +997,7 @@ class TestExerciseIdRequired:
     def test_get_progress_data_requires_exercise_id(self):
         import inspect
 
-        from bar_scheduler.api.api import get_progress_data
+        from bar_scheduler.api import get_progress_data
 
         sig = inspect.signature(get_progress_data)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
@@ -1022,7 +1005,7 @@ class TestExerciseIdRequired:
     def test_get_overtraining_status_requires_exercise_id(self):
         import inspect
 
-        from bar_scheduler.api.api import get_overtraining_status
+        from bar_scheduler.api import get_overtraining_status
 
         sig = inspect.signature(get_overtraining_status)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty

@@ -30,7 +30,7 @@ uv sync
 
 ```python
 from pathlib import Path
-from bar_scheduler.api.api import init_profile, get_plan, log_session, get_data_dir
+from bar_scheduler.api import init_profile, get_plan, log_session, get_data_dir
 
 data_dir = get_data_dir()   # ~/.bar-scheduler
                             # or Path("...") / str(user_id) for multi-user setups
@@ -41,6 +41,7 @@ data_dir = get_data_dir()   # ~/.bar-scheduler
 | Document | Contents |
 |---|---|
 | [Python API](docs/api_info.md) | All public functions, signatures, and return-value shapes |
+| [FAQ](docs/FAQ.md) | How the planner works — session types, goals, bodyweight normalization, TEST recovery |
 | [Features](docs/features.md) | Complete feature inventory |
 | [Training Model](docs/training_model.md) | Adaptation and periodisation logic |
 | [Formula Reference](docs/formulas_reference.md) | All formulas with config knobs |

@@ -1,160 +1,162 @@
 """
-Generic configuration constants for the bar-scheduler training engine.
+Configuration constants for the bar-scheduler training engine.
 
-Exercise-specific parameters (grip factors, session type params, added-weight
-formula, target reps) now live in core/exercises/ and are passed via
-ExerciseDefinition.  Only universal model constants remain here.
+All tunable constants are loaded from exercises.yaml at import time.
+Python literals here serve as fallback defaults when the YAML file is
+absent or a key is missing.
+
+User overrides: create ~/.bar-scheduler/exercises.yaml with only the
+keys you want to change -- the file is deep-merged over the bundled
+definition.
 
 See docs/training_model.md for detailed explanations.
 """
 
-from typing import Final
+from .engine.config_loader import load_model_config
 
 # Re-export SessionTypeParams so existing callers don't break.
 from .exercises.base import SessionTypeParams  # noqa: F401
+
+# Load YAML config (bundled + user override); empty dict on any failure.
+_cfg = load_model_config()
+_rest_norm = _cfg.get("rest_normalization", {})
+_ewma = _cfg.get("ewma_max", {})
+_ff = _cfg.get("fitness_fatigue", {})
+_tload = _cfg.get("training_load", {})
+_wsf = _cfg.get("within_session_fatigue", {})
+_vol = _cfg.get("volume", {})
+_prog = _cfg.get("progression", {})
+_plateau = _cfg.get("plateau", {})
+_autoreg = _cfg.get("autoregulation", {})
+_readiness = _cfg.get("readiness", {})
+_horizon = _cfg.get("plan_horizon", {})
+_sched = _cfg.get("schedule", {})
 
 # =============================================================================
 # REST NORMALIZATION (Section 2.1 of training model)
 # =============================================================================
 
-REST_REF_SECONDS: Final[int] = 180  # Reference rest interval for normalization
-GAMMA_REST: Final[float] = 0.20  # Exponent for rest factor calculation
-F_REST_MIN: Final[float] = 0.80  # Minimum rest factor (floor)
-F_REST_MAX: Final[float] = 1.05  # Maximum rest factor (ceiling)
-REST_MIN_CLAMP: Final[int] = 30  # Minimum rest to avoid division issues
-
-# =============================================================================
-# BODYWEIGHT NORMALIZATION (Section 2.2)
-# =============================================================================
-
-GAMMA_BW: Final[float] = 1.0  # Exponent for bodyweight adjustment
+REST_REF_SECONDS: int = int(_rest_norm.get("REST_REF_SECONDS", 180))
+GAMMA_REST: float = float(_rest_norm.get("GAMMA_REST", 0.20))
+F_REST_MIN: float = float(_rest_norm.get("F_REST_MIN", 0.80))
+F_REST_MAX: float = float(_rest_norm.get("F_REST_MAX", 1.05))
+REST_MIN_CLAMP: int = int(_rest_norm.get("REST_MIN_CLAMP", 30))
 
 # =============================================================================
 # EWMA FOR MAX ESTIMATION (Section 3.2)
 # =============================================================================
 
-ALPHA_MHAT: Final[float] = 0.25  # Smoothing factor for M_hat EWMA
-BETA_SIGMA: Final[float] = 0.15  # Smoothing factor for variance tracking
-INITIAL_SIGMA_M: Final[float] = 1.5  # Initial uncertainty in reps
+ALPHA_MHAT: float = float(_ewma.get("ALPHA_MHAT", 0.25))
+BETA_SIGMA: float = float(_ewma.get("BETA_SIGMA", 0.15))
+INITIAL_SIGMA_M: float = float(_ewma.get("INITIAL_SIGMA_M", 1.5))
 
 # =============================================================================
 # FITNESS-FATIGUE MODEL (Section 4)
 # =============================================================================
 
-TAU_FATIGUE: Final[float] = 7.0  # Fatigue time constant (days)
-TAU_FITNESS: Final[float] = 42.0  # Fitness time constant (days)
-K_FATIGUE: Final[float] = 1.0  # Fatigue gain from training load
-K_FITNESS: Final[float] = 0.5  # Fitness gain from training load
-C_READINESS: Final[float] = 0.02  # Readiness scaling factor
+TAU_FATIGUE: float = float(_ff.get("TAU_FATIGUE", 7.0))
+TAU_FITNESS: float = float(_ff.get("TAU_FITNESS", 42.0))
+K_FATIGUE: float = float(_ff.get("K_FATIGUE", 1.0))
+K_FITNESS: float = float(_ff.get("K_FITNESS", 0.5))
+C_READINESS: float = float(_ff.get("C_READINESS", 0.02))
 
 # =============================================================================
 # TRAINING LOAD CALCULATION (Section 5)
 # =============================================================================
 
-A_RIR: Final[float] = 0.15  # Effort multiplier per RIR below 3
-GAMMA_S: Final[float] = 0.15  # Exponent for rest stress
-S_REST_MAX: Final[float] = 1.5  # Maximum rest stress multiplier
-GAMMA_LOAD: Final[float] = 1.5  # Exponent for added load stress
+A_RIR: float = float(_tload.get("A_RIR", 0.15))
+GAMMA_S: float = float(_tload.get("GAMMA_S", 0.15))
+S_REST_MAX: float = float(_tload.get("S_REST_MAX", 1.5))
+GAMMA_LOAD: float = float(_tload.get("GAMMA_LOAD", 1.5))
 
 # =============================================================================
 # WITHIN-SESSION FATIGUE (Section 6)
 # =============================================================================
 
-LAMBDA_DECAY: Final[float] = 0.08  # Within-session rep decay rate
-Q_REST_RECOVERY: Final[float] = 0.3  # Rest recovery parameter
-TAU_REST_RECOVERY: Final[float] = 60.0  # Rest recovery time constant
-DROP_OFF_THRESHOLD: Final[float] = 0.35  # Threshold for high drop-off
+LAMBDA_DECAY: float = float(_wsf.get("LAMBDA_DECAY", 0.08))
+Q_REST_RECOVERY: float = float(_wsf.get("Q_REST_RECOVERY", 0.3))
+TAU_REST_RECOVERY: float = float(_wsf.get("TAU_REST_RECOVERY", 60.0))
+DROP_OFF_THRESHOLD: float = float(_wsf.get("DROP_OFF_THRESHOLD", 0.35))
 
 # =============================================================================
 # VOLUME TARGETS (Section 7.2)
 # =============================================================================
 
-WEEKLY_HARD_SETS_MIN: Final[int] = 8  # Minimum hard sets per week
-WEEKLY_HARD_SETS_MAX: Final[int] = 20  # Maximum hard sets per week
-WEEKLY_VOLUME_INCREASE_RATE: Final[float] = 0.10  # Max weekly increase (10%)
-DELOAD_VOLUME_REDUCTION: Final[float] = 0.40  # Volume reduction during deload
-
-# Science-backed per-session ceilings (Bayesian meta-regression, diminishing returns)
-# Actual working sets will be lower due to fatigue / autoregulation -- these are hard ceilings.
-MAX_DAILY_REPS: Final[int] = 45  # Reps above this yield no additional adaptation signal
-MAX_DAILY_SETS: Final[int] = 10  # Sets above this hit diminishing returns
+WEEKLY_HARD_SETS_MIN: int = int(_vol.get("WEEKLY_HARD_SETS_MIN", 8))
+WEEKLY_HARD_SETS_MAX: int = int(_vol.get("WEEKLY_HARD_SETS_MAX", 20))
+WEEKLY_VOLUME_INCREASE_RATE: float = float(_vol.get("WEEKLY_VOLUME_INCREASE_RATE", 0.10))
+DELOAD_VOLUME_REDUCTION: float = float(_vol.get("DELOAD_VOLUME_REDUCTION", 0.40))
+MAX_DAILY_REPS: int = int(_vol.get("MAX_DAILY_REPS", 45))
+MAX_DAILY_SETS: int = int(_vol.get("MAX_DAILY_SETS", 10))
 
 # =============================================================================
 # TRAINING MAX CALCULATION (Section 7.3)
 # =============================================================================
 
-TM_FACTOR: Final[float] = 0.90  # Training max as fraction of test max
-
-# =============================================================================
-# ADDED WEIGHT (Section 7.3.1)
-# =============================================================================
+TM_FACTOR: float = float(_cfg.get("progression", {}).get("TM_FACTOR", 0.90))
 
 # =============================================================================
 # WEEKLY SCHEDULE TEMPLATES
 # =============================================================================
 
-SCHEDULE_1_DAY: Final[list[str]] = ["S"]
-SCHEDULE_2_DAYS: Final[list[str]] = ["S", "H"]
-SCHEDULE_3_DAYS: Final[list[str]] = ["S", "H", "E"]
-SCHEDULE_4_DAYS: Final[list[str]] = ["S", "H", "T", "E"]
-SCHEDULE_5_DAYS: Final[list[str]] = ["S", "H", "T", "E", "S"]
+SCHEDULE_1_DAYS: list[str] = list(_sched.get("SCHEDULE_1_DAYS", ["S"]))
+SCHEDULE_2_DAYS: list[str] = list(_sched.get("SCHEDULE_2_DAYS", ["S", "H"]))
+SCHEDULE_3_DAYS: list[str] = list(_sched.get("SCHEDULE_3_DAYS", ["S", "H", "E"]))
+SCHEDULE_4_DAYS: list[str] = list(_sched.get("SCHEDULE_4_DAYS", ["S", "H", "T", "E"]))
+SCHEDULE_5_DAYS: list[str] = list(_sched.get("SCHEDULE_5_DAYS", ["S", "H", "T", "E", "S"]))
 
 # Day spacing: minimum rest days after each session type
-DAY_SPACING: Final[dict[str, int]] = {
-    "S": 1,  # At least 1 rest day after Strength
-    "H": 1,
-    "E": 1,  # At least 1 rest day after Endurance
-    "T": 0,  # Technique can be followed immediately
-    "TEST": 2,  # More recovery after max test
+DAY_SPACING: dict[str, int] = {
+    k: int(v)
+    for k, v in _sched.get(
+        "DAY_SPACING", {"S": 1, "H": 1, "E": 1, "T": 0, "TEST": 1}
+    ).items()
 }
 
 # =============================================================================
 # PROGRESSION (Section 7.5)
 # =============================================================================
 
-TARGET_MAX_REPS: Final[int] = 30
-DELTA_PROGRESSION_MIN: Final[float] = 0.3  # Min reps/week progression
-DELTA_PROGRESSION_MAX: Final[float] = 1.0  # Max reps/week progression
-ETA_PROGRESSION: Final[float] = 1.5  # Nonlinear progression exponent
+TARGET_MAX_REPS: int = int(_prog.get("TARGET_MAX_REPS", 30))
+DELTA_PROGRESSION_MIN: float = float(_prog.get("DELTA_PROGRESSION_MIN", 0.3))
+DELTA_PROGRESSION_MAX: float = float(_prog.get("DELTA_PROGRESSION_MAX", 1.0))
+ETA_PROGRESSION: float = float(_prog.get("ETA_PROGRESSION", 1.5))
 
 # =============================================================================
 # PLATEAU AND DELOAD (Section 8)
 # =============================================================================
 
-PLATEAU_SLOPE_THRESHOLD: Final[float] = 0.05  # reps/week minimum slope
-PLATEAU_WINDOW_DAYS: Final[int] = 21  # Days without new best
-TREND_WINDOW_DAYS: Final[int] = 21  # Window for trend calculation
+PLATEAU_SLOPE_THRESHOLD: float = float(_plateau.get("PLATEAU_SLOPE_THRESHOLD", 0.05))
+PLATEAU_WINDOW_DAYS: int = int(_plateau.get("PLATEAU_WINDOW_DAYS", 21))
+TREND_WINDOW_DAYS: int = int(_plateau.get("TREND_WINDOW_DAYS", 21))
 
-FATIGUE_Z_THRESHOLD: Final[float] = -0.5  # Z-score for fatigue concern
-UNDERPERFORMANCE_THRESHOLD: Final[float] = 0.10  # 10% underperformance
-COMPLIANCE_THRESHOLD: Final[float] = 0.70  # Minimum compliance ratio
+FATIGUE_Z_THRESHOLD: float = float(_plateau.get("FATIGUE_Z_THRESHOLD", -0.5))
+UNDERPERFORMANCE_THRESHOLD: float = float(_plateau.get("UNDERPERFORMANCE_THRESHOLD", 0.10))
+COMPLIANCE_THRESHOLD: float = float(_plateau.get("COMPLIANCE_THRESHOLD", 0.70))
 
 # =============================================================================
 # AUTOREGULATION GATING
 # =============================================================================
 
-MIN_SESSIONS_FOR_AUTOREG: Final[int] = (
-    10  # Minimum sessions before autoregulation is applied
-)
+MIN_SESSIONS_FOR_AUTOREG: int = int(_autoreg.get("MIN_SESSIONS_FOR_AUTOREG", 10))
 
 # =============================================================================
 # READINESS GATING (Section 7.4)
 # =============================================================================
 
-READINESS_Z_LOW: Final[float] = -1.0  # Below this: reduce volume
-READINESS_Z_HIGH: Final[float] = 1.0  # Above this: allow progression
-READINESS_VOLUME_REDUCTION: Final[float] = 0.30  # Reduce by 30%
+READINESS_Z_LOW: float = float(_readiness.get("READINESS_Z_LOW", -1.0))
+READINESS_Z_HIGH: float = float(_readiness.get("READINESS_Z_HIGH", 1.0))
+READINESS_VOLUME_REDUCTION: float = float(_readiness.get("READINESS_VOLUME_REDUCTION", 0.30))
 
 # =============================================================================
 # PLAN HORIZON
 # =============================================================================
 
-MIN_PLAN_WEEKS: Final[int] = 2
-MAX_PLAN_WEEKS: Final[int] = 52
-DEFAULT_PLAN_WEEKS: Final[int] = 4
+MIN_PLAN_WEEKS: int = int(_horizon.get("MIN_PLAN_WEEKS", 2))
+MAX_PLAN_WEEKS: int = int(_horizon.get("MAX_PLAN_WEEKS", 52))
+DEFAULT_PLAN_WEEKS: int = int(_horizon.get("DEFAULT_PLAN_WEEKS", 4))
 
-# Estimation for needed weeks (rough)
-EXPECTED_WEEKS_PER_REP: Final[float] = 2.0  # Roughly 0.5 reps per week
+EXPECTED_WEEKS_PER_REP: float = 2.0  # Rough estimate; not in YAML (internal only)
 
 
 def expected_reps_per_week(training_max: int, target: int = TARGET_MAX_REPS) -> float:

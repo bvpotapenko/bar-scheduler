@@ -214,6 +214,41 @@ def test_plateau_detected_with_stagnant_test_sessions():
     assert status.trend_slope < 0.05
 
 
+def test_test_session_recovery_spacing():
+    """
+    Regression: after a TEST in history, the next planned session must be
+    at least DAY_SPACING["TEST"] + 1 days later (i.e. ≥ 1 rest day gap).
+
+    With DAY_SPACING["TEST"]=1: TEST on 2026-01-05 → first plan session must be
+    on 2026-01-07 at earliest (gap ≥ 2).  Without the fix it would be 2026-01-06
+    (gap = 1, violating the rest requirement).
+    """
+    from bar_scheduler.core.config import DAY_SPACING
+    from bar_scheduler.core.planner.test_session_inserter import _insert_test_sessions
+
+    test_date = datetime(2026, 1, 5)  # Monday
+    history = [make_test_session("2026-01-05", 12)]
+    plan_start = datetime(2026, 1, 6)
+
+    # Schedule: first session the very next day (1-day gap — too close with spacing=1)
+    schedule = [
+        (datetime(2026, 1, 6), "S"),   # 1 day after TEST — should be pushed
+        (datetime(2026, 1, 8), "H"),   # 3 days after TEST — fine
+        (datetime(2026, 1, 10), "E"),
+    ]
+
+    result = _insert_test_sessions(
+        schedule, history, test_frequency_weeks=3, plan_start=plan_start
+    )
+
+    first_date = result[0][0]
+    min_gap = DAY_SPACING["TEST"] + 1  # 2 days with spacing=1
+    assert (first_date - test_date).days >= min_gap, (
+        f"First session {first_date.date()} too close to TEST {test_date.date()}: "
+        f"gap={(first_date - test_date).days}, need ≥{min_gap}"
+    )
+
+
 def test_deload_recommended_for_low_compliance():
     """
     Deload triggers via compliance: compliance_ratio < 0.70.

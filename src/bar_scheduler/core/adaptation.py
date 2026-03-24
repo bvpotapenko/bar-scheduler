@@ -252,7 +252,7 @@ def get_training_status(
     from .metrics import latest_test_max, training_max
 
     # Build fitness-fatigue state
-    ff_state = build_fitness_fatigue_state(history, current_bodyweight_kg, baseline_max)
+    ff_state, _ = build_fitness_fatigue_state(history, current_bodyweight_kg, baseline_max)
 
     # Get test max
     test_max = latest_test_max(history)

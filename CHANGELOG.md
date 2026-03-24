@@ -4,6 +4,34 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.5.0] -- 2026-03-24
+
+### Breaking changes
+
+- **Import path changed** -- `from bar_scheduler.api.api import ...` is gone. New path: `from bar_scheduler.api import ...`. The old `api/api.py` module has been deleted and replaced by focused submodules (`_profile.py`, `_exercises.py`, `_sessions.py`, `_plan.py`, `_analysis.py`, `_equipment.py`, `_utils.py`).
+- **`rest_preference` removed from `UserProfile`** -- field, serialization, and all API parameters (`init_profile`, `update_profile`) removed. Dead code — never affected planning.
+- **`injury_notes` removed from `UserProfile`** -- field, serialization, and API parameter (`update_profile`) removed. Dead code — never affected planning.
+- **`GAMMA_BW` removed from `core/config.py`** -- bodyweight normalization is always linear (exponent 1.0). The `bodyweight_normalization` YAML section is also gone. `bodyweight_normalized_reps()` in `metrics.py` simplified to `reps * l_rel`.
+- **`DAY_SPACING["TEST"]` changed 2 → 1** -- 1 rest day after a TEST session (next session at TEST_date + 2). Previously the value was defined but never enforced.
+- **`build_fitness_fatigue_state()` return type changed** -- now returns `tuple[FitnessFatigueState, list[tuple[str, float]]]`. Second element is per-session `(date, load)` pairs. Callers must unpack: `ff_state, _ = build_fitness_fatigue_state(...)`.
+
+### Added
+
+- **`from bar_scheduler.api.types import SessionType, SetInput, SessionInput`** -- typed input primitives for session logging. `SessionInput` validates date format, session type, and bodyweight. `SetInput` validates reps, rest, and weight.
+- **TEST session recovery spacing enforced** -- `_insert_test_sessions()` now calls `_enforce_test_spacing()`, which pushes plan sessions that are too close to a TEST (historical or in-plan) forward by the required gap.
+- **Goal-driven progression** -- `set_exercise_target(data_dir, exercise_id, reps=N)` or `reps=N, weight_kg=W` now directly wires into `plan_engine.py`:
+  - Reps-only goal: TM progression stops at `goal_reps`.
+  - Weighted goal: TM continues past `goal_reps` (at minimum `DELTA_PROGRESSION_MIN` reps/week) until the Epley-derived weight prescription at `goal_reps` reaches `goal_weight_kg`.
+- **`get_load_data(data_dir, exercise_id, weeks_ahead=4) -> dict`** -- returns historical and projected per-session training load. Never stored; recalculated on every call. Shape: `{"history": [{date, session_type, load}], "plan": [{date, session_type, load}]}`.
+- **YAML as source of truth** -- `config.py` now calls `load_model_config()` at import time. All constants (`REST_REF_SECONDS`, `DAY_SPACING`, `SCHEDULE_*_DAYS`, etc.) load from `exercises.yaml` with Python literals as fallback. User overrides at `~/.bar-scheduler/exercises.yaml` are now active for all engine constants.
+- **`docs/FAQ.md`** -- new document covering session types, weight prescription, bodyweight normalization, goals, TEST recovery, training load, and fitness-fatigue model.
+
+### Fixed
+
+- **`exercises.yaml` schedule section corrected** -- `SCHEDULE_2_DAYS` was `["S", "E"]`, now `["S", "H"]`. `SCHEDULE_5_DAYS` and `DAY_SPACING` were missing from YAML; both added.
+
+---
+
 ## [0.4.3] -- 2026-03-24
 
 ### Breaking changes

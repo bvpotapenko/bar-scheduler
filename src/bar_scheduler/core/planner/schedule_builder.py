@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 from ..config import (
-    SCHEDULE_1_DAY,
+    SCHEDULE_1_DAYS,
     SCHEDULE_2_DAYS,
     SCHEDULE_3_DAYS,
     SCHEDULE_4_DAYS,
@@ -23,7 +23,7 @@ def get_schedule_template(days_per_week: int) -> list[str]:
         List of session types for the week
     """
     if days_per_week == 1:
-        return SCHEDULE_1_DAY.copy()
+        return SCHEDULE_1_DAYS.copy()
     if days_per_week == 2:
         return SCHEDULE_2_DAYS.copy()
     if days_per_week == 4:

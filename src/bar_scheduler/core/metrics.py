@@ -11,7 +11,6 @@ from typing import Sequence
 from .config import (
     F_REST_MAX,
     F_REST_MIN,
-    GAMMA_BW,
     GAMMA_REST,
     REST_MIN_CLAMP,
     REST_REF_SECONDS,
@@ -73,7 +72,11 @@ def bodyweight_normalized_reps(
 
     Leff = BW × bw_fraction + added_load − assistance_kg
     L_rel = Leff / bw_ref
-    reps** = reps* * L_rel^gamma_bw
+    reps** = reps* * L_rel
+
+    Linear scaling: a 10% change in effective load produces a 10% change in
+    normalized rep capacity. Correct for all exercise types (bodyweight-based,
+    partially-bodyweight, and external-only).
 
     Args:
         reps: Input reps (may be rest-normalized)
@@ -91,7 +94,7 @@ def bodyweight_normalized_reps(
     if reference_bodyweight_kg <= 0:
         return reps
     l_rel = total_load / reference_bodyweight_kg
-    return reps * (l_rel**GAMMA_BW)
+    return reps * l_rel
 
 
 def grip_factor(grip: str, variant_factors: dict[str, float] | None = None) -> float:

@@ -141,3 +141,41 @@ def _calculate_added_weight(
     added = leff_target - bw_contrib
 
     return max(0.0, _apply_cap(_apply_rounding(added), exercise.max_added_weight_kg))
+
+
+def estimate_prescription_weight(
+    history: list,
+    exercise: ExerciseDefinition,
+    bodyweight_kg: float,
+    at_reps: int,
+) -> float:
+    """
+    Estimate the added weight prescription the planner would assign for `at_reps`.
+
+    Uses the current Leff 1RM derived from history (same Epley formula as
+    _calculate_added_weight) to project what weight would be prescribed if
+    the session targeted `at_reps`. Returns 0.0 when no usable history exists.
+
+    Used by plan_engine to evaluate whether a weighted goal has been reached.
+
+    Args:
+        history: Full exercise history for 1RM estimation.
+        exercise: Exercise definition.
+        bodyweight_kg: User's current bodyweight.
+        at_reps: The rep target to project weight for (e.g. goal reps).
+
+    Returns:
+        Projected added weight in kg (≥ 0, rounded to 0.5 kg, capped at max).
+    """
+    if exercise.load_type == "external_only":
+        return _last_test_weight_bss(history, exercise)
+
+    bw_contrib = bodyweight_kg * exercise.bw_fraction
+    leff_1rm = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
+
+    if leff_1rm is None or leff_1rm <= bw_contrib:
+        return 0.0  # Not enough history to project
+
+    leff_target = leff_1rm * TM_FACTOR / (1 + at_reps / 30)
+    added = leff_target - bw_contrib
+    return max(0.0, _apply_cap(_apply_rounding(added), exercise.max_added_weight_kg))

@@ -412,8 +412,6 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     d: dict[str, Any] = {
         "height_cm": profile.height_cm,
         "exercises_enabled": list(profile.exercises_enabled),
-        "rest_preference": profile.rest_preference,
-        "injury_notes": profile.injury_notes,
     }
     if profile.exercise_days:
         d["exercise_days"] = dict(profile.exercise_days)
@@ -449,17 +447,11 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
     for ex_id, v in (data.get("exercise_targets") or {}).items():
         raw_exercise_targets[ex_id] = dict_to_exercise_target(v)
 
-    rest_pref = data.get("rest_preference", "normal")
-    if rest_pref not in ("short", "normal", "long"):
-        rest_pref = "normal"
-
     return UserProfile(
         height_cm=int(data["height_cm"]),
         exercise_days=exercise_days,
         exercise_targets=raw_exercise_targets,
         exercises_enabled=list(data.get("exercises_enabled", [])),
-        rest_preference=rest_pref,
-        injury_notes=str(data.get("injury_notes", "")),
         language=str(data.get("language", "en")),
     )
 

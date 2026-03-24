@@ -21,14 +21,6 @@ rest_normalization:
   REST_MIN_CLAMP: 30            # Treat any rest < 30 s as 30 s
 
 # =============================================================================
-# BODYWEIGHT NORMALIZATION
-# Adjusts standardised reps for differences in bodyweight between sessions.
-#   reps_bw_norm = reps * (Leff / Leff_ref) ^ GAMMA_BW
-# =============================================================================
-bodyweight_normalization:
-  GAMMA_BW: 1.0                 # Linear scaling (1.0 = fully proportional)
-
-# =============================================================================
 # EWMA MAX ESTIMATION
 # Tracks an exponentially-weighted moving average of your max reps, used by
 # the planner to estimate capability between TEST sessions.
@@ -135,21 +127,24 @@ plan_horizon:
 
 # =============================================================================
 # WEEKLY SCHEDULE TEMPLATES
+# 2-day: Strength → Hypertrophy
 # 3-day: Strength → Hypertrophy → Endurance
 # 4-day: Strength → Hypertrophy → Technique → Endurance
+# 5-day: Strength → Hypertrophy → Technique → Endurance → Strength
 # Day offsets ensure minimum rest between sessions.
 # =============================================================================
 schedule:
   SCHEDULE_1_DAYS: ["S"]
-  SCHEDULE_2_DAYS: ["S", "E"]
+  SCHEDULE_2_DAYS: ["S", "H"]
   SCHEDULE_3_DAYS: ["S", "H", "E"]
   SCHEDULE_4_DAYS: ["S", "H", "T", "E"]
+  SCHEDULE_5_DAYS: ["S", "H", "T", "E", "S"]
   DAY_SPACING:
     S: 1     # At least 1 rest day after Strength
     H: 1     # At least 1 rest day after Hypertrophy
     E: 1     # At least 1 rest day after Endurance
     T: 0     # Technique can follow same day (low fatigue)
-    TEST: 2  # More recovery after a max test
+    TEST: 1  # 1 rest day after max test (next session ≥ TEST_date + 2)
 
 # =============================================================================
 # EXERCISE DEFINITIONS

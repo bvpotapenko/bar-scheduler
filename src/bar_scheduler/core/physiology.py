@@ -334,7 +334,7 @@ def build_fitness_fatigue_state(
     baseline_max: int | None = None,
     bw_fraction: float = 1.0,
     variant_factors: dict[str, float] | None = None,
-) -> FitnessFatigueState:
+) -> tuple[FitnessFatigueState, list[tuple[str, float]]]:
     """
     Build fitness-fatigue state from training history.
 
@@ -344,16 +344,24 @@ def build_fitness_fatigue_state(
         history: Training history sorted by date
         reference_bodyweight_kg: Reference bodyweight for normalization
         baseline_max: Initial max if no history
+        bw_fraction: Fraction of BW contributing to effective load
+        variant_factors: Per-variant stress multipliers from ExerciseDefinition
 
     Returns:
-        Current fitness-fatigue state
+        Tuple of (FitnessFatigueState, session_loads) where session_loads is a
+        list of (date_str, load) pairs for every session in history.
     """
+    session_loads: list[tuple[str, float]] = []
+
     if not history:
-        return FitnessFatigueState(
-            m_hat=float(baseline_max) if baseline_max else 10.0,
-            sigma_m=INITIAL_SIGMA_M,
-            readiness_mean=0.0,
-            readiness_var=10.0,  # Wide initial variance prevents extreme z-scores early on
+        return (
+            FitnessFatigueState(
+                m_hat=float(baseline_max) if baseline_max else 10.0,
+                sigma_m=INITIAL_SIGMA_M,
+                readiness_mean=0.0,
+                readiness_var=10.0,  # Wide initial variance prevents extreme z-scores early on
+            ),
+            session_loads,
         )
 
     # Initialize from first test session or baseline
@@ -388,10 +396,11 @@ def build_fitness_fatigue_state(
         if days_since > 1:
             state = decay_fitness_fatigue(state, days_since - 1)
 
-        # Calculate training load
+        # Calculate training load using m_hat at this point in time
         training_load = calculate_session_training_load(
             session, int(state.m_hat), reference_bodyweight_kg, bw_fraction, variant_factors
         )
+        session_loads.append((session.date, training_load))
 
         # Update fitness/fatigue
         state = update_fitness_fatigue(state, training_load, days_since_last=1)
@@ -404,7 +413,7 @@ def build_fitness_fatigue_state(
 
         prev_date = curr_date
 
-    return state
+    return state, session_loads
 
 
 def get_session_standardized_max(

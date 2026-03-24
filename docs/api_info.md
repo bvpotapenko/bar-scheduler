@@ -6,7 +6,7 @@ All public operations live in a single module. Every function takes `data_dir: P
 
 ```python
 from pathlib import Path
-from bar_scheduler.api.api import (
+from bar_scheduler.api import (
     # Exceptions
     ProfileAlreadyExistsError, ProfileNotFoundError, HistoryNotFoundError,
     SessionNotFoundError, ValidationError,
@@ -27,7 +27,7 @@ from bar_scheduler.api.api import (
     set_plan_start_date, get_plan_weeks, set_plan_weeks, get_plan_cache_entry,
     # Analysis
     get_training_status, get_onerepmax_data,
-    get_volume_data, get_progress_data, get_overtraining_status,
+    get_volume_data, get_progress_data, get_overtraining_status, get_load_data,
     # Equipment helpers
     get_current_equipment, check_band_progression,
     compute_leff, compute_equipment_adjustment, get_assistance_kg,
@@ -37,9 +37,11 @@ from bar_scheduler.api.api import (
     # Input parsers
     parse_sets_string, parse_compact_sets,
 )
+# Input types (optional — for typed session logging)
+from bar_scheduler.api.types import SessionType, SetInput, SessionInput
 ```
 
-Everything you need is in `bar_scheduler.api.api`.
+Everything you need is in `bar_scheduler.api`.
 
 ### Multi-user pattern
 

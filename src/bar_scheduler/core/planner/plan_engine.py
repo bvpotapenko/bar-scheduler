@@ -14,6 +14,7 @@ from typing import Generator
 from ..adaptation import get_training_status
 from ..config import (
     DEFAULT_PLAN_WEEKS,
+    DELTA_PROGRESSION_MIN,
     MAX_PLAN_WEEKS,
     MIN_PLAN_WEEKS,
     MIN_SESSIONS_FOR_AUTOREG,
@@ -21,6 +22,7 @@ from ..config import (
     expected_reps_per_week,
 )
 from ..exercises.base import ExerciseDefinition
+from ..exercises.registry import get_exercise
 from ..metrics import training_max_from_baseline
 from ..models import (
     PlannedSet,
@@ -32,7 +34,7 @@ from ..models import (
     UserState,
 )
 from .grip_selector import GripSelector, _init_grip_counts, _next_grip
-from .load_calculator import _calculate_added_weight
+from .load_calculator import _calculate_added_weight, estimate_prescription_weight
 from .rest_advisor import calculate_adaptive_rest
 from .schedule_builder import (
     calculate_session_days,
@@ -146,8 +148,14 @@ def _plan_core(
     )
 
     tm_float = float(initial_tm)
-    user_target = int(exercise.target_value)
     days_per_week = user_state.profile.days_for_exercise(exercise.exercise_id)
+
+    exercise_target = user_state.profile.target_for_exercise(exercise.exercise_id)
+    if exercise_target is not None:
+        user_target = exercise_target.reps
+    else:
+        user_target = int(exercise.target_value)
+    weighted_goal = exercise_target is not None and exercise_target.weight_kg > 0
 
     if weeks_ahead is None:
         estimated = estimate_weeks_to_target(initial_tm, user_target)
@@ -213,7 +221,19 @@ def _plan_core(
 
         # Apply weekly TM progression exactly once per calendar-week boundary
         if session_week_idx > current_plan_week_idx:
-            prog = expected_reps_per_week(int(tm_float), user_target)
+            if weighted_goal:
+                # For weighted goals: stop only when BOTH rep AND weight targets are met.
+                # When TM already exceeds goal reps, expected_reps_per_week returns 0,
+                # but we use DELTA_PROGRESSION_MIN as a floor so TM keeps growing,
+                # driving higher Epley 1RM and thus higher weight prescription.
+                assert exercise_target is not None  # weighted_goal implies this
+                current_weight = estimate_prescription_weight(
+                    history, exercise, user_state.current_bodyweight_kg, exercise_target.reps
+                )
+                goal_met = int(tm_float) >= exercise_target.reps and current_weight >= exercise_target.weight_kg
+                prog = 0.0 if goal_met else max(DELTA_PROGRESSION_MIN, expected_reps_per_week(int(tm_float), user_target))
+            else:
+                prog = expected_reps_per_week(int(tm_float), user_target)
             old_tm = tm_float
             tm_float += prog
             weekly_log.append((week_offset + session_week_idx, prog, old_tm, tm_float))
@@ -504,6 +524,7 @@ def estimate_plan_completion_date(
     if exercise_target is None:
         return None
 
+    history = [s for s in user_state.history if s.exercise_id == exercise_id]
     status = get_training_status(
         user_state.history,
         user_state.current_bodyweight_kg,
@@ -511,8 +532,18 @@ def estimate_plan_completion_date(
     )
 
     tm = status.training_max
-    if tm >= exercise_target.reps:
-        return None
+
+    if exercise_target.weight_kg > 0:
+        # Weighted goal: check both rep and weight dimensions.
+        current_weight = estimate_prescription_weight(
+            history, get_exercise(exercise_id),
+            user_state.current_bodyweight_kg, exercise_target.reps
+        )
+        if tm >= exercise_target.reps and current_weight >= exercise_target.weight_kg:
+            return None
+    else:
+        if tm >= exercise_target.reps:
+            return None
 
     weeks = estimate_weeks_to_target(tm, exercise_target.reps)
     estimated_date = datetime.now() + timedelta(weeks=weeks)

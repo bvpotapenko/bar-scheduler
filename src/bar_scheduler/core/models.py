@@ -248,8 +248,6 @@ class UserProfile:
     exercise_days: dict = field(default_factory=dict)   # {exercise_id: days_per_week}
     exercise_targets: dict = field(default_factory=dict)  # {exercise_id: ExerciseTarget}
     exercises_enabled: list = field(default_factory=list)
-    rest_preference: str = "normal"  # "short" | "normal" | "long"
-    injury_notes: str = ""
     language: str = "en"  # ISO 639-1 code; "en" = English (default)
 
     def days_for_exercise(self, exercise_id: str) -> int:
@@ -268,12 +266,6 @@ class UserProfile:
         """Validate profile data."""
         if self.height_cm <= 0:
             raise ValueError("height_cm must be positive")
-
-        if self.rest_preference not in ("short", "normal", "long"):
-            raise ValueError(
-                f"Invalid rest_preference: {self.rest_preference!r}. "
-                "Must be 'short', 'normal', or 'long'."
-            )
 
         for ex_id, days in self.exercise_days.items():
             if days not in (1, 2, 3, 4, 5):
