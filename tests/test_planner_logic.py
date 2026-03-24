@@ -249,6 +249,73 @@ def test_test_session_recovery_spacing():
     )
 
 
+def test_weight_progression_in_plan():
+    """
+    Regression: plan Str sessions should show increasing added weight as TM grows,
+    not a flat value derived solely from the initial historical 1RM.
+
+    Setup: BW=81.7, single TEST of 13 reps → TM=11, hist_leff_1rm≈117.1 kg.
+    At TM=11 the TM-derived estimate (114.9) is lower → history wins → ~8.5 kg.
+    At TM=12 the TM-derived estimate (118.0) overtakes history → weight grows.
+    Across a 10-week plan the Str added weight must strictly increase overall.
+    """
+    bw = 81.7
+    test_date = "2026-01-01"
+    plan_start = "2026-01-05"
+
+    history = [make_test_session(test_date, 13, bw)]
+    user_state = make_user_state(history, bw=bw, days_per_week=4)
+    ex = get_exercise("pull_up")
+
+    sessions = generate_plan(user_state, plan_start, ex, weeks_ahead=10)
+
+    str_sessions = [s for s in sessions if s.session_type == "S"]
+    assert len(str_sessions) >= 6, "need enough Str sessions to observe progression"
+
+    weights = [s.sets[0].added_weight_kg for s in str_sessions if s.sets]
+
+    # First session weight must match the history-based prescription (~8.5 kg)
+    assert 7.5 <= weights[0] <= 10.0, f"first Str weight {weights[0]} out of expected range"
+
+    # Weight must increase over the plan (last half > first half)
+    first_half_max = max(weights[: len(weights) // 2])
+    second_half_min = min(weights[len(weights) // 2 :])
+    assert second_half_min > first_half_max or max(weights) > weights[0], (
+        f"Str weight did not increase across plan: {weights}"
+    )
+
+
+def test_overtraining_protection_reduces_early_session_sets():
+    """
+    Regression: when overtraining_level=2, the first 2 non-TEST sessions should
+    have fewer actual sets than later sessions of the same type.
+
+    At overtraining_level=2 the engine drops one set (floor at 2) from the first
+    `overtraining_level` sessions, leaving later sessions with the full base count.
+    """
+    bw = 80.0
+    test_date = "2026-01-01"
+    plan_start = "2026-01-05"
+
+    history = [make_test_session(test_date, 12, bw)]
+    user_state = make_user_state(history, bw=bw, days_per_week=3)
+    ex = get_exercise("pull_up")
+
+    sessions = generate_plan(
+        user_state, plan_start, ex, weeks_ahead=4, overtraining_level=2
+    )
+
+    non_test = [s for s in sessions if s.session_type != "TEST"]
+    assert len(non_test) >= 4
+
+    first_count = len(non_test[0].sets)
+    later_count = len(non_test[3].sets)
+    assert first_count < later_count, (
+        f"overtraining_level=2 should reduce early session sets "
+        f"(first={first_count}, later={later_count})"
+    )
+
+
 def test_deload_recommended_for_low_compliance():
     """
     Deload triggers via compliance: compliance_ratio < 0.70.

@@ -129,12 +129,17 @@ def _calculate_added_weight(
         return 0.0
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
-    leff_1rm = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
+    leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
+    # TM-derived estimate grows with TM, driving plan weight progression.
+    # training_max ≈ TM_FACTOR × test_max_reps, so test_max ≈ TM / TM_FACTOR.
+    leff_1rm_tm = bw_contrib * (1 + training_max / (TM_FACTOR * 30))
 
-    if leff_1rm is None or leff_1rm <= bw_contrib:
-        # No usable history — conservative estimate from TM via Epley inverse.
-        # training_max ≈ TM_FACTOR × test_max_reps, so test_max ≈ TM / TM_FACTOR.
-        leff_1rm = bw_contrib * (1 + training_max / (TM_FACTOR * 30))
+    if leff_1rm_hist is None or leff_1rm_hist <= bw_contrib:
+        leff_1rm = leff_1rm_tm
+    else:
+        # Take max: history wins early (accurate current baseline); TM-derived
+        # takes over as the plan projects forward and TM grows beyond baseline.
+        leff_1rm = max(leff_1rm_hist, leff_1rm_tm)
 
     target_reps = _SESSION_TARGET_REPS.get(session_type, 8)
     leff_target = leff_1rm * TM_FACTOR / (1 + target_reps / 30)
