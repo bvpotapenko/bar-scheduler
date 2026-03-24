@@ -24,6 +24,7 @@ user-spec v2026-02-24.
 
 from __future__ import annotations
 
+from .exercises.base import ExerciseDefinition
 from .models import EquipmentState, EquipmentSnapshot
 
 
@@ -196,22 +197,86 @@ def compute_leff(
 
 def snapshot_from_state(
     state: EquipmentState,
+    active_item: str,
 ) -> EquipmentSnapshot:
     """
     Build an EquipmentSnapshot from the current EquipmentState.
 
+    ``active_item`` is provided explicitly (recommended by ``recommend_equipment_item``).
     Used when logging a session to capture the equipment context.
     """
     a_kg = get_assistance_kg(
-        state.active_item,
+        active_item,
         state.exercise_id,
         state.machine_assistance_kg,
     )
     return EquipmentSnapshot(
-        active_item=state.active_item,
+        active_item=active_item,
         assistance_kg=a_kg,
         elevation_height_cm=state.elevation_height_cm,
     )
+
+
+def recommend_equipment_item(
+    available_items: list[str],
+    exercise: ExerciseDefinition,
+    current_tm: int,
+    recent_history: list,  # list[SessionResult]
+) -> str:
+    """
+    Auto-select the most appropriate equipment item for the next session.
+
+    Selection priority:
+    1. WEIGHT_BELT — when TM is above the weight threshold and user has one.
+    2. Current band level from history — step down if check_band_progression passes.
+    3. Initial selection — heaviest available assistive item in the exercise catalog.
+    4. Fallback — "BAR_ONLY" or the first item in the exercise catalog.
+
+    Args:
+        available_items: Items the user owns (from EquipmentState).
+        exercise: ExerciseDefinition for the current exercise.
+        current_tm: Current training max (reps).
+        recent_history: Recent sessions used for band-progression check.
+
+    Returns:
+        Item ID string (e.g. "WEIGHT_BELT", "BAND_MEDIUM", "BAR_ONLY").
+    """
+    catalog = get_catalog(exercise.exercise_id)
+
+    # 1. Weighted phase: use WEIGHT_BELT when TM has crossed the weight threshold
+    if (
+        current_tm > exercise.weight_tm_threshold
+        and "WEIGHT_BELT" in available_items
+        and "WEIGHT_BELT" in catalog
+    ):
+        return "WEIGHT_BELT"
+
+    # 2. Band progression: find last band item used and check if ready to step down
+    last_band: str | None = None
+    for session in reversed(recent_history):
+        snap = getattr(session, "equipment_snapshot", None)
+        if snap and snap.active_item in BAND_PROGRESSION:
+            last_band = snap.active_item
+            break
+
+    if last_band is not None and last_band in available_items:
+        if check_band_progression(recent_history, exercise.exercise_id, exercise.session_params):
+            next_item = get_next_band_step(last_band)
+            if next_item is not None and next_item in available_items and next_item in catalog:
+                return next_item
+        return last_band
+
+    # 3. Initial selection: heaviest available assistive item
+    for candidate in ["MACHINE_ASSISTED", "BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]:
+        if candidate in available_items and candidate in catalog:
+            return candidate
+
+    # 4. Fallback: first item in the exercise catalog that the user has
+    for item in catalog:
+        if item in available_items:
+            return item
+
+    return "BAR_ONLY"
 
 
 def bss_is_degraded(state: EquipmentState) -> bool:

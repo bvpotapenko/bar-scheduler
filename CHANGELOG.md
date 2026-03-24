@@ -4,6 +4,39 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.4.2] -- 2026-03-24
+
+### Breaking changes
+
+- **`init_profile` signature changed** -- removed `sex`, `days_per_week`, `exercises` parameters. New signature: `init_profile(data_dir, height_cm, bodyweight_kg, *, language="en", rest_preference="normal")`. Use `enable_exercise()` to add exercises after profile creation.
+- **`enable_exercise` requires `days_per_week`** -- new required keyword argument. Old calls without it will raise `TypeError`.
+- **`update_profile` signature changed** -- removed `sex`, `preferred_days_per_week`, `max_session_duration_minutes` parameters.
+- **`update_equipment` signature changed** -- `active_item` parameter removed. Equipment item selection is now automatic.
+- **`get_current_equipment` return shape changed** -- key renamed from `active_item` to `recommended_item`. Value is now auto-selected by the planner.
+- **`UserProfile` fields removed** -- `sex`, `preferred_days_per_week`, `max_session_duration_minutes` no longer exist. Profiles serialised with these fields will silently ignore them on load.
+- **`EquipmentState.active_item` removed** -- field no longer exists. Equipment snapshots (per-session historical records) retain `active_item` unchanged.
+- **`days_for_exercise()` raises `KeyError`** -- the `preferred_days_per_week` global fallback has been removed. Every enabled exercise must have an explicit entry in `exercise_days`.
+
+### Added
+
+- **`recommend_equipment_item(available_items, exercise, current_tm, recent_history) -> str`** in `core/equipment.py` -- auto-selects the appropriate equipment item. Priority order: `WEIGHT_BELT` when `TM > weight_tm_threshold`; band step-down when `check_band_progression()` passes; heaviest available band; `BAR_ONLY` fallback.
+- **Leff-1RM Epley weight prescription** -- added weight now uses the Epley inverse formula for all session types (S, H, E, T). Each session type targets a different rep count: S→5, H→8, E→12, T→6, corresponding to ~85/78/67/83% of 1RM. Conservative fallback (no history) uses TM to estimate 1RM.
+
+### Changed
+
+- **`snapshot_from_state(state, active_item)`** -- `active_item` is now an explicit parameter instead of being read from `state.active_item`.
+- **`log_session` auto-selects equipment item** -- calls `recommend_equipment_item()` at log time to determine `active_item` for the snapshot.
+- **`overtraining_severity` uses per-exercise days** -- previously read `profile.preferred_days_per_week`; now reads `profile.days_for_exercise(exercise_id)`.
+
+### Removed
+
+- `Sex = Literal["male", "female"]` type alias deleted.
+- `UserProfile.sex`, `UserProfile.preferred_days_per_week`, `UserProfile.max_session_duration_minutes` fields deleted.
+- `EquipmentState.active_item` field deleted.
+- `weight_increment_fraction` linear formula replaced entirely by Epley inverse.
+
+---
+
 ## [0.4.1] -- 2026-03-23
 
 ### Breaking changes

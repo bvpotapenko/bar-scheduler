@@ -30,6 +30,7 @@ def _build_endurance_sets(
     params: SessionTypeParams,
     rest: int,
     target_reps: int,
+    added_weight: float = 0.0,
 ) -> list[PlannedSet]:
     """
     Build the descending-ladder set list for an Endurance session.
@@ -48,7 +49,7 @@ def _build_endurance_sets(
             PlannedSet(
                 target_reps=actual_reps,
                 rest_seconds_before=rest,
-                added_weight_kg=0.0,
+                added_weight_kg=added_weight,
                 rir_target=params.rir_target,
             )
         )
@@ -82,13 +83,14 @@ def _build_standard_sets(
     adj_reps: int,
     rest: int,
     params: SessionTypeParams,
+    added_weight: float = 0.0,
 ) -> list[PlannedSet]:
-    """Build uniform bodyweight sets for H, T, and TEST sessions."""
+    """Build uniform sets for H, T, and TEST sessions."""
     return [
         PlannedSet(
             target_reps=adj_reps,
             rest_seconds_before=rest,
-            added_weight_kg=0.0,
+            added_weight_kg=added_weight,
             rir_target=params.rir_target,
         )
         for _ in range(adj_sets)
@@ -101,22 +103,26 @@ def calculate_set_prescription(
     ff_state,
     bodyweight_kg: float,
     exercise: ExerciseDefinition,
+    history: list[SessionResult] | None = None,
     history_sessions: int = 0,
     recent_same_type: list[SessionResult] | None = None,
-    last_test_weight: float = 0.0,
 ) -> list[PlannedSet]:
     """
     Calculate set prescription for a session.
+
+    Added weight is computed for every session type (S, H, E, T) when TM is
+    above the exercise's weight threshold.  When TM ≤ threshold the weight is
+    0.0 and behaviour is identical to the old bodyweight-only path.
 
     Args:
         session_type: Type of session (S, H, E, T, TEST)
         training_max: Current training max
         ff_state: Fitness-fatigue state for autoregulation
         bodyweight_kg: Current bodyweight
+        exercise: ExerciseDefinition with session params and weight formula
+        history: Full exercise history used for Leff-1RM estimation
         history_sessions: Number of sessions in history (for autoregulation gating)
         recent_same_type: Recent sessions of the same type (for adaptive rest)
-        exercise: ExerciseDefinition with session params and weight formula
-        last_test_weight: Added weight from last TEST session (used for BSS)
 
     Returns:
         List of PlannedSet
@@ -138,12 +144,16 @@ def calculate_set_prescription(
     # Adaptive rest based on recent same-type sessions and readiness
     rest = calculate_adaptive_rest(session_type, recent_same_type or [], ff_state, exercise)
 
+    # Added weight applies to all session types; 0.0 when in BW-only phase
+    added_weight = _calculate_added_weight(
+        exercise, training_max, bodyweight_kg, history or [], session_type
+    )
+
     if session_type == "E":
-        return _build_endurance_sets(training_max, params, rest, target_reps)
+        return _build_endurance_sets(training_max, params, rest, target_reps, added_weight)
 
     if session_type == "S":
-        added_weight = _calculate_added_weight(exercise, training_max, bodyweight_kg, last_test_weight)
         return _build_strength_sets(adj_sets, adj_reps, rest, added_weight, params)
 
-    # H, T, TEST: bodyweight sets (no added weight)
-    return _build_standard_sets(adj_sets, adj_reps, rest, params)
+    # H, T, TEST
+    return _build_standard_sets(adj_sets, adj_reps, rest, params, added_weight)

@@ -395,14 +395,35 @@ delta    = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESSION_MI
 
 Example values: TM = 5 → ~0.97 reps/week · TM = 15 → ~0.68 · TM = 25 → ~0.36 · TM = 29 → ~0.30
 
-**S session added weight**
+**Added weight (all session types S, H, E, T)**
 
-When TM exceeds a threshold, Strength sessions add external load:
+When TM exceeds `weight_tm_threshold`, external load is added via Leff-1RM Epley inverse:
+
 ```
-added_kg = bw * bw_fraction * weight_increment_fraction * (TM - threshold)
-added_kg = min(added_kg, max_added_weight_kg)
+# From history:
+1RM_Leff = max over all recorded sets: Leff × (1 + actual_reps / 30)
+           where Leff = BW × bw_fraction + added_weight_kg − assistance_kg
+
+# Conservative fallback (no history):
+1RM_Leff = BW × bw_fraction × (1 + TM / (TM_FACTOR × 30))
+
+# Session prescription:
+leff_target = 1RM_Leff × TM_FACTOR / (1 + target_reps / 30)
+added_kg    = max(0, leff_target − BW × bw_fraction)
+added_kg    = round(added_kg × 2) / 2       # nearest 0.5 kg
+added_kg    = min(added_kg, max_added_weight_kg)
 ```
-`bw_fraction` comes from the exercise definition (Section 12). `weight_increment_fraction` = 0.5 kg per TM point above threshold (tunable). The result is capped at `max_added_weight_kg` (default 10 kg).
+
+Session target reps for Epley inverse:
+
+| Session | target_reps | ~%1RM |
+|---------|-------------|-------|
+| S       | 5           | ~85%  |
+| H       | 8           | ~78%  |
+| E       | 12          | ~67%  |
+| T       | 6           | ~83%  |
+
+`weight_tm_threshold` and `max_added_weight_kg` are defined per exercise in the YAML file. When `TM ≤ threshold`, added_kg = 0 (bodyweight-only phase).
 
 ---
 

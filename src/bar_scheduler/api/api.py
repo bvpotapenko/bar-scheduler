@@ -251,22 +251,19 @@ def _timeline_entry_to_dict(e: TimelineEntry) -> dict:
 def init_profile(
     data_dir: Path,
     height_cm: int,
-    sex: str,
     bodyweight_kg: float,
     *,
-    exercises: list[str] = [],
-    days_per_week: int = 3,
     language: str = "en",
     rest_preference: str = "normal",
 ) -> dict:
     """
     Create a new user profile in ``data_dir``.
 
-    ``exercises`` defaults to ``[]`` -- a profile can be created without any
-    exercises and populated later via ``enable_exercise()``.
+    Creates a bare profile with no exercises.  Use ``enable_exercise()`` to
+    add exercises with their per-exercise training frequency.
 
     Raises ``ProfileAlreadyExistsError`` if profile.json already exists.
-    Raises ``ValueError`` for unknown exercise IDs or invalid field values.
+    Raises ``ValueError`` for invalid field values.
     Returns the profile dict (same shape as ``get_profile()``).
     """
     from ..core.models import UserProfile
@@ -277,24 +274,14 @@ def init_profile(
             f"Profile already exists at {profile_path}. Use update_profile() to change fields."
         )
 
-    for ex_id in exercises:
-        get_exercise(
-            ex_id
-        )  # raises ValueError for unknown ids, before touching filesystem
-
     profile = UserProfile(
         height_cm=height_cm,
-        sex=sex,
-        preferred_days_per_week=days_per_week,
-        exercises_enabled=list(exercises),
         language=language,
         rest_preference=rest_preference,
     )
 
     store = UserStore(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    for ex_id in exercises:
-        store.init_exercise(ex_id)
     store.save_profile(profile, bodyweight_kg)
 
     return get_profile(data_dir)
@@ -342,16 +329,19 @@ def update_equipment(
     data_dir: Path,
     exercise_id: str,
     *,
-    active_item: str,
     available_items: list[str],
     machine_assistance_kg: float | None = None,
     elevation_height_cm: int | None = None,
     valid_from: str | None = None,
 ) -> None:
     """
-    Activate a new equipment configuration for an exercise.
+    Update the equipment available for an exercise.
 
-    The previous active entry is automatically closed (valid_until = yesterday).
+    The planner auto-selects the appropriate item from ``available_items``
+    based on the user's current training level — no manual ``active_item``
+    required.
+
+    The previous entry is automatically closed (valid_until = yesterday).
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
     from ..core.models import EquipmentState
@@ -359,7 +349,6 @@ def update_equipment(
     store = _require_store(data_dir, exercise_id)
     state = EquipmentState(
         exercise_id=exercise_id,
-        active_item=active_item,
         available_items=list(available_items),
         machine_assistance_kg=machine_assistance_kg,
         elevation_height_cm=elevation_height_cm,
@@ -372,10 +361,7 @@ def update_profile(
     data_dir: Path,
     *,
     height_cm: int | None = None,
-    sex: str | None = None,
-    preferred_days_per_week: int | None = None,
     rest_preference: str | None = None,
-    max_session_duration_minutes: int | None = None,
     injury_notes: str | None = None,
 ) -> dict:
     """
@@ -391,25 +377,9 @@ def update_profile(
     """
     if height_cm is not None and height_cm <= 0:
         raise ValueError(f"height_cm must be positive, got {height_cm}")
-    if sex is not None and sex not in ("male", "female"):
-        raise ValueError(f"sex must be 'male' or 'female', got {sex!r}")
-    if rest_preference is not None and rest_preference not in (
-        "short",
-        "normal",
-        "long",
-    ):
+    if rest_preference is not None and rest_preference not in ("short", "normal", "long"):
         raise ValueError(
             f"rest_preference must be 'short', 'normal', or 'long', got {rest_preference!r}"
-        )
-    if preferred_days_per_week is not None and preferred_days_per_week not in (
-        1,
-        2,
-        3,
-        4,
-        5,
-    ):
-        raise ValueError(
-            f"preferred_days_per_week must be 1–5, got {preferred_days_per_week}"
         )
 
     store = _require_profile_store(data_dir)
@@ -418,14 +388,8 @@ def update_profile(
 
     if height_cm is not None:
         data["height_cm"] = height_cm
-    if sex is not None:
-        data["sex"] = sex
-    if preferred_days_per_week is not None:
-        data["preferred_days_per_week"] = preferred_days_per_week
     if rest_preference is not None:
         data["rest_preference"] = rest_preference
-    if max_session_duration_minutes is not None:
-        data["max_session_duration_minutes"] = max_session_duration_minutes
     if injury_notes is not None:
         data["injury_notes"] = injury_notes
 
@@ -544,7 +508,7 @@ def set_exercise_days(
     days_per_week: int,
 ) -> None:
     """
-    Set per-exercise training frequency, overriding the global ``preferred_days_per_week``.
+    Set per-exercise training frequency.
 
     ``days_per_week`` must be 1–5.
     Raises ``ValueError`` for unknown ``exercise_id`` or out-of-range days.
@@ -565,15 +529,18 @@ def set_exercise_days(
         json.dump(data, f, indent=2)
 
 
-def enable_exercise(data_dir: Path, exercise_id: str) -> None:
+def enable_exercise(data_dir: Path, exercise_id: str, *, days_per_week: int) -> None:
     """
     Add an exercise to the user's active list and create its history file.
 
-    Idempotent -- safe to call even if the exercise is already enabled.
-    Raises ``ValueError`` for unknown ``exercise_id``.
+    ``days_per_week`` (1–5) sets the training frequency for this exercise.
+    Raises ``ValueError`` for unknown ``exercise_id`` or out-of-range days.
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     get_exercise(exercise_id)
+    if days_per_week not in (1, 2, 3, 4, 5):
+        raise ValueError(f"days_per_week must be 1–5, got {days_per_week}")
+
     store = _require_profile_store(data_dir)
 
     with open(store.profile_path) as f:
@@ -583,8 +550,13 @@ def enable_exercise(data_dir: Path, exercise_id: str) -> None:
     if exercise_id not in enabled:
         enabled.append(exercise_id)
         data["exercises_enabled"] = enabled
-        with open(store.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+
+    if "exercise_days" not in data:
+        data["exercise_days"] = {}
+    data["exercise_days"][exercise_id] = days_per_week
+
+    with open(store.profile_path, "w") as f:
+        json.dump(data, f, indent=2)
 
     UserStore(data_dir).init_exercise(
         exercise_id
@@ -649,7 +621,7 @@ def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
     If no ``equipment_snapshot`` is provided, the current equipment for the
     exercise is read from the profile and attached automatically.
     """
-    from ..core.equipment import snapshot_from_state
+    from ..core.equipment import recommend_equipment_item, snapshot_from_state
     from ..io.serializers import dict_to_session_result
 
     store = _require_store(data_dir, exercise_id)
@@ -657,7 +629,15 @@ def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
     if session_obj.equipment_snapshot is None:
         eq_state = store.load_current_equipment(exercise_id)
         if eq_state is not None:
-            session_obj.equipment_snapshot = snapshot_from_state(eq_state)
+            ex = get_exercise(exercise_id)
+            ustate = store.load_user_state(exercise_id)
+            current_tm = _get_training_status(
+                ustate.history, ustate.current_bodyweight_kg
+            ).training_max
+            active_item = recommend_equipment_item(
+                eq_state.available_items, ex, current_tm, ustate.history[-10:]
+            )
+            session_obj.equipment_snapshot = snapshot_from_state(eq_state, active_item)
     store.append_session(session_obj)
     return session_result_to_dict(session_obj)
 
@@ -716,7 +696,7 @@ def get_plan(
     total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
     ot_severity = overtraining_severity(
-        user_state.history, user_state.profile.preferred_days_per_week
+        user_state.history, user_state.profile.days_for_exercise(exercise_id)
     )
     ot_level = ot_severity["level"]
 
@@ -851,8 +831,9 @@ def explain_session(
     plan_start_date = _resolve_plan_start(store, exercise_id, user_state.history)
     total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
-    days_per_week = user_state.profile.preferred_days_per_week
-    ot_severity = overtraining_severity(user_state.history, days_per_week)
+    ot_severity = overtraining_severity(
+        user_state.history, user_state.profile.days_for_exercise(exercise_id)
+    )
     ot_level = ot_severity["level"]
     ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
 
@@ -1174,7 +1155,7 @@ def get_overtraining_status(data_dir: Path, exercise_id: str = "pull_up") -> dic
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state(exercise_id)
     return overtraining_severity(
-        user_state.history, user_state.profile.preferred_days_per_week
+        user_state.history, user_state.profile.days_for_exercise(exercise_id)
     )
 
 
@@ -1185,27 +1166,40 @@ def get_overtraining_status(data_dir: Path, exercise_id: str = "pull_up") -> dic
 
 def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     """
-    Return the currently active equipment for an exercise as a plain dict.
+    Return the currently configured equipment for an exercise as a plain dict.
 
     Returns ``None`` if no equipment has been configured.  The dict includes
-    computed fields: ``assistance_kg`` (from catalog) and ``is_bss_degraded``
-    (True when ``ELEVATION_SURFACE`` is absent from ``available_items``).
+    computed fields: ``recommended_item`` (auto-selected from available_items
+    based on current training level), ``assistance_kg`` (from catalog), and
+    ``is_bss_degraded`` (True when ``ELEVATION_SURFACE`` is absent from
+    ``available_items``).
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
-    from ..core.equipment import get_assistance_kg as _get_assistance_kg
+    from ..core.equipment import (
+        get_assistance_kg as _get_assistance_kg,
+        recommend_equipment_item,
+    )
 
-    store = _require_profile_store(data_dir)
+    store = _require_store(data_dir, exercise_id)
     state = store.load_current_equipment(exercise_id)
     if state is None:
         return None
+    ex = get_exercise(exercise_id)
+    user_state = store.load_user_state(exercise_id)
+    current_tm = _get_training_status(
+        user_state.history, user_state.current_bodyweight_kg
+    ).training_max
+    recommended = recommend_equipment_item(
+        state.available_items, ex, current_tm, user_state.history[-10:]
+    )
     return {
         "exercise_id": state.exercise_id,
-        "active_item": state.active_item,
+        "recommended_item": recommended,
         "available_items": list(state.available_items),
         "machine_assistance_kg": state.machine_assistance_kg,
         "elevation_height_cm": state.elevation_height_cm,
         "assistance_kg": _get_assistance_kg(
-            state.active_item, state.exercise_id, state.machine_assistance_kg
+            recommended, state.exercise_id, state.machine_assistance_kg
         ),
         "is_bss_degraded": "ELEVATION_SURFACE" not in state.available_items,
     }

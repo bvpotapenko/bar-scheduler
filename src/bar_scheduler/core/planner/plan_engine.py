@@ -261,7 +261,7 @@ def _plan_core(
             session_type, recent_same_type, ff_state, exercise
         )
         added_weight = _calculate_added_weight(
-            exercise, current_tm, user_state.current_bodyweight_kg, last_test_weight
+            exercise, current_tm, user_state.current_bodyweight_kg, history, session_type
         )
         expected_tm_after = int(tm_float)
 
@@ -271,10 +271,10 @@ def _plan_core(
             current_tm,
             ff_state,
             user_state.current_bodyweight_kg,
+            exercise=exercise,
+            history=history,
             history_sessions=len(effective_init),
             recent_same_type=recent_same_type,
-            exercise=exercise,
-            last_test_weight=last_test_weight,
         )
 
         # Overtraining protection: adjust the first density_sessions_left sessions

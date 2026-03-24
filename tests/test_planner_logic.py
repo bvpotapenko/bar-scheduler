@@ -32,7 +32,11 @@ def make_test_session(date: str, reps: int, bw: float = 80.0) -> SessionResult:
 def make_user_state(
     history: list[SessionResult], bw: float = 80.0, days_per_week: int = 3
 ) -> UserState:
-    profile = UserProfile(180, "male", preferred_days_per_week=days_per_week)
+    profile = UserProfile(
+        height_cm=180,
+        exercise_days={"pull_up": days_per_week},
+        exercises_enabled=["pull_up"],
+    )
     return UserState(profile=profile, current_bodyweight_kg=bw, history=history)
 
 
@@ -48,7 +52,7 @@ def test_training_max_formula():
 
 def test_strength_session_prescription():
     """
-    First S session at TM=10, BW=80, no prior same-type sessions.
+    First S session at TM=10, BW=80, one TEST of 12 reps in history.
 
     Expected (pull_up S params: low=0.35, high=0.55, reps_min=4, reps_max=6,
               sets_min=4, sets_max=5, rest_min=180, rest_max=300):
@@ -57,8 +61,8 @@ def test_strength_session_prescription():
       target    = (4+5)//2 = 4
       sets      = (4+5)//2 = 4  (no autoregulation: <10 sessions)
       rest      = (180+300)//2 = 240  (no same-type history → base midpoint)
-      weight    = 1.0 kg  (TM=10>threshold=9, pts=1, raw=80*0.01*1=0.8,
-                           _apply_rounding: round(0.8*2)/2 = round(1.6)/2 = 2/2 = 1.0)
+      weight    = 6.5 kg  (Leff 1RM from TEST: 80*(1+12/30)=112;
+                           leff_target=112*0.9/(1+5/30)=86.4; added=6.4→6.5)
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
@@ -72,13 +76,13 @@ def test_strength_session_prescription():
 
     assert len(first_s.sets) == 4
     assert all(s.target_reps == 4 for s in first_s.sets)
-    assert all(s.added_weight_kg == 1.0 for s in first_s.sets)
+    assert all(s.added_weight_kg == 6.5 for s in first_s.sets)
     assert all(s.rest_seconds_before == 240 for s in first_s.sets)
 
 
 def test_hypertrophy_session_prescription():
     """
-    First H session at TM=10, no same-type history.
+    First H session at TM=10, one TEST of 12 reps in history.
 
     Expected (pull_up H params: low=0.60, high=0.85, reps_min=6, reps_max=12,
               sets_min=4, sets_max=6, rest_min=120, rest_max=180):
@@ -87,7 +91,8 @@ def test_hypertrophy_session_prescription():
       target    = (6+8)//2 = 7
       sets      = (4+6)//2 = 5
       rest      = (120+180)//2 = 150
-      weight    = 0.0 (H uses _build_standard_sets -- no added weight)
+      weight    = 0.0 (Leff 1RM=112; leff_target for H(8 reps)=79.6 < BW_contrib=80
+                       → added = max(0, 79.6-80) = 0.0)
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
@@ -140,23 +145,23 @@ def test_endurance_session_volume_formula():
 
 def test_added_weight_formula():
     """
-    _calculate_added_weight(exercise, tm, bw) for pull-up.
+    _calculate_added_weight uses Leff-1RM Epley inverse (no history → conservative fallback).
 
-    Formula: pts = tm - threshold (9); raw = bw * bw_fraction(1.0) * increment(0.01) * pts
-             rounded to nearest 0.5 kg, capped at 20.0 kg.
+    pull_up: bw_fraction=1.0, threshold=9, max=20 kg, TM_FACTOR=0.9, S→target_reps=5
+
+    Fallback: leff_1rm = bw * (1 + TM / (0.9 * 30)); leff_target = leff_1rm * 0.9 / (1 + 5/30)
+    added = max(0, leff_target - bw), rounded to 0.5 kg, capped at 20 kg.
+
+    TM=9  (at threshold)   → 0.0
+    TM=10: leff_1rm=109.63; leff_target=84.57; added=4.57 → 4.5
+    TM=12: leff_1rm=115.56; leff_target=89.14; added=9.14 → 9.0
+    TM=21: leff_1rm=142.22; leff_target=109.71; added=29.71 → cap at 20.0
     """
     exercise = get_exercise("pull_up")
-    # _apply_rounding(x) = round(x * 2) / 2  (Python "round half to even")
-    assert _calculate_added_weight(exercise, 9, 80.0) == 0.0  # at threshold → 0
-    assert (
-        _calculate_added_weight(exercise, 10, 80.0) == 1.0
-    )  # raw=0.8 → round(1.6)/2=2/2=1.0
-    assert (
-        _calculate_added_weight(exercise, 12, 80.0) == 2.5
-    )  # raw=2.4 → round(4.8)/2=5/2=2.5
-    assert (
-        _calculate_added_weight(exercise, 21, 80.0) == 9.5
-    )  # raw=9.6 → round(19.2)/2=19/2=9.5
+    assert _calculate_added_weight(exercise, 9, 80.0, [], "S") == 0.0
+    assert _calculate_added_weight(exercise, 10, 80.0, [], "S") == 4.5
+    assert _calculate_added_weight(exercise, 12, 80.0, [], "S") == 9.0
+    assert _calculate_added_weight(exercise, 21, 80.0, [], "S") == 20.0
 
 
 def test_grip_rotation_cycles_for_s_sessions():

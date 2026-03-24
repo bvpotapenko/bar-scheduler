@@ -8,12 +8,12 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 | # | Feature | API function |
 |---|---------|-------------|
-| 1.1 | Create user profile (height, sex, bodyweight, training days, language, rest preference); exercises optional -- add later via `enable_exercise` | `init_profile` |
+| 1.1 | Create bare user profile (height, bodyweight, language, rest preference); exercises added separately via `enable_exercise` | `init_profile` |
 | 1.2 | Read profile as dict (all fields + current bodyweight) | `get_profile` |
 | 1.3 | Update any subset of profile fields surgically (preserves plan anchors, equipment, other internal keys) | `update_profile` |
 | 1.4 | Update current bodyweight | `update_bodyweight` |
 | 1.5 | Set display language | `update_language` |
-| 1.6 | Profile fields: `height_cm`, `sex`, `preferred_days_per_week`, `exercise_days`, `exercise_targets`, `exercises_enabled`, `max_session_duration_minutes`, `rest_preference`, `injury_notes`, `language` | stored in `profile.json` |
+| 1.6 | Profile fields: `height_cm`, `exercise_days`, `exercise_targets`, `exercises_enabled`, `rest_preference`, `injury_notes`, `language` | stored in `profile.json` |
 | 1.7 | Multi-user isolation -- every function takes `data_dir: Path` | all functions |
 
 ## 2. Exercise Management
@@ -21,7 +21,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | # | Feature | API function |
 |---|---------|-------------|
 | 2.1 | List all registered exercises with full metadata (id, display_name, muscle_group, variants, rotation flag, bw_fraction, onerm_includes_bodyweight, session_params, onerm_explanation) | `list_exercises` |
-| 2.2 | Enable an exercise for a user (creates history file) -- idempotent | `enable_exercise` |
+| 2.2 | Enable an exercise for a user with required `days_per_week` (creates history file) -- idempotent | `enable_exercise` |
 | 2.3 | Disable an exercise (history file preserved) | `disable_exercise` |
 | 2.4 | Delete exercise history JSONL file permanently | `delete_exercise_history` |
 | 2.5 | Set per-exercise rep goal (bodyweight or weighted) | `set_exercise_target` |
@@ -38,7 +38,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 3.3 | Equipment catalog per exercise | `get_equipment_catalog` |
 | 3.4 | Effective load (Leff) computed from bodyweight fraction + added weight − assistance | `compute_leff` |
 | 3.5 | Equipment snapshot attached to each logged session at log time | automatic |
-| 3.6 | Current equipment state as a dict (exercise_id, active_item, available_items, assistance_kg, is_bss_degraded) | `get_current_equipment` |
+| 3.6 | Current equipment state as a dict (exercise_id, recommended_item, available_items, assistance_kg, is_bss_degraded); recommended_item auto-selected from available_items by planner | `get_current_equipment` |
 | 3.7 | Band progression readiness check (n consecutive sessions on current band) | `check_band_progression` |
 | 3.8 | Equipment adjustment factor when switching bands (reps_factor, description) | `compute_equipment_adjustment` |
 | 3.9 | Assistance kg for any item (including machine-assisted) | `get_assistance_kg` |
@@ -70,7 +70,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 5.6 | Weekly TM progression -- nonlinear curve, slows near target | automatic |
 | 5.7 | Autoregulation: sets/reps adjusted by readiness z-score (active after ≥10 sessions) | automatic |
 | 5.8 | Adaptive rest: midpoint adjusted ±30/15 s based on RIR, set drop-off, readiness, and rest-adherence signal | automatic |
-| 5.9 | Added weight for Strength sessions -- BW-relative formula, 0.5 kg increments | automatic |
+| 5.9 | Added weight for all weighted session types (S, H, E, T) -- Leff-1RM Epley inverse, 0.5 kg increments; weight starts when TM > exercise threshold | automatic |
 | 5.10 | Endurance volume scales with TM via kE multiplier | automatic |
 | 5.11 | TEST session auto-insertion at configured intervals per exercise | automatic |
 | 5.12 | Grip rotation across sessions (pronated → neutral → supinated for pull-ups; fixed for dip) | automatic |
@@ -125,4 +125,4 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 ---
 
-*Last updated: 2026-03-23 (0.4.1: i18n removed from library; 15 new API functions; exercises optional in init_profile).*
+*Last updated: 2026-03-23 (0.4.2: removed sex/preferred_days_per_week/max_session_duration_minutes; enable_exercise requires days_per_week; equipment active_item → recommended_item auto-selected; weight prescription uses Leff-1RM Epley for all session types).*

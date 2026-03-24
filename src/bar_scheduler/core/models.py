@@ -13,7 +13,6 @@ from typing import Literal
 # (e.g. "standard", "chest_lean" for dips; "deficit" for BSS).
 Grip = str
 SessionType = Literal["S", "H", "E", "T", "TEST"]
-Sex = Literal["male", "female"]
 
 
 @dataclass
@@ -113,7 +112,6 @@ class EquipmentState:
 
     exercise_id: str
     available_items: list[str]          # all items the user owns / has access to
-    active_item: str                    # item currently used for training
     machine_assistance_kg: float | None = None  # only for MACHINE_ASSISTED items
     elevation_height_cm: int | None = None      # only for BSS ELEVATION_SURFACE
     valid_from: str = ""                # ISO date of this entry
@@ -238,30 +236,25 @@ class UserProfile:
     """
     User profile with physical characteristics and preferences.
 
-    ``exercise_days`` stores per-exercise overrides for training days per week
-    (e.g. {"pull_up": 3, "dip": 4, "bss": 3}).  Exercises absent from the dict
-    fall back to ``preferred_days_per_week``.
+    ``exercise_days`` stores per-exercise training frequency in days/week
+    (e.g. {"pull_up": 3, "dip": 4, "bss": 3}).  Every exercise in
+    ``exercises_enabled`` must have an entry here; enforced on write paths.
 
-    ``exercises_enabled`` lists which exercises are active (default: all three).
-    ``max_session_duration_minutes`` is used in plan display notes.
     ``rest_preference`` ("short" | "normal" | "long") biases adaptive rest.
     ``injury_notes`` is a free-text field for the user's own records.
     """
 
     height_cm: int
-    sex: Sex
-    preferred_days_per_week: int = 3  # global fallback (3 or 4)
     exercise_days: dict = field(default_factory=dict)   # {exercise_id: days_per_week}
     exercise_targets: dict = field(default_factory=dict)  # {exercise_id: ExerciseTarget}
     exercises_enabled: list = field(default_factory=list)
-    max_session_duration_minutes: int = 60
     rest_preference: str = "normal"  # "short" | "normal" | "long"
     injury_notes: str = ""
     language: str = "en"  # ISO 639-1 code; "en" = English (default)
 
     def days_for_exercise(self, exercise_id: str) -> int:
         """Return training days per week for the given exercise."""
-        return self.exercise_days.get(exercise_id, self.preferred_days_per_week)
+        return self.exercise_days[exercise_id]
 
     def target_for_exercise(self, exercise_id: str) -> ExerciseTarget | None:
         """Return the user's personal goal for the given exercise, or None if not set."""
@@ -276,17 +269,11 @@ class UserProfile:
         if self.height_cm <= 0:
             raise ValueError("height_cm must be positive")
 
-        if self.sex not in ("male", "female"):
-            raise ValueError(f"Invalid sex: {self.sex}")
-
         if self.rest_preference not in ("short", "normal", "long"):
             raise ValueError(
                 f"Invalid rest_preference: {self.rest_preference!r}. "
                 "Must be 'short', 'normal', or 'long'."
             )
-
-        if self.preferred_days_per_week not in (1, 2, 3, 4, 5):
-            raise ValueError("preferred_days_per_week must be 1–5")
 
         for ex_id, days in self.exercise_days.items():
             if days not in (1, 2, 3, 4, 5):

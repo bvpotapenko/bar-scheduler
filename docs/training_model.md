@@ -31,16 +31,35 @@ TM = floor(0.9 * latest_test_max)
 
 Это обеспечивает консервативную базу для назначений. Все сессии плана стартуют с этого значения и прогрессируют вверх -- никогда с raw test_max напрямую.
 
-## Added Weight (Strength Sessions)
+## Added Weight (All Weighted Session Types)
 
-Для S-сессий добавленный вес масштабируется относительно веса тела:
+Добавленный вес рассчитывается для всех типов сессий (S, H, E, T) через **Leff-1RM Epley inverse**:
 
 ```
-added_weight = round(bodyweight_kg × 0.01 × (TM - 9), nearest 0.5 kg)
-               clamped to [0, 20 kg]
+Step 1. Estimate Leff 1RM from history:
+        1RM_Leff = max over all sets: Leff × (1 + actual_reps / 30)
+        where Leff = BW × bw_fraction + added_weight_kg − assistance_kg
+
+Step 2. If no history (conservative fallback):
+        1RM_Leff = BW × bw_fraction × (1 + TM / (TM_FACTOR × 30))
+
+Step 3. Invert Epley for session's target reps:
+        leff_target = 1RM_Leff × TM_FACTOR / (1 + target_reps / 30)
+
+Step 4. added_weight = max(0, leff_target − BW × bw_fraction)
+        rounded to nearest 0.5 kg, capped at max_added_weight_kg
 ```
 
-Это даёт одинаковый относительный стимул для атлетов разного веса. Вес добавляется только когда TM > 9.
+Session target reps used for the Epley inverse:
+| Session | target_reps | ~%1RM |
+|---------|-------------|-------|
+| S       | 5           | ~85%  |
+| H       | 8           | ~78%  |
+| E       | 12          | ~67%  |
+| T       | 6           | ~83%  |
+
+Вес добавляется только когда TM > weight_tm_threshold (задаётся в YAML упражнения).
+При TM ≤ threshold — bodyweight-only phase, added_weight = 0.
 
 ## Adaptive Rest
 

@@ -289,7 +289,6 @@ def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
     d: dict[str, Any] = {
         "exercise_id": state.exercise_id,
         "available_items": list(state.available_items),
-        "active_item": state.active_item,
         "valid_from": state.valid_from,
         "valid_until": state.valid_until,
     }
@@ -305,7 +304,6 @@ def dict_to_equipment_state(data: dict[str, Any]) -> EquipmentState:
     return EquipmentState(
         exercise_id=str(data.get("exercise_id", "")),
         available_items=list(data.get("available_items", [])),
-        active_item=str(data.get("active_item", "")),
         machine_assistance_kg=data.get("machine_assistance_kg"),
         elevation_height_cm=data.get("elevation_height_cm"),
         valid_from=str(data.get("valid_from", "")),
@@ -413,10 +411,7 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     """
     d: dict[str, Any] = {
         "height_cm": profile.height_cm,
-        "sex": profile.sex,
-        "preferred_days_per_week": profile.preferred_days_per_week,
         "exercises_enabled": list(profile.exercises_enabled),
-        "max_session_duration_minutes": profile.max_session_duration_minutes,
         "rest_preference": profile.rest_preference,
         "injury_notes": profile.injury_notes,
     }
@@ -447,16 +442,6 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
     """
     validate_positive(data.get("height_cm", 0), "height_cm")
 
-    if data.get("sex") not in ("male", "female"):
-        raise ValidationError(
-            f"Invalid sex: {data.get('sex')}. Must be 'male' or 'female'"
-        )
-
-    if data.get("preferred_days_per_week") not in (1, 2, 3, 4, 5):
-        raise ValidationError(
-            f"Invalid preferred_days_per_week: {data.get('preferred_days_per_week')}. Must be 1–5"
-        )
-
     raw_exercise_days = data.get("exercise_days") or {}
     exercise_days = {k: int(v) for k, v in raw_exercise_days.items()}
 
@@ -470,12 +455,9 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
 
     return UserProfile(
         height_cm=int(data["height_cm"]),
-        sex=data["sex"],
-        preferred_days_per_week=int(data.get("preferred_days_per_week", 3)),
         exercise_days=exercise_days,
         exercise_targets=raw_exercise_targets,
         exercises_enabled=list(data.get("exercises_enabled", [])),
-        max_session_duration_minutes=int(data.get("max_session_duration_minutes", 60)),
         rest_preference=rest_pref,
         injury_notes=str(data.get("injury_notes", "")),
         language=str(data.get("language", "en")),
