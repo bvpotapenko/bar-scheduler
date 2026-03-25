@@ -1009,3 +1009,116 @@ class TestExerciseIdRequired:
 
         sig = inspect.signature(get_overtraining_status)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+
+# ---------------------------------------------------------------------------
+# TestEbrMetrics
+# ---------------------------------------------------------------------------
+
+
+class TestEbrMetrics:
+    """get_ebr_data, get_goal_progress, compute_set_ebr public API."""
+
+    def test_get_ebr_data_returns_history_and_plan_keys(self, tmp_path):
+        from bar_scheduler.api import get_ebr_data
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        result = get_ebr_data(tmp_path, "pull_up", weeks_ahead=2)
+        assert "history" in result
+        assert "plan" in result
+
+    def test_get_ebr_data_history_entry_shape(self, tmp_path):
+        from bar_scheduler.api import get_ebr_data
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        result = get_ebr_data(tmp_path, "pull_up")
+        assert len(result["history"]) == 1
+        entry = result["history"][0]
+        assert "date" in entry
+        assert "session_type" in entry
+        assert "ebr" in entry
+        assert "kg_eq" in entry
+        assert isinstance(entry["ebr"], float)
+        assert entry["ebr"] > 0
+
+    def test_get_ebr_data_plan_entry_shape(self, tmp_path):
+        from bar_scheduler.api import get_ebr_data
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        result = get_ebr_data(tmp_path, "pull_up", weeks_ahead=2)
+        assert len(result["plan"]) > 0
+        entry = result["plan"][0]
+        assert "date" in entry and "session_type" in entry
+        assert "ebr" in entry and "kg_eq" in entry
+        assert isinstance(entry["ebr"], float)
+
+    def test_kg_eq_equals_bw_times_ebr(self, tmp_path):
+        from bar_scheduler.api import get_ebr_data
+        _init(tmp_path, bodyweight_kg=80.0)
+        log_session(tmp_path, "pull_up", _test_session())
+        result = get_ebr_data(tmp_path, "pull_up")
+        entry = result["history"][0]
+        assert entry["kg_eq"] == pytest.approx(80.0 * entry["ebr"], abs=0.1)
+
+    def test_get_goal_progress_no_goal_returns_none_fields(self, tmp_path):
+        from bar_scheduler.api import get_goal_progress
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        result = get_goal_progress(tmp_path, "pull_up")
+        assert result["goal_reps"] is None
+        assert result["progress_pct"] is None
+        assert result["max_reps_at_goal"] is None
+
+    def test_get_goal_progress_with_goal_returns_progress(self, tmp_path):
+        from bar_scheduler.api import get_goal_progress, set_exercise_target
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        set_exercise_target(tmp_path, "pull_up", reps=20)
+        result = get_goal_progress(tmp_path, "pull_up")
+        assert result["goal_reps"] == 20
+        assert result["goal_weight_kg"] == 0.0
+        assert isinstance(result["progress_pct"], float)
+        assert 0.0 <= result["progress_pct"] <= 100.0
+        assert result["max_reps_at_goal"] is not None
+
+    def test_get_goal_progress_goal_met_shows_100(self, tmp_path):
+        from bar_scheduler.api import get_goal_progress, set_exercise_target
+        _init(tmp_path)
+        # Log a test session with many reps — well above goal
+        log_session(tmp_path, "pull_up", {
+            "date": _today(),
+            "bodyweight_kg": 80.0,
+            "grip": "pronated",
+            "session_type": "TEST",
+            "exercise_id": "pull_up",
+            "completed_sets": [{"actual_reps": 30, "rest_seconds_before": 180}],
+        })
+        set_exercise_target(tmp_path, "pull_up", reps=5)  # easy goal
+        result = get_goal_progress(tmp_path, "pull_up")
+        assert result["progress_pct"] == 100.0
+
+    def test_compute_set_ebr_returns_float(self, tmp_path):
+        from bar_scheduler.api import compute_set_ebr
+        _init(tmp_path)
+        result = compute_set_ebr(tmp_path, "pull_up", reps=10)
+        assert isinstance(result, float)
+        assert result > 0.0
+
+    def test_compute_set_ebr_heavier_is_more(self, tmp_path):
+        from bar_scheduler.api import compute_set_ebr
+        _init(tmp_path)
+        ebr_bw = compute_set_ebr(tmp_path, "pull_up", reps=10, added_weight_kg=0.0)
+        ebr_heavy = compute_set_ebr(tmp_path, "pull_up", reps=10, added_weight_kg=20.0)
+        assert ebr_heavy > ebr_bw
+
+    def test_get_ebr_data_requires_exercise_id(self):
+        import inspect
+        from bar_scheduler.api import get_ebr_data
+        sig = inspect.signature(get_ebr_data)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+    def test_get_goal_progress_requires_exercise_id(self):
+        import inspect
+        from bar_scheduler.api import get_goal_progress
+        sig = inspect.signature(get_goal_progress)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty

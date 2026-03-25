@@ -426,3 +426,125 @@ class TestBSSDualDumbbellSnap:
         )
         w = _calculate_added_weight(idp, 15, 80.0, [session], "S", available_weights_kg=[8.0, 10.0, 16.0])
         assert w == 16.0
+
+
+# ── EBR Core Formula Tests ────────────────────────────────────────────────────
+
+
+class TestComputeSetEbrValue:
+    """compute_set_ebr_value: exact formula values from documented constants."""
+
+    def test_first_set_bw_only_is_exact(self):
+        # reps=5, leff=bw=80 (load_ratio=1.0), is_first_set → penalty=1.0
+        # EBR = 5 × 1.0^1.6 × 1.0 = 5.0
+        from bar_scheduler.core.ebr import compute_set_ebr_value
+        result = compute_set_ebr_value(5, leff=80.0, bw=80.0, rest_seconds=0, is_first_set=True)
+        assert result == 5.0
+
+    def test_rest_180_raises_penalty_above_one(self):
+        # Same set but rest=180 → rest_penalty > 1 → EBR > 5.0
+        from bar_scheduler.core.ebr import compute_set_ebr_value
+        result = compute_set_ebr_value(5, leff=80.0, bw=80.0, rest_seconds=180, is_first_set=False)
+        assert result == pytest.approx(5.2113, abs=1e-3)
+
+    def test_heavier_load_scales_nonlinearly(self):
+        # reps=8, added=20 kg to BW=80 pull-up (k=1.0) → leff=100, is_first_set=True
+        # load_ratio=1.25, 1.25^1.6 ≈ 1.4293 → EBR ≈ 11.434
+        from bar_scheduler.core.ebr import compute_set_ebr_value
+        result = compute_set_ebr_value(8, leff=100.0, bw=80.0, rest_seconds=0, is_first_set=True)
+        assert result == pytest.approx(11.434, abs=0.01)
+
+    def test_zero_reps_returns_zero(self):
+        from bar_scheduler.core.ebr import compute_set_ebr_value
+        assert compute_set_ebr_value(0, leff=80.0, bw=80.0, rest_seconds=180) == 0.0
+
+    def test_zero_leff_returns_zero(self):
+        from bar_scheduler.core.ebr import compute_set_ebr_value
+        assert compute_set_ebr_value(5, leff=0.0, bw=80.0, rest_seconds=180) == 0.0
+
+
+class TestComputeSessionEbr:
+    """compute_session_ebr: multi-set totals with rest-penalty accumulation."""
+
+    def test_three_set_pullup_exact(self):
+        # BW=80, bw_fraction=1.0, no assistance
+        # set0: 5 reps rest=0 (first) → EBR=5.0
+        # set1: 4 reps rest=180       → EBR≈4.169
+        # set2: 3 reps rest=180       → EBR≈3.127
+        # total≈12.296, kg_eq=80×12.296≈983.66
+        from bar_scheduler.core.ebr import compute_session_ebr
+        sets = [
+            SetResult(5, 5, 0),
+            SetResult(4, 4, 180),
+            SetResult(3, 3, 180),
+        ]
+        ebr, kg_eq = compute_session_ebr(sets, bw_fraction=1.0, bodyweight_kg=80.0)
+        assert ebr == pytest.approx(12.3, abs=0.02)
+        assert kg_eq == pytest.approx(983.66, abs=1.0)
+
+    def test_empty_sets_returns_zero(self):
+        from bar_scheduler.core.ebr import compute_session_ebr
+        ebr, kg_eq = compute_session_ebr([], bw_fraction=1.0, bodyweight_kg=80.0)
+        assert ebr == 0.0
+        assert kg_eq == 0.0
+
+    def test_assistance_reduces_leff(self):
+        # Same reps at BW with 30 kg band assistance → leff = 80-30 = 50 → lower EBR
+        from bar_scheduler.core.ebr import compute_session_ebr
+        sets_unassisted = [SetResult(5, 5, 0)]
+        sets_assisted = [SetResult(5, 5, 0)]
+        ebr_u, _ = compute_session_ebr(sets_unassisted, bw_fraction=1.0, bodyweight_kg=80.0)
+        ebr_a, _ = compute_session_ebr(sets_assisted, bw_fraction=1.0, bodyweight_kg=80.0, assistance_kg=30.0)
+        assert ebr_a < ebr_u
+
+
+class TestComputeCapability:
+    """compute_capability: Epley 1RM from history."""
+
+    def test_one_set_15_reps_at_bw(self):
+        # leff = 80×1.0 = 80, 1RM = 80 × (1 + 15/30) = 120.0
+        from bar_scheduler.core.ebr import compute_capability
+        session = SessionResult("2026-01-01", 80.0, "pronated", "TEST", "pull_up",
+                                completed_sets=[SetResult(15, 15, 180)])
+        result = compute_capability([session], bw_fraction=1.0, current_bw=80.0)
+        assert result == pytest.approx(120.0, abs=1e-6)
+
+    def test_empty_history_returns_none(self):
+        from bar_scheduler.core.ebr import compute_capability
+        assert compute_capability([], bw_fraction=1.0, current_bw=80.0) is None
+
+    def test_weighted_set_yields_higher_estimate(self):
+        # Added weight → higher Leff → higher 1RM estimate than BW-only
+        from bar_scheduler.core.ebr import compute_capability
+        bw_session = SessionResult("2026-01-01", 80.0, "pronated", "S", "pull_up",
+                                   completed_sets=[SetResult(15, 15, 180)])
+        weighted_session = SessionResult("2026-01-02", 80.0, "pronated", "S", "pull_up",
+                                         completed_sets=[SetResult(8, 8, 180, added_weight_kg=20.0)])
+        one_rm_bw = compute_capability([bw_session], bw_fraction=1.0, current_bw=80.0)
+        one_rm_weighted = compute_capability([bw_session, weighted_session], bw_fraction=1.0, current_bw=80.0)
+        assert one_rm_weighted > one_rm_bw
+
+
+class TestComputeGoalMetrics:
+    """compute_goal_metrics: goal EBR, progress, and difficulty ratio."""
+
+    def test_goal_met_progress_is_100(self):
+        # one_rm=120, goal=15 reps @ leff=80 → max_reps=15 ≥ goal → 100%
+        from bar_scheduler.core.ebr import compute_goal_metrics
+        result = compute_goal_metrics(one_rm_leff=120.0, goal_reps=15, goal_leff=80.0, bw=80.0)
+        assert result["max_reps_at_goal"] == pytest.approx(15.0, abs=1e-6)
+        assert result["progress_pct"] == 100.0
+        assert result["difficulty_ratio"] == pytest.approx(1.0, abs=1e-3)
+
+    def test_partial_progress_log_scale(self):
+        # one_rm=120, max_reps_at_goal=15, goal=30 → progress = ln(15)/ln(30) ≈ 79.6%
+        from bar_scheduler.core.ebr import compute_goal_metrics
+        result = compute_goal_metrics(one_rm_leff=120.0, goal_reps=30, goal_leff=80.0, bw=80.0)
+        assert result["max_reps_at_goal"] == pytest.approx(15.0, abs=1e-6)
+        assert result["progress_pct"] == pytest.approx(79.6, abs=0.2)
+        assert result["difficulty_ratio"] == pytest.approx(2.0, abs=1e-3)
+
+    def test_zero_capability_returns_zero_progress(self):
+        from bar_scheduler.core.ebr import compute_goal_metrics
+        result = compute_goal_metrics(one_rm_leff=0.0, goal_reps=12, goal_leff=80.0, bw=80.0)
+        assert result["progress_pct"] == 0.0

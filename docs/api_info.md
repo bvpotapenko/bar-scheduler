@@ -27,8 +27,9 @@ from bar_scheduler.api import (
     set_plan_start_date, get_plan_weeks, set_plan_weeks, get_plan_cache_entry,
     # Analysis
     get_training_status, get_onerepmax_data,
-    get_volume_data, get_progress_data, get_overtraining_status, get_load_data,
-    compute_session_load,
+    get_volume_data, get_progress_data, get_overtraining_status,
+    # EBR metrics (user-facing volume, capability, progress)
+    get_ebr_data, get_goal_progress, compute_set_ebr,
     # Equipment helpers
     get_current_equipment, check_band_progression,
     compute_leff, compute_equipment_adjustment, get_assistance_kg,
@@ -424,14 +425,42 @@ for pt in (progress["trajectory_g"] or []):
 
 for pt in (progress["trajectory_m"] or []):
     pt["date"], pt["projected_1rm_added_kg"]
+```
 
-# Training load for a single hypothetical set -- use with goal reps/weight
-# to display how hard a goal session would be relative to history / plan.
-load = compute_session_load(data_dir, "dip", reps=12, added_weight_kg=25.0)
-# Optional keyword arguments (all have defaults):
-#   rir=2            -- reps in reserve (default 2, plan-session neutral effort)
-#   bodyweight_kg    -- override session bodyweight; defaults to current profile value
-#   grip             -- variant string; defaults to the exercise's primary variant
+---
+
+## 10. EBR Metrics (user-facing volume, capability, progress)
+
+Three metrics that replace the internal Banister load in user displays.
+See `docs/performance-formulas.md` for full formula reference.
+
+```python
+# Per-session EBR (Equivalent Bodyweight Reps) — history and projected plan
+data = get_ebr_data(data_dir, "dip", weeks_ahead=4)
+for entry in data["history"]:
+    entry["date"]          # "YYYY-MM-DD"
+    entry["session_type"]  # "S" | "H" | "E" | "T" | "TEST"
+    entry["ebr"]           # float — session EBR (how hard was this session?)
+    entry["kg_eq"]         # float — BW × ebr (absolute equivalent in kg-reps)
+# data["plan"] has the same shape (projected future sessions)
+
+# Current capability and nonlinear progress toward goal
+prog = get_goal_progress(data_dir, "dip")
+prog["one_rm_leff"]        # float | None  — best Epley 1RM (effective load kg)
+prog["capability_ebr"]     # float | None  — EBR of one rep at estimated max
+prog["goal_reps"]          # int | None    — target reps (from set_exercise_target)
+prog["goal_weight_kg"]     # float | None  — target added weight
+prog["goal_ebr"]           # float | None  — EBR of hitting goal exactly
+prog["max_reps_at_goal"]   # float | None  — predicted reps at goal weight RIGHT NOW
+                           #                 "You can currently do ~6 reps at +25 kg"
+prog["progress_pct"]       # float | None  — 0–100, log-based nonlinear scale
+prog["difficulty_ratio"]   # float | None  — EBR_goal / EBR_cap (>1 = goal harder)
+
+# EBR for a single hypothetical set (e.g. compare goal vs. current sessions)
+ebr = compute_set_ebr(data_dir, "dip", reps=12, added_weight_kg=25.0)
+# Optional keyword arguments:
+#   rest_seconds=180    — rest before this set (default 180 = well-rested)
+#   bodyweight_kg       — override bodyweight; defaults to current profile value
 ```
 
 ---

@@ -23,6 +23,7 @@ _rest_norm = _cfg.get("rest_normalization", {})
 _ewma = _cfg.get("ewma_max", {})
 _ff = _cfg.get("fitness_fatigue", {})
 _tload = _cfg.get("training_load", {})
+_ebr = _cfg.get("ebr_metric", {})
 _wsf = _cfg.get("within_session_fatigue", {})
 _vol = _cfg.get("volume", {})
 _prog = _cfg.get("progression", {})
@@ -68,6 +69,15 @@ A_RIR: float = float(_tload.get("A_RIR", 0.15))
 GAMMA_S: float = float(_tload.get("GAMMA_S", 0.15))
 S_REST_MAX: float = float(_tload.get("S_REST_MAX", 1.5))
 GAMMA_LOAD: float = float(_tload.get("GAMMA_LOAD", 1.5))
+
+# =============================================================================
+# EBR METRICS (user-facing: volume, capability, progress)
+# =============================================================================
+
+EBR_ALPHA: float = float(_ebr.get("EBR_ALPHA", 1.6))
+REST_TAU: float = float(_ebr.get("REST_TAU", 90.0))
+REST_RHO: float = float(_ebr.get("REST_RHO", 0.25))
+EBR_BASE: float = float(_ebr.get("EBR_BASE", 1.0))
 
 # =============================================================================
 # WITHIN-SESSION FATIGUE (Section 6)

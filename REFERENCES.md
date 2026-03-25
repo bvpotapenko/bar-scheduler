@@ -64,15 +64,34 @@ This document lists the scientific publications and evidence-based sources used 
    DOI: [10.1186/s40798-025-00830-w](https://doi.org/10.1186/s40798-025-00830-w)  
    **Key finding**: Velocity loss and RIR interact with load and set number; autoregulation should be context-dependent.
 
+### EBR metrics — biomechanics and learning-curve basis
+
+11. **Harman E, Rosenstein MT, Frykman PN, Rosenstein RM** (1990)
+    *The effects of arms and countermovement on vertical jumping*
+    Medicine and Science in Sports and Exercise, 22(6):825-833
+    DOI: [10.1249/00005768-199012000-00015](https://doi.org/10.1249/00005768-199012000-00015)
+    **Context**: Biomechanical basis for exercise-specific bodyweight fraction coefficients (bw_fraction) — not all bodyweight contributes to the movement against gravity, justifying L_eff = bw_fraction × BW + added_weight in the EBR formula.
+
+12. **Swinton PA, Stewart A, Agouris I, Keogh JWL, Lloyd R** (2012)
+    *A biomechanical analysis of straight and hexagonal barbell deadlifts using submaximal loads*
+    Journal of Strength and Conditioning Research, 26(9):2557-2564
+    DOI: [10.1519/JSC.0b013e31825680a1](https://doi.org/10.1519/JSC.0b013e31825680a1)
+    **Context**: System mass modelling in strength movements; supports the use of L_eff rather than raw added weight for comparing loading across exercises and body sizes.
+
+13. **Newell A, Rosenbloom PS** (1981)
+    *Mechanisms of skill acquisition and the law of practice*
+    In: J.R. Anderson (Ed.), *Cognitive Skills and their Acquisition*, pp. 1-55, Erlbaum
+    **Context**: Power-law (log-linear) learning curves in skill/strength acquisition. Basis for the log-based nonlinear progress formula: equal absolute gains are harder at higher levels, so log(current/base) / log(goal/base) gives perceptually accurate progress percentages.
+
 ### Volume dose-response for hypertrophy
 
-9. **Schoenfeld BJ, Ogborn D, Krieger JW** (2017)  
+14. **Schoenfeld BJ, Ogborn D, Krieger JW** (2017)  
    *Dose-response relationship between weekly resistance training volume and increases in muscle mass: A systematic review and meta-analysis*  
    Journal of Sports Sciences, 35(11):1073-1082  
    DOI: [10.1080/02640414.2016.1210197](https://doi.org/10.1080/02640414.2016.1210197)  
    **Key finding**: Dose-response relationship exists; higher volumes (to a point) produce greater hypertrophy, but individual variation is high.
 
-10. **Baz-Valle E, Fontes-Villalba M, Santos-Concejero J** (2021)  
+15. **Baz-Valle E, Fontes-Villalba M, Santos-Concejero J** (2021)  
     *Total Number of Sets as a Training Volume Quantification Method for Muscle Hypertrophy: A Systematic Review*  
     Journal of Strength and Conditioning Research, 35(3):870-878  
     DOI: [10.1519/JSC.0000000000002776](https://doi.org/10.1519/JSC.0000000000002776)  
@@ -82,19 +101,19 @@ This document lists the scientific publications and evidence-based sources used 
 
 ## Secondary/Applied sources (evidence-based practitioner guidelines)
 
-11. **Stronger by Science** – Greg Nuckols, Eric Trexler, et al.  
+16. **Stronger by Science** – Greg Nuckols, Eric Trexler, et al.
     *Rest Times for Muscle Growth*  
     URL: [https://www.strongerbyscience.com/rest-times-for-muscle-growth/](https://www.strongerbyscience.com/rest-times-for-muscle-growth/)  
     **Summary**: Practical synthesis of rest-interval research for hypertrophy.
 
-12. **Weightology** – James Krieger  
-    *Training Frequency for Hypertrophy: The Evidence-Based Bible*  
-    URL: [https://weightology.net/the-members-area/evidence-based-guides/training-frequency-for-hypertrophy-the-evidence-based-bible/](https://weightology.net/the-members-area/evidence-based-guides/training-frequency-for-hypertrophy-the-evidence-based-bible/)  
+17. **Weightology** – James Krieger
+    *Training Frequency for Hypertrophy: The Evidence-Based Bible*
+    URL: [https://weightology.net/the-members-area/evidence-based-guides/training-frequency-for-hypertrophy-the-evidence-based-bible/](https://weightology.net/the-members-area/evidence-based-guides/training-frequency-for-hypertrophy-the-evidence-based-bible/)
     **Summary**: Evidence synthesis on optimal training frequency per muscle group.
 
-13. **Weightology** – James Krieger  
-    *Set Volume for Muscle Size: The Ultimate Evidence Based Bible*  
-    URL: [https://weightology.net/the-members-area/evidence-based-guides/set-volume-for-muscle-size-the-ultimate-evidence-based-bible/](https://weightology.net/the-members-area/evidence-based-guides/set-volume-for-muscle-size-the-ultimate-evidence-based-bible/)  
+18. **Weightology** – James Krieger
+    *Set Volume for Muscle Size: The Ultimate Evidence Based Bible*
+    URL: [https://weightology.net/the-members-area/evidence-based-guides/set-volume-for-muscle-size-the-ultimate-evidence-based-bible/](https://weightology.net/the-members-area/evidence-based-guides/set-volume-for-muscle-size-the-ultimate-evidence-based-bible/)
     **Summary**: Comprehensive review of weekly set volume landmarks and individual variation.
 
 ---
@@ -107,9 +126,13 @@ This document lists the scientific publications and evidence-based sources used 
 | 3–4 training days per week default | [3] |
 | Fitness–fatigue impulse response (two-timescale exponential decay) | [4], [5], [7] |
 | RIR/RPE interpretation and context dependence | [8] |
-| Weekly volume targets (12–24 sets range as starting point) | [9], [10], [13] |
+| Weekly volume targets (12–24 sets range as starting point) | [14], [15], [18] |
 | Autoregulation via readiness z-score | [6], [8] |
-| Deload frequency and triggers | [6], [12] |
+| Deload frequency and triggers | [6], [17] |
+| EBR: bw_fraction coefficient in L_eff | [11], [12] |
+| EBR: nonlinear load exponent (EBR_ALPHA) | [12] |
+| EBR: log-based nonlinear progress formula | [13] |
+| 1RM estimation (Epley) and inverse for max_reps_at_goal | Epley (1985), cited in existing "Additional reading" section |
 
 ---
 

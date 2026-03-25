@@ -8,7 +8,31 @@ All notable changes to bar-scheduler are documented here.
 
 ### Added
 
-- **`compute_session_load(data_dir, exercise_id, reps, added_weight_kg=0.0, *, rir=2, bodyweight_kg=None, grip=None) -> float`** -- computes the Banister training load impulse for a single hypothetical set using the same formula as `get_load_data`. Pass goal reps and weight to get the load the user would accumulate upon reaching their goal. `bodyweight_kg` defaults to the current profile value; `grip` defaults to the exercise's primary variant.
+- **EBR metrics — user-facing volume, capability, and progress system** -- replaces the
+  internal Banister load in the public API with three distinct, interpretable metrics:
+  - **`get_ebr_data(data_dir, exercise_id, weeks_ahead=4) -> dict`** — per-session
+    EBR (Equivalent Bodyweight Reps) for history and the upcoming plan. Each entry has
+    `{"date", "session_type", "ebr", "kg_eq"}`. Formula:
+    `EBR_set = reps × (L_eff/BW)^EBR_ALPHA × rest_penalty`. See
+    `docs/performance-formulas.md`.
+  - **`get_goal_progress(data_dir, exercise_id) -> dict`** — current strength capability
+    and nonlinear progress toward the set goal. Key fields: `max_reps_at_goal` (predicted
+    reps at goal weight right now), `progress_pct` (0–100, log-based nonlinear scale),
+    `difficulty_ratio` (EBR_goal / EBR_cap — how much harder the goal is vs. now).
+  - **`compute_set_ebr(data_dir, exercise_id, reps, added_weight_kg=0.0, *, rest_seconds=180,
+    bodyweight_kg=None) -> float`** — EBR for a single hypothetical set. Useful for
+    comparing a goal scenario against historical session EBRs.
+- **EBR config constants** in `exercises.yaml` (section `ebr_metric`): `EBR_ALPHA=1.6`,
+  `REST_TAU=90.0`, `REST_RHO=0.25`, `EBR_BASE=1.0`. User-overridable.
+- **`docs/performance-formulas.md`** — formula reference with worked examples for all
+  three EBR metrics.
+- **`core/ebr.py`** — pure EBR computation functions (no I/O).
+
+### Removed
+
+- **`get_load_data()`** -- replaced by `get_ebr_data()`. The internal Banister
+  fitness-fatigue model is unchanged; only the public API surface changes.
+- **`compute_session_load()`** -- replaced by `compute_set_ebr()`.
 - **Dual-dumbbell weight expansion for BSS** -- when `available_weights_kg` is set for BSS, the planner now expands the stored list of individual dumbbell weights into all achievable totals (single DB + all same/mixed pairs) before snapping the prescription. Example: `[8, 10, 16]` → `[8, 10, 16, 18, 20, 24, 26, 32]`. A prescription of 22 kg snaps to 20 kg (10+10) rather than 16 kg. The user decides how to split the total across their hands — the planner only prescribes the total.
 - **`dual_dumbbell` flag on `ExerciseDefinition`** -- new boolean field (default `False`). Set to `true` in `bss.yaml`. Can be set in user-override YAML for custom exercises that also use two dumbbells.
 

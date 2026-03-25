@@ -15,9 +15,7 @@ from ..core.metrics import (
     session_max_reps as _session_max_reps,
     training_max_from_baseline,
 )
-from ..core.planner import generate_plan
-from ..core.models import SessionResult, SetResult
-from ._common import _require_store, _resolve_plan_start
+from ._common import _require_store
 
 
 def get_training_status(data_dir: Path, exercise_id: str) -> dict:
@@ -235,82 +233,6 @@ def get_progress_data(
     }
 
 
-def compute_session_load(
-    data_dir: Path,
-    exercise_id: str,
-    reps: int,
-    added_weight_kg: float = 0.0,
-    *,
-    rir: int = 2,
-    bodyweight_kg: float | None = None,
-    grip: str | None = None,
-) -> float:
-    """
-    Compute the training load impulse for a single hypothetical set.
-
-    Uses the same Banister formula as historical and plan loads in
-    ``get_load_data``.  Pass goal reps and weight to get the load the user
-    would accumulate upon reaching their goal.
-
-    Args:
-        data_dir: Directory with profile and history files.
-        exercise_id: Which exercise.
-        reps: Number of reps performed in the set.
-        added_weight_kg: External load added (belt, dumbbell, etc.). Default 0.
-        rir: Reps in reserve. Default 2 (plan-session neutral effort).
-        bodyweight_kg: Session bodyweight. Defaults to current profile value.
-        grip: Variant/grip string. Defaults to the exercise's primary variant.
-
-    Returns:
-        Training load impulse (float).
-    """
-    from ..core.physiology import build_fitness_fatigue_state, calculate_session_training_load
-
-    ex = get_exercise(exercise_id)
-    store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state(exercise_id)
-
-    bw = bodyweight_kg if bodyweight_kg is not None else user_state.current_bodyweight_kg
-    used_grip = grip if grip is not None else ex.primary_variant
-
-    ff_state, _ = build_fitness_fatigue_state(
-        [s for s in user_state.history if s.exercise_id == exercise_id],
-        user_state.current_bodyweight_kg,
-        bw_fraction=ex.bw_fraction,
-        variant_factors=ex.variant_factors if ex.variant_factors else None,
-    )
-
-    synthetic = SessionResult(
-        date=datetime.now().strftime("%Y-%m-%d"),
-        bodyweight_kg=bw,
-        grip=used_grip,
-        session_type="S",
-        exercise_id=exercise_id,
-        planned_sets=[],
-        completed_sets=[
-            SetResult(
-                target_reps=reps,
-                actual_reps=reps,
-                rest_seconds_before=180,
-                added_weight_kg=added_weight_kg,
-                rir_target=rir,
-                rir_reported=rir,
-            )
-        ],
-    )
-
-    return round(
-        calculate_session_training_load(
-            synthetic,
-            int(ff_state.m_hat),
-            user_state.current_bodyweight_kg,
-            ex.bw_fraction,
-            ex.variant_factors if ex.variant_factors else None,
-        ),
-        2,
-    )
-
-
 def get_overtraining_status(data_dir: Path, exercise_id: str) -> dict:
     """
     Return the current overtraining severity assessment.
@@ -325,90 +247,3 @@ def get_overtraining_status(data_dir: Path, exercise_id: str) -> dict:
     )
 
 
-def get_load_data(
-    data_dir: Path,
-    exercise_id: str,
-    weeks_ahead: int = 4,
-) -> dict:
-    """
-    Return per-session training load for history and the upcoming plan.
-
-    Training load is recalculated on every call (never stored) using the
-    Banister impulse formula:
-        w(t) = Σ (actual_reps × E_rir × L_rel^GAMMA_LOAD × S_variant)
-
-    Historical loads use actual performed reps and the m_hat estimate at the
-    time each session was recorded. Plan loads are projections based on the
-    planned target reps and prescribed weight.
-
-    Args:
-        data_dir: Directory with profile and history files.
-        exercise_id: Which exercise to compute load for.
-        weeks_ahead: How many weeks of plan to project.
-
-    Returns:
-        Dict with two keys:
-        - ``"history"``: list of {date, session_type, load} for past sessions
-        - ``"plan"``:    list of {date, session_type, load} for planned sessions
-    """
-    from ..core.physiology import build_fitness_fatigue_state, calculate_session_training_load
-
-    store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state(exercise_id)
-    history = [s for s in user_state.history if s.exercise_id == exercise_id]
-    ex = get_exercise(exercise_id)
-
-    ff_state, session_loads = build_fitness_fatigue_state(
-        history,
-        user_state.current_bodyweight_kg,
-        bw_fraction=ex.bw_fraction,
-        variant_factors=ex.variant_factors if ex.variant_factors else None,
-    )
-
-    history_out = [
-        {"date": date, "session_type": s.session_type, "load": round(load, 2)}
-        for (date, load), s in zip(session_loads, history)
-    ]
-
-    # Project load for each planned session using planned sets.
-    plan_start = _resolve_plan_start(store, exercise_id, history)
-    plan = generate_plan(
-        user_state,
-        plan_start,
-        ex,
-        weeks_ahead=weeks_ahead,
-    )
-    plan_out = []
-    for session_plan in plan:
-        synthetic = SessionResult(
-            date=session_plan.date,
-            bodyweight_kg=user_state.current_bodyweight_kg,
-            grip=session_plan.grip,
-            session_type=session_plan.session_type,
-            exercise_id=exercise_id,
-            planned_sets=[],
-            completed_sets=[
-                SetResult(
-                    target_reps=ps.target_reps,
-                    actual_reps=ps.target_reps,
-                    rest_seconds_before=ps.rest_seconds_before,
-                    added_weight_kg=ps.added_weight_kg,
-                    rir_target=ps.rir_target,
-                    rir_reported=ps.rir_target,
-                )
-                for ps in session_plan.sets
-            ],
-        )
-        load = calculate_session_training_load(
-            synthetic,
-            int(ff_state.m_hat),
-            user_state.current_bodyweight_kg,
-            ex.bw_fraction,
-        )
-        plan_out.append({
-            "date": session_plan.date,
-            "session_type": session_plan.session_type,
-            "load": round(load, 2),
-        })
-
-    return {"history": history_out, "plan": plan_out}
