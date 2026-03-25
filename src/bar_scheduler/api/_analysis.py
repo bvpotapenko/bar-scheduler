@@ -281,7 +281,7 @@ def compute_session_load(
     )
 
     synthetic = SessionResult(
-        date="",
+        date=datetime.now().strftime("%Y-%m-%d"),
         bodyweight_kg=bw,
         grip=used_grip,
         session_type="S",
