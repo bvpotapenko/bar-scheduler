@@ -9,6 +9,8 @@ All notable changes to bar-scheduler are documented here.
 ### Added
 
 - **`compute_session_load(data_dir, exercise_id, reps, added_weight_kg=0.0, *, rir=2, bodyweight_kg=None, grip=None) -> float`** -- computes the Banister training load impulse for a single hypothetical set using the same formula as `get_load_data`. Pass goal reps and weight to get the load the user would accumulate upon reaching their goal. `bodyweight_kg` defaults to the current profile value; `grip` defaults to the exercise's primary variant.
+- **Dual-dumbbell weight expansion for BSS** -- when `available_weights_kg` is set for BSS, the planner now expands the stored list of individual dumbbell weights into all achievable totals (single DB + all same/mixed pairs) before snapping the prescription. Example: `[8, 10, 16]` → `[8, 10, 16, 18, 20, 24, 26, 32]`. A prescription of 22 kg snaps to 20 kg (10+10) rather than 16 kg. The user decides how to split the total across their hands — the planner only prescribes the total.
+- **`dual_dumbbell` flag on `ExerciseDefinition`** -- new boolean field (default `False`). Set to `true` in `bss.yaml`. Can be set in user-override YAML for custom exercises that also use two dumbbells.
 
 ---
 

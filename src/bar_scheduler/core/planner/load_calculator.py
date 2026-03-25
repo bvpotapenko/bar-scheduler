@@ -39,6 +39,20 @@ def _apply_cap(value: float, max_kg: float) -> float:
     return min(value, max_kg)
 
 
+def _expand_dual_dumbbell_totals(available: list[float]) -> list[float]:
+    """Return all achievable totals for a dual-dumbbell exercise.
+
+    Includes single-DB weights and all same/mixed pairs, since the user is
+    assumed to own at least two of each dumbbell in their set. For example,
+    [8, 10, 16] → [8, 10, 16, 18, 20, 24, 26, 32].
+    """
+    totals: set[float] = set(available)
+    for i, a in enumerate(available):
+        for b in available[i:]:
+            totals.add(a + b)
+    return sorted(totals)
+
+
 def _snap_to_available(weight_kg: float, available: list[float]) -> float:
     """Floor-snap weight_kg to the largest available weight ≤ weight_kg.
 
@@ -148,7 +162,12 @@ def _calculate_added_weight(
     if exercise.load_type == "external_only":
         w = _last_test_weight_bss(history, exercise)
         if available_weights_kg and w > 0:
-            w = _snap_to_available(w, available_weights_kg)
+            snap_list = (
+                _expand_dual_dumbbell_totals(available_weights_kg)
+                if exercise.dual_dumbbell
+                else available_weights_kg
+            )
+            w = _snap_to_available(w, snap_list)
         return w
 
     if training_max <= exercise.weight_tm_threshold:
@@ -206,7 +225,12 @@ def estimate_prescription_weight(
     if exercise.load_type == "external_only":
         w = _last_test_weight_bss(history, exercise)
         if available_weights_kg and w > 0:
-            w = _snap_to_available(w, available_weights_kg)
+            snap_list = (
+                _expand_dual_dumbbell_totals(available_weights_kg)
+                if exercise.dual_dumbbell
+                else available_weights_kg
+            )
+            w = _snap_to_available(w, snap_list)
         return w
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction

@@ -105,6 +105,7 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
         {k: dict(v) for k, v in equipment_raw.items()} if equipment_raw else {}
     )
     assist_progression: list[str] = list(d.pop("assist_progression", []))
+    dual_dumbbell: bool = bool(d.pop("dual_dumbbell", False))
 
     return ExerciseDefinition(
         exercise_id=str(d["exercise_id"]),
@@ -129,6 +130,7 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
         grip_cycles=grip_cycles,
         equipment=equipment,
         assist_progression=assist_progression,
+        dual_dumbbell=dual_dumbbell,
     )
 
 

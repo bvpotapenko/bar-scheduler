@@ -16,7 +16,10 @@ from bar_scheduler.core.adaptation import get_training_status
 from bar_scheduler.core.exercises.registry import get_exercise
 from bar_scheduler.core.metrics import training_max
 from bar_scheduler.core.models import SessionResult, SetResult, UserProfile, UserState
-from bar_scheduler.core.planner.load_calculator import _calculate_added_weight
+from bar_scheduler.core.planner.load_calculator import (
+    _calculate_added_weight,
+    _expand_dual_dumbbell_totals,
+)
 from bar_scheduler.core.planner.plan_engine import generate_plan
 
 
@@ -347,3 +350,79 @@ def test_deload_recommended_for_low_compliance():
     assert status.deload_recommended is True
     assert status.compliance_ratio < 0.70
     assert status.is_plateau is False
+
+
+class TestExpandDualDumbbellTotals:
+    """Regression tests for _expand_dual_dumbbell_totals."""
+
+    def test_basic_expansion(self):
+        # [8, 10, 16] → singles + all pairs
+        result = _expand_dual_dumbbell_totals([8.0, 10.0, 16.0])
+        assert result == [8.0, 10.0, 16.0, 18.0, 20.0, 24.0, 26.0, 32.0]
+
+    def test_single_weight(self):
+        # One weight: single + same-pair
+        result = _expand_dual_dumbbell_totals([10.0])
+        assert result == [10.0, 20.0]
+
+    def test_sorted_and_deduped(self):
+        # [4, 8] → 4, 8, 12 (4+8), 16 (8+8) — 8 is both single and pair result
+        result = _expand_dual_dumbbell_totals([4.0, 8.0])
+        assert result == [4.0, 8.0, 12.0, 16.0]
+
+
+class TestBSSDualDumbbellSnap:
+    """Regression tests for BSS weight snapping using dual-dumbbell expansion."""
+
+    def _make_bss_test_session(self, date: str, weight_kg: float) -> SessionResult:
+        return SessionResult(
+            date=date,
+            bodyweight_kg=80.0,
+            grip="standard",
+            session_type="TEST",
+            exercise_id="bss",
+            completed_sets=[SetResult(8, 8, 180, added_weight_kg=weight_kg)],
+        )
+
+    def test_snap_to_pair_total(self):
+        # available=[8, 10, 16], last TEST=22 → nearest achievable total ≤ 22 is 20 (10+10)
+        bss = get_exercise("bss")
+        history = [self._make_bss_test_session("2026-01-01", 22.0)]
+        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        assert w == 20.0
+
+    def test_snap_exact_match(self):
+        # last TEST=16 → exact match on single DB (16) or pair (8+8)
+        bss = get_exercise("bss")
+        history = [self._make_bss_test_session("2026-01-01", 16.0)]
+        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        assert w == 16.0
+
+    def test_snap_to_smallest_when_below(self):
+        # last TEST=6 → below all singles, returns smallest (8)
+        bss = get_exercise("bss")
+        history = [self._make_bss_test_session("2026-01-01", 6.0)]
+        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        assert w == 8.0
+
+    def test_snap_to_double_largest(self):
+        # last TEST=33 → largest achievable total ≤ 33 is 32 (16+16)
+        bss = get_exercise("bss")
+        history = [self._make_bss_test_session("2026-01-01", 33.0)]
+        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        assert w == 32.0
+
+    def test_incline_db_press_no_expansion(self):
+        # incline_db_press has dual_dumbbell=False — available=[8, 10, 16], TEST=22 → snaps to 16 (no pairs)
+        from bar_scheduler.core.models import SessionResult, SetResult
+        idp = get_exercise("incline_db_press")
+        session = SessionResult(
+            date="2026-01-01",
+            bodyweight_kg=80.0,
+            grip="standard",
+            session_type="TEST",
+            exercise_id="incline_db_press",
+            completed_sets=[SetResult(8, 8, 180, added_weight_kg=22.0)],
+        )
+        w = _calculate_added_weight(idp, 15, 80.0, [session], "S", available_weights_kg=[8.0, 10.0, 16.0])
+        assert w == 16.0

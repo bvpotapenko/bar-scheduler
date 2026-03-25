@@ -82,3 +82,8 @@ class ExerciseDefinition:
     # Used for automatic step-down when the user is consistently hitting the rep ceiling.
     # Exercises without fixed-assistance options (e.g. BSS) leave this empty.
     assist_progression: list[str] = field(default_factory=list)
+
+    # True for exercises where the user holds dumbbells in both hands and can combine
+    # two different weights (e.g. BSS). The planner expands available_weights_kg into
+    # all achievable single + pair totals before snapping the prescription.
+    dual_dumbbell: bool = False

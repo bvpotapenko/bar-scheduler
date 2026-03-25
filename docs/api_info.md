@@ -82,7 +82,6 @@ profile = init_profile(
     height_cm=180,
     bodyweight_kg=82.0,
     language="en",                # any language code; stored in profile for client use
-    rest_preference="normal",     # "short" | "normal" | "long"
 )
 # returns same dict as get_profile()
 ```
@@ -95,8 +94,6 @@ profile = init_profile(
 | `exercise_days` | `dict` | `{"pull_up": 3}` — per-exercise training days (1–5) |
 | `exercise_targets` | `dict` | `{"pull_up": {"reps": 25, "weight_kg": 0.0}}` |
 | `exercises_enabled` | `list` | e.g. `["pull_up", "dip"]` |
-| `rest_preference` | `str` | `"short"` \| `"normal"` \| `"long"` |
-| `injury_notes` | `str` | free text |
 | `language` | `str` | ISO 639-1 |
 | `current_bodyweight_kg` | `float` | not in UserProfile; appended by get_profile |
 
@@ -109,8 +106,6 @@ profile = init_profile(
 profile = update_profile(
     data_dir,
     height_cm=182,
-    rest_preference="short",
-    injury_notes="sore right shoulder",
 )
 # returns updated profile dict
 
@@ -152,7 +147,7 @@ set_exercise_target(data_dir, "dip", reps=15, weight_kg=20.0)   # weighted goal
 set_exercise_days(data_dir, "dip", 4)
 ```
 
-Built-in exercise IDs: `"pull_up"`, `"dip"`, `"bss"`. Any other ID raises `ValueError`.
+Built-in exercise IDs: `"pull_up"`, `"dip"`, `"bss"`, `"incline_db_press"`. Any other ID raises `ValueError`.
 
 ---
 
@@ -173,6 +168,26 @@ update_equipment(
     # machine_assistance_kg=None   # required for MACHINE_ASSISTED; kg of assistance
     # elevation_height_cm=None     # required for BSS ELEVATION_SURFACE: 30 | 45 | 60
     # valid_from=None              # ISO date; defaults to today
+    # available_weights_kg=None    # None = inherit; [] = clear; [4.0, 6.0, ...] = discrete weights
+)
+
+# For dumbbell exercises -- set available dumbbell weights the user owns.
+# Omit or pass None to inherit from the previous entry; pass [] to revert to continuous rounding.
+update_equipment(
+    data_dir, "incline_db_press",
+    available_items=["DUMBBELLS"],
+    available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0],
+    # incline_db_press: one DB per hand → prescription = per-hand weight
+    # planner snaps to the largest available weight ≤ ideal
+)
+update_equipment(
+    data_dir, "bss",
+    available_items=["DUMBBELLS"],
+    available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0],
+    # bss: one or two DBs total → prescription = total external weight
+    # planner expands available weights into all achievable single + pair totals
+    # e.g. [8, 10, 16] → [8, 10, 16, 18, 20, 24, 26, 32] before snapping
+    # user decides how to split the total (one 16 kg DB or two 8 kg DBs — same to the planner)
 )
 
 # Read current equipment state (None if never configured)
@@ -429,8 +444,11 @@ load = compute_session_load(data_dir, "dip", reps=12, added_weight_kg=25.0)
   pull_up_history.jsonl                -- one JSON line per session
   dip_history.jsonl
   bss_history.jsonl
+  incline_db_press_history.jsonl
   pull_up_plan_cache.json              -- last plan snapshot for change diffing
   dip_plan_cache.json
+  bss_plan_cache.json
+  incline_db_press_plan_cache.json
 ```
 
 ```python
