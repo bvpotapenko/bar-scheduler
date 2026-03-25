@@ -28,6 +28,7 @@ from bar_scheduler.api import (
     # Analysis
     get_training_status, get_onerepmax_data,
     get_volume_data, get_progress_data, get_overtraining_status, get_load_data,
+    compute_session_load,
     # Equipment helpers
     get_current_equipment, check_band_progression,
     compute_leff, compute_equipment_adjustment, get_assistance_kg,
@@ -408,6 +409,14 @@ for pt in (progress["trajectory_g"] or []):
 
 for pt in (progress["trajectory_m"] or []):
     pt["date"], pt["projected_1rm_added_kg"]
+
+# Training load for a single hypothetical set -- use with goal reps/weight
+# to display how hard a goal session would be relative to history / plan.
+load = compute_session_load(data_dir, "dip", reps=12, added_weight_kg=25.0)
+# Optional keyword arguments (all have defaults):
+#   rir=2            -- reps in reserve (default 2, plan-session neutral effort)
+#   bodyweight_kg    -- override session bodyweight; defaults to current profile value
+#   grip             -- variant string; defaults to the exercise's primary variant
 ```
 
 ---

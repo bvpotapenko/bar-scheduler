@@ -4,6 +4,14 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`compute_session_load(data_dir, exercise_id, reps, added_weight_kg=0.0, *, rir=2, bodyweight_kg=None, grip=None) -> float`** -- computes the Banister training load impulse for a single hypothetical set using the same formula as `get_load_data`. Pass goal reps and weight to get the load the user would accumulate upon reaching their goal. `bodyweight_kg` defaults to the current profile value; `grip` defaults to the exercise's primary variant.
+
+---
+
 ## [0.5.1] -- 2026-03-25
 
 ### Added

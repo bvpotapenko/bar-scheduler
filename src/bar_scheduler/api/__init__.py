@@ -62,6 +62,7 @@ from ._analysis import (
     get_progress_data,
     get_overtraining_status,
     get_load_data,
+    compute_session_load,
 )
 
 # Equipment
@@ -129,6 +130,7 @@ __all__ = [
     "get_progress_data",
     "get_overtraining_status",
     "get_load_data",
+    "compute_session_load",
     # Equipment
     "update_equipment",
     "get_current_equipment",
