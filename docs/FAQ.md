@@ -120,6 +120,51 @@ Use `get_load_data(data_dir, exercise_id)` to retrieve historical and projected 
 
 ---
 
+## How do I read a load number — what does "load = 19" mean?
+
+**Load is a personal, relative measure** — not absolute work. The same sets and reps produce different load values for different people because everything is normalized to *your* bodyweight and estimated from *your* current max. Two people doing identical pull-ups will have different loads. You can only meaningfully compare your own load numbers over time.
+
+**The unit anchor: load = 1 ≈ one comfortable pull-up at your bodyweight** (RIR ~3, no band assistance, no added weight). Session load is the sum over all sets.
+
+Two things amplify load beyond the raw rep count:
+
+- **Effort (RIR).** Reps close to failure count more. RIR 0 (nothing left) multiplies load per rep by ×1.45; RIR 5+ (very easy) multiplies by ×0.70. Same reps, very different load — effort compresses or expands the signal.
+- **Added weight (super-linear).** Load scales as `(Leff / BW)^1.5`. Adding 20 kg at 80 kg bodyweight raises effective load by 25% but raises load contribution per rep by ~40%. Heavier weight punishes more than proportionally.
+
+**Is "load = 100" the same as 100 pull-ups?**
+
+No. A single hard set of 10 reps near failure produces more load than 10 easy sets of 1 rep, even though the rep total is identical. Load measures how much of *your* capacity was deployed, not how many reps were logged.
+
+**Load scale reference (pull-ups at bodyweight, no added weight):**
+
+| Session load | What it looks like |
+|--------------|--------------------|
+| ~15–20 | Light session — 3 sets × 5 reps, moderate effort |
+| ~40–50 | Solid training session — 4–5 sets × 8–10 reps |
+| ~80+ | Very hard session — near-failure sets or significant added weight |
+
+### Theoretical maximums
+
+**Single max-effort set ceiling:**
+
+```
+≈ test_max × 1.45
+```
+
+One all-out set to absolute failure (RIR 0) at bodyweight. For someone with `test_max = 15`, this is ~22 load.
+
+**Multi-set ceiling (grind until you can't lift):**
+
+```
+≈ test_max × 8–10
+```
+
+Reps decay per set following an exponential model (λ ≈ 0.08 per set), so total rep volume converges to roughly `test_max × 13`. With realistic short rest (~60 s) and an average effort multiplier of ~0.85 across all sets (high on early sets, lower once per-set reps drop), the ceiling is approximately `test_max × 8–10`.
+
+For `test_max = 15`: ceiling ≈ 120–150. Nobody trains there — it would take days to recover — but a well-programmed session sits at roughly **20–35% of that ceiling**. That gap is your long-term growth room.
+
+---
+
 ## What is the fitness-fatigue model?
 
 The planner tracks two exponential signals to estimate readiness:
