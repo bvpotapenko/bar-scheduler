@@ -87,7 +87,7 @@ onerm_explanation: >
 
 weight_increment_fraction: 0.0
 weight_tm_threshold: 999
-max_added_weight_kg: 32.0   # per-hand maximum (32 kg dumbbell)
+max_added_weight_kg: 50.0   # per-hand maximum (50 kg dumbbell)
 
 equipment:
   DUMBBELLS:
