@@ -96,6 +96,7 @@ def _plan_core(
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
+    available_weights_kg: list[float] | None = None,
 ) -> Generator[tuple[SessionPlan, _SessionTrace], None, None]:
     """
     Core plan generator -- single source of truth for all plan logic.
@@ -228,7 +229,8 @@ def _plan_core(
                 # driving higher Epley 1RM and thus higher weight prescription.
                 assert exercise_target is not None  # weighted_goal implies this
                 current_weight = estimate_prescription_weight(
-                    history, exercise, user_state.current_bodyweight_kg, exercise_target.reps
+                    history, exercise, user_state.current_bodyweight_kg, exercise_target.reps,
+                    available_weights_kg=available_weights_kg,
                 )
                 goal_met = int(tm_float) >= exercise_target.reps and current_weight >= exercise_target.weight_kg
                 prog = 0.0 if goal_met else max(DELTA_PROGRESSION_MIN, expected_reps_per_week(int(tm_float), user_target))
@@ -281,7 +283,8 @@ def _plan_core(
             session_type, recent_same_type, ff_state, exercise
         )
         added_weight = _calculate_added_weight(
-            exercise, current_tm, user_state.current_bodyweight_kg, history, session_type
+            exercise, current_tm, user_state.current_bodyweight_kg, history, session_type,
+            available_weights_kg=available_weights_kg,
         )
         expected_tm_after = int(tm_float)
 
@@ -295,6 +298,7 @@ def _plan_core(
             history=history,
             history_sessions=len(effective_init),
             recent_same_type=recent_same_type,
+            available_weights_kg=available_weights_kg,
         )
 
         # Overtraining protection: adjust the first density_sessions_left sessions
@@ -377,6 +381,7 @@ def generate_plan(
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
+    available_weights_kg: list[float] | None = None,
 ) -> list[SessionPlan]:
     """
     Generate a deterministic training plan with progressive overload.
@@ -390,6 +395,8 @@ def generate_plan(
         overtraining_level: Graduated overtraining protection level (0=none, 1-3)
         overtraining_rest_days: Days to shift training start forward for recovery
                                 (computed from overtraining severity; NOT saved to store)
+        available_weights_kg: Discrete weights the user owns for this exercise;
+                              empty = continuous 0.5 kg rounding.
 
     Returns:
         List of SessionPlan for the planning horizon
@@ -405,6 +412,7 @@ def generate_plan(
             overtraining_level=overtraining_level,
             overtraining_rest_days=overtraining_rest_days,
             history_init_cutoff=history_init_cutoff,
+            available_weights_kg=available_weights_kg,
         )
     ]
 
@@ -419,6 +427,7 @@ def explain_plan_entry(
     overtraining_level: int = 0,
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
+    available_weights_kg: list[float] | None = None,
 ) -> str:
     """
     Generate a step-by-step Rich-markup explanation of a planned session.
@@ -455,6 +464,7 @@ def explain_plan_entry(
             overtraining_level=overtraining_level,
             overtraining_rest_days=overtraining_rest_days,
             history_init_cutoff=history_init_cutoff,
+            available_weights_kg=available_weights_kg,
         ):
             last_weeks_ahead = trace.weeks_ahead
             if plan.date == target_date:

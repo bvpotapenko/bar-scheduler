@@ -4,6 +4,26 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.5.1] -- 2026-03-25
+
+### Added
+
+- **Incline Dumbbell Press** (`incline_db_press`) -- fourth exercise in the registry.
+  External-load only (`bw_fraction=0.0`); weight logged **per-hand** (single dumbbell).
+  No variant rotation (user chooses comfortable grip/angle). TEST frequency every 4 weeks.
+  Equipment: adjustable bench + dumbbells.
+- **`available_weights_kg` in `EquipmentState`** -- per-exercise list of discrete dumbbell
+  (or plate) weights stored in the user's profile. Different exercises can have different
+  weight sets (e.g. `incline_db_press` at the gym, `bss` at home). When non-empty, the
+  planner **floor-snaps** all weight prescriptions to the largest available weight ≤ the
+  computed ideal -- no fractional or unavailable weights are ever prescribed. Empty list
+  (default) preserves the previous 0.5 kg rounding behaviour.
+- **`available_weights_kg` parameter in `update_equipment()`** -- set or clear discrete
+  weight options per exercise. `None` (default) inherits the value from the previous
+  equipment entry; `[]` reverts to continuous 0.5 kg rounding.
+
+---
+
 ## [0.5.0] -- 2026-03-24
 
 ### Breaking changes

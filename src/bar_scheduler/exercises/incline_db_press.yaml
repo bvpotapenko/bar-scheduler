@@ -1,0 +1,95 @@
+exercise_id: incline_db_press
+display_name: "Incline Dumbbell Press"
+muscle_group: upper_push
+
+bw_fraction: 0.0
+load_type: external_only
+
+# No rotation -- user picks their comfortable grip and angle
+variants: [standard]
+primary_variant: standard
+variant_factors:
+  standard: 1.00
+has_variant_rotation: false
+
+session_params:
+  S:
+    reps_fraction_low: 0.35
+    reps_fraction_high: 0.55
+    reps_min: 3
+    reps_max: 6
+    sets_min: 3
+    sets_max: 5
+    rest_min: 180
+    rest_max: 300
+    rir_target: 2
+  H:
+    reps_fraction_low: 0.55
+    reps_fraction_high: 0.80
+    reps_min: 6
+    reps_max: 15
+    sets_min: 3
+    sets_max: 5
+    rest_min: 90
+    rest_max: 150
+    rir_target: 2
+  E:
+    reps_fraction_low: 0.40
+    reps_fraction_high: 0.60
+    reps_min: 12
+    reps_max: 20
+    sets_min: 3
+    sets_max: 5
+    rest_min: 45
+    rest_max: 90
+    rir_target: 3
+  T:
+    reps_fraction_low: 0.25
+    reps_fraction_high: 0.45
+    reps_min: 4
+    reps_max: 8
+    sets_min: 3
+    sets_max: 5
+    rest_min: 90
+    rest_max: 150
+    rir_target: 4
+  TEST:
+    reps_fraction_low: 1.00
+    reps_fraction_high: 1.00
+    reps_min: 1
+    reps_max: 30
+    sets_min: 1
+    sets_max: 1
+    rest_min: 180
+    rest_max: 300
+    rir_target: 0
+
+target_metric: max_reps
+target_value: 15.0
+
+test_protocol: |
+  INCLINE DUMBBELL PRESS MAX REP TEST
+  Set bench to your preferred incline (typically 30–45°).
+  Warm-up: 2 sets of 8 reps at ~60% test weight, rest 2 min.
+  Test: choose a challenging dumbbell weight.
+  Press to full elbow extension at top; lower until upper arms parallel to floor.
+  Controlled tempo — no bouncing, no arch. Stop at the first rep you cannot complete.
+  Log weight as per-hand dumbbell weight. Example: 2 × 20 kg → log 20 kg.
+  Log as: --exercise incline_db_press --session-type TEST --sets 'N@<per_hand_kg>/180'
+test_frequency_weeks: 4
+
+onerm_includes_bodyweight: false
+onerm_explanation: >
+  Incline dumbbell press 1RM is computed from the per-hand dumbbell weight only
+  (bw_fraction=0). Example: 20 kg dumbbells for 8 reps → Leff = 20 kg →
+  1RM = 20 × (1 + 8/30) ≈ 25.3 kg per hand.
+  Formula: 1RM = weight_kg × (1 + reps / 30)  [Epley].
+
+weight_increment_fraction: 0.0
+weight_tm_threshold: 999
+max_added_weight_kg: 32.0   # per-hand maximum (32 kg dumbbell)
+
+equipment:
+  DUMBBELLS:
+    label: "Dumbbells (per hand)"
+    assistance_kg: 0.0

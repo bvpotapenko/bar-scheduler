@@ -296,6 +296,8 @@ def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
         d["machine_assistance_kg"] = state.machine_assistance_kg
     if state.elevation_height_cm is not None:
         d["elevation_height_cm"] = state.elevation_height_cm
+    if state.available_weights_kg:
+        d["available_weights_kg"] = list(state.available_weights_kg)
     return d
 
 
@@ -308,6 +310,7 @@ def dict_to_equipment_state(data: dict[str, Any]) -> EquipmentState:
         elevation_height_cm=data.get("elevation_height_cm"),
         valid_from=str(data.get("valid_from", "")),
         valid_until=data.get("valid_until"),
+        available_weights_kg=[float(w) for w in data.get("available_weights_kg", [])],
     )
 
 

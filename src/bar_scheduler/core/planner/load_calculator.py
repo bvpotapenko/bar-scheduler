@@ -39,6 +39,24 @@ def _apply_cap(value: float, max_kg: float) -> float:
     return min(value, max_kg)
 
 
+def _snap_to_available(weight_kg: float, available: list[float]) -> float:
+    """Floor-snap weight_kg to the largest available weight ≤ weight_kg.
+
+    If the prescription is below all available weights (e.g. a new user whose
+    first session starts lighter than the smallest dumbbell), return the
+    smallest available weight so they always train with real equipment.
+
+    Args:
+        weight_kg: The ideally computed weight.
+        available: Sorted or unsorted list of available weights (e.g. [2, 4, ..., 32]).
+
+    Returns:
+        The snapped weight from the available list.
+    """
+    below = [w for w in available if w <= weight_kg]
+    return max(below) if below else min(available)
+
+
 def _last_test_weight_bss(history: list, exercise: ExerciseDefinition) -> float:
     """
     Return the dumbbell weight from the most recent TEST session.
@@ -97,11 +115,12 @@ def _calculate_added_weight(
     bodyweight_kg: float,
     history: list,
     session_type: str,
+    available_weights_kg: list[float] | None = None,
 ) -> float:
     """
     Calculate added weight for a session.
 
-    For external_only exercises (BSS):
+    For external_only exercises (BSS, incline_db_press):
         Carry forward the weight from the last TEST session.
 
     For bw_plus_external exercises (pull_up, dip) when TM > threshold:
@@ -112,18 +131,25 @@ def _calculate_added_weight(
 
     When TM ≤ weight_tm_threshold: return 0.0 (bodyweight-only phase).
 
+    When ``available_weights_kg`` is non-empty the result is floor-snapped to
+    the largest available weight ≤ the computed ideal (instead of 0.5 kg rounding).
+
     Args:
         exercise: Exercise definition.
         training_max: Current training max (reps).
         bodyweight_kg: User's current bodyweight.
         history: Full exercise history for 1RM estimation.
         session_type: Session type string ("S", "H", "E", "T", "TEST").
+        available_weights_kg: Discrete weights the user owns; empty = continuous.
 
     Returns:
-        Added weight in kg (≥ 0, rounded to 0.5 kg).
+        Added weight in kg (≥ 0, snapped or rounded to available increment).
     """
     if exercise.load_type == "external_only":
-        return _last_test_weight_bss(history, exercise)
+        w = _last_test_weight_bss(history, exercise)
+        if available_weights_kg and w > 0:
+            w = _snap_to_available(w, available_weights_kg)
+        return w
 
     if training_max <= exercise.weight_tm_threshold:
         return 0.0
@@ -144,8 +170,11 @@ def _calculate_added_weight(
     target_reps = _SESSION_TARGET_REPS.get(session_type, 8)
     leff_target = leff_1rm * TM_FACTOR / (1 + target_reps / 30)
     added = leff_target - bw_contrib
+    added = max(0.0, _apply_cap(added, exercise.max_added_weight_kg))
 
-    return max(0.0, _apply_cap(_apply_rounding(added), exercise.max_added_weight_kg))
+    if available_weights_kg:
+        return _snap_to_available(added, available_weights_kg)
+    return _apply_rounding(added)
 
 
 def estimate_prescription_weight(
@@ -153,6 +182,7 @@ def estimate_prescription_weight(
     exercise: ExerciseDefinition,
     bodyweight_kg: float,
     at_reps: int,
+    available_weights_kg: list[float] | None = None,
 ) -> float:
     """
     Estimate the added weight prescription the planner would assign for `at_reps`.
@@ -168,12 +198,16 @@ def estimate_prescription_weight(
         exercise: Exercise definition.
         bodyweight_kg: User's current bodyweight.
         at_reps: The rep target to project weight for (e.g. goal reps).
+        available_weights_kg: Discrete weights the user owns; empty = continuous.
 
     Returns:
-        Projected added weight in kg (≥ 0, rounded to 0.5 kg, capped at max).
+        Projected added weight in kg (≥ 0, snapped or rounded to available increment).
     """
     if exercise.load_type == "external_only":
-        return _last_test_weight_bss(history, exercise)
+        w = _last_test_weight_bss(history, exercise)
+        if available_weights_kg and w > 0:
+            w = _snap_to_available(w, available_weights_kg)
+        return w
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
     leff_1rm = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
@@ -183,4 +217,8 @@ def estimate_prescription_weight(
 
     leff_target = leff_1rm * TM_FACTOR / (1 + at_reps / 30)
     added = leff_target - bw_contrib
-    return max(0.0, _apply_cap(_apply_rounding(added), exercise.max_added_weight_kg))
+    added = max(0.0, _apply_cap(added, exercise.max_added_weight_kg))
+
+    if available_weights_kg:
+        return _snap_to_available(added, available_weights_kg)
+    return _apply_rounding(added)

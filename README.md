@@ -1,6 +1,6 @@
 # bar-scheduler
 
-Evidence-informed training planner for bodyweight and weighted strength exercises -- **Pull-Up**, **Parallel Bar Dip**, **Bulgarian Split Squat (DB)** - can be extended to more via YAML config.
+Evidence-informed training planner for bodyweight and weighted strength exercises -- **Pull-Up**, **Parallel Bar Dip**, **Bulgarian Split Squat (DB)**, **Incline Dumbbell Press** - can be extended to more via YAML config.
 
 
 A Python library and planning engine. Suitable for direct use in scripts, bots, and web services. 

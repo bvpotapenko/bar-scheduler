@@ -13,7 +13,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 1.3 | Update any subset of profile fields surgically (preserves plan anchors, equipment, other internal keys) | `update_profile` |
 | 1.4 | Update current bodyweight | `update_bodyweight` |
 | 1.5 | Set display language | `update_language` |
-| 1.6 | Profile fields: `height_cm`, `exercise_days`, `exercise_targets`, `exercises_enabled`, `rest_preference`, `injury_notes`, `language` | stored in `profile.json` |
+| 1.6 | Profile fields: `height_cm`, `exercise_days`, `exercise_targets`, `exercises_enabled`, `language` | stored in `profile.json` |
 | 1.7 | Multi-user isolation -- every function takes `data_dir: Path` | all functions |
 
 ## 2. Exercise Management
@@ -26,14 +26,14 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 2.4 | Delete exercise history JSONL file permanently | `delete_exercise_history` |
 | 2.5 | Set per-exercise rep goal (bodyweight or weighted) | `set_exercise_target` |
 | 2.6 | Set per-exercise training frequency (1–5 days/week) | `set_exercise_days` |
-| 2.7 | Three built-in exercises: Pull-Up (`bw_fraction=1.0`), Parallel Bar Dip (`bw_fraction=0.92`), BSS (`bw_fraction=0.71`) | -- |
+| 2.7 | Four built-in exercises: Pull-Up (`bw_fraction=1.0`), Parallel Bar Dip (`bw_fraction=0.92`), BSS (`bw_fraction=0.71`), Incline Dumbbell Press (`bw_fraction=0.0`, per-hand weight) | -- |
 | 2.8 | Single exercise metadata lookup by ID | `get_exercise_info` |
 
 ## 3. Equipment Management
 
 | # | Feature | API function / notes |
 |---|---------|---------------------|
-| 3.1 | Configure equipment per exercise (bands, machine assistance, BSS elevation surface) | `update_equipment` |
+| 3.1 | Configure equipment per exercise (bands, machine assistance, BSS elevation surface, discrete weight set) | `update_equipment` |
 | 3.2 | Equipment history with valid-from / valid-until timestamps (append-only) | automatic |
 | 3.3 | Equipment catalog per exercise | `get_equipment_catalog` |
 | 3.4 | Effective load (Leff) computed from bodyweight fraction + added weight − assistance | `compute_leff` |
@@ -44,6 +44,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 3.9 | Assistance kg for any item (including machine-assisted) | `get_assistance_kg` |
 | 3.10 | Next item in assist progression for an exercise | `get_next_band_step(item_id, exercise_id)` |
 | 3.11 | Full assist progression list for an exercise (YAML-driven, per-exercise) | `get_assist_progression(exercise_id)` |
+| 3.12 | Per-exercise discrete weight set stored in profile (`available_weights_kg`); planner floor-snaps prescriptions to largest available weight ≤ ideal — no fractional or unavailable weights prescribed | `update_equipment(…, available_weights_kg=[…])` |
 
 ## 4. Training Log (Session Logging)
 
@@ -125,4 +126,4 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 ---
 
-*Last updated: 2026-03-23 (0.4.2: removed sex/preferred_days_per_week/max_session_duration_minutes; enable_exercise requires days_per_week; equipment active_item → recommended_item auto-selected; weight prescription uses Leff-1RM Epley for all session types).*
+*Last updated: 2026-03-25 (0.5.1: added incline_db_press exercise; added available_weights_kg to EquipmentState for discrete weight snapping).*

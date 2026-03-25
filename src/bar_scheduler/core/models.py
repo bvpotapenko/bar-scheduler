@@ -116,6 +116,11 @@ class EquipmentState:
     elevation_height_cm: int | None = None      # only for BSS ELEVATION_SURFACE
     valid_from: str = ""                # ISO date of this entry
     valid_until: str | None = None      # None = still current
+    available_weights_kg: list[float] = field(default_factory=list)
+    # Discrete dumbbell / plate weights the user owns for this exercise.
+    # Empty list = continuous (0.5 kg rounding, existing behaviour).
+    # When non-empty, the planner floor-snaps weight prescriptions to the
+    # largest available weight ≤ the computed ideal.
 
 
 @dataclass

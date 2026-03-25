@@ -106,6 +106,7 @@ def calculate_set_prescription(
     history: list[SessionResult] | None = None,
     history_sessions: int = 0,
     recent_same_type: list[SessionResult] | None = None,
+    available_weights_kg: list[float] | None = None,
 ) -> list[PlannedSet]:
     """
     Calculate set prescription for a session.
@@ -123,6 +124,7 @@ def calculate_set_prescription(
         history: Full exercise history used for Leff-1RM estimation
         history_sessions: Number of sessions in history (for autoregulation gating)
         recent_same_type: Recent sessions of the same type (for adaptive rest)
+        available_weights_kg: Discrete weights the user owns; empty = continuous rounding.
 
     Returns:
         List of PlannedSet
@@ -146,7 +148,8 @@ def calculate_set_prescription(
 
     # Added weight applies to all session types; 0.0 when in BW-only phase
     added_weight = _calculate_added_weight(
-        exercise, training_max, bodyweight_kg, history or [], session_type
+        exercise, training_max, bodyweight_kg, history or [], session_type,
+        available_weights_kg=available_weights_kg,
     )
 
     if session_type == "E":

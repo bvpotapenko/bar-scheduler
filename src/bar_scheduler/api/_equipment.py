@@ -16,6 +16,7 @@ def update_equipment(
     machine_assistance_kg: float | None = None,
     elevation_height_cm: int | None = None,
     valid_from: str | None = None,
+    available_weights_kg: list[float] | None = None,
 ) -> None:
     """
     Update the equipment available for an exercise.
@@ -24,18 +25,34 @@ def update_equipment(
     based on the user's current training level — no manual ``active_item``
     required.
 
+    ``available_weights_kg`` is an optional list of discrete dumbbell / plate
+    weights (in kg) the user owns for this exercise.  When set, the planner
+    floor-snaps weight prescriptions to the largest available weight ≤ the
+    computed ideal.  Pass ``[]`` to revert to continuous 0.5 kg rounding.
+    Pass ``None`` (default) to leave the value unchanged from the previous
+    equipment entry.
+
     The previous entry is automatically closed (valid_until = yesterday).
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
     from ..core.models import EquipmentState
 
     store = _require_store(data_dir, exercise_id)
+
+    # Inherit available_weights_kg from the previous entry when not supplied
+    if available_weights_kg is None:
+        prev = store.load_current_equipment(exercise_id)
+        inherited = prev.available_weights_kg if prev is not None else []
+    else:
+        inherited = list(available_weights_kg)
+
     state = EquipmentState(
         exercise_id=exercise_id,
         available_items=list(available_items),
         machine_assistance_kg=machine_assistance_kg,
         elevation_height_cm=elevation_height_cm,
         valid_from=valid_from or "",
+        available_weights_kg=inherited,
     )
     store.update_equipment(state)
 

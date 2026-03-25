@@ -46,12 +46,16 @@ def get_plan(
     )
     ot_level = ot_severity["level"]
 
+    eq_state = store.load_current_equipment(exercise_id)
+    available_weights_kg = eq_state.available_weights_kg if eq_state is not None else []
+
     plans = generate_plan(
         user_state,
         plan_start_date,
         exercise,
         weeks_ahead=total_weeks,
         overtraining_level=ot_level,
+        available_weights_kg=available_weights_kg or None,
     )
 
     training_status = _get_training_status(
@@ -141,7 +145,13 @@ def refresh_plan(data_dir: Path, exercise_id: str) -> dict:
     today = datetime.now().strftime("%Y-%m-%d")
     store.set_plan_start_date(exercise_id, today)
 
-    plans = generate_plan(user_state, today, exercise, weeks_ahead=2)
+    eq_state = store.load_current_equipment(exercise_id)
+    available_weights_kg = eq_state.available_weights_kg if eq_state is not None else []
+
+    plans = generate_plan(
+        user_state, today, exercise, weeks_ahead=2,
+        available_weights_kg=available_weights_kg or None,
+    )
     next_session = next((p for p in plans if p.date >= today), None)
 
     return {
@@ -188,6 +198,10 @@ def explain_session(
         "%Y-%m-%d"
     )
 
+    eq_state = store.load_current_equipment(exercise_id)
+    available_weights_kg = eq_state.available_weights_kg if eq_state is not None else []
+    avail = available_weights_kg or None
+
     if date.lower() == "next":
         plans = generate_plan(
             user_state,
@@ -196,6 +210,7 @@ def explain_session(
             weeks_ahead=total_weeks,
             overtraining_level=ot_level,
             overtraining_rest_days=ot_rest,
+            available_weights_kg=avail,
         )
         today_str = today_dt.strftime("%Y-%m-%d")
         nxt = next((p for p in plans if p.date >= today_str), None)
@@ -214,6 +229,7 @@ def explain_session(
         weeks_ahead=total_weeks,
         overtraining_level=ot_level,
         overtraining_rest_days=ot_rest,
+        available_weights_kg=avail,
     )
 
 
