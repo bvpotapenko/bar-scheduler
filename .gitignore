@@ -107,3 +107,6 @@ site/
 
 # manager
 **/.backlog/
+
+# Local backlog
+backlog.md

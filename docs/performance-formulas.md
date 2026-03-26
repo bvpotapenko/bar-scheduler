@@ -1,24 +1,6 @@
-# Performance Formulas: EBR, Capability, and Progress
+# Performance Formulas: Volume and 1RM
 
-This document describes the three user-facing metrics that replace the internal
-Banister training-load value in the public API.
-
----
-
-## Why not just show "load"?
-
-The internal Banister load (`w(t)`) is correct for fitness-fatigue modeling, but
-confusing as a user-facing number because:
-
-- It uses an RIR assumption (default 2) that makes goal load numerically smaller
-  than test load even when the goal is objectively harder.
-- It conflates effort level, rep count, and weight into one number with no
-  intuitive anchor.
-- Comparing "Load = 19 (goal)" to "Load = 26 (test)" implies the goal is easier,
-  which is wrong.
-
-The three metrics below each answer exactly one question and are independent of
-each other.
+This document describes the user-facing performance metrics exposed by the API.
 
 ---
 
@@ -28,193 +10,116 @@ each other.
 BW           = bodyweight (kg)
 bw_fraction  = exercise-specific coefficient (pull_up=1.0, dip=0.92, bss=0.71,
                 incline_db_press=0.0)
-L_eff        = bw_fraction × BW + added_weight_kg  — effective working load
-load_ratio   = L_eff / BW                          — load relative to bodyweight
+assistance_kg = kg of assistance from bands/machine (0 for unassisted)
+L_eff        = bw_fraction × BW + added_weight_kg − assistance_kg  — effective working load
 ```
+
+`compute_leff(bw_fraction, bodyweight_kg, added_weight_kg, assistance_kg)` is the public
+helper that computes L_eff.  For exercises where the user's bodyweight contributes nothing
+(e.g. incline dumbbell press, bw_fraction = 0), L_eff equals the dumbbell weight alone.
 
 ---
 
-## 1. EBR — Equivalent Bodyweight Reps (volume metric)
+## 1. Volume metrics
 
-**Question: "How hard was this session?"**
-
-### Per-set formula
+### Per-set
 
 ```
-rest_penalty = max(1.0, 1 + REST_RHO × exp(-(rest_sec − 20) / REST_TAU))
-EBR_set      = reps × (load_ratio ^ EBR_ALPHA) × rest_penalty
+volume_set = L_eff × reps
 ```
-
-Rules:
-- **First set** of a session: `rest_penalty = 1.0` (fresh state, no penalty)
-- Short rest (< 60 s) increases rest_penalty → EBR_set increases → session
-  counts as harder even with the same reps and weight
-- Heavier weight raises `load_ratio^EBR_ALPHA` nonlinearly: doubling the load
-  more than doubles the EBR per rep
 
 ### Session total
 
 ```
-EBR_session = Σ EBR_set           (sum over all completed sets)
-kg_eq       = BW × EBR_session   (absolute equivalent in kg-reps)
+volume_session = Σ (L_eff × reps)   (sum over all completed sets)
 ```
 
-`kg_eq` allows comparison across users with different bodyweights.
+### Average per set
 
-### Default config (in `exercises.yaml`, section `ebr_metric`)
-
-| Constant | Default | Meaning |
-|---|---|---|
-| `EBR_ALPHA` | 1.6 | Load nonlinearity exponent |
-| `REST_TAU` | 90.0 s | Rest decay time constant |
-| `REST_RHO` | 0.25 | Rest penalty amplitude |
-| `EBR_BASE` | 1.0 | Progress formula anchor |
+```
+avg_volume_set = volume_session / n_sets
+```
 
 ### Interpretation
 
-> **1 EBR ≈ 1 rep at bodyweight, well-rested**
-
-| EBR range | What it looks like (pull-up, BW=80 kg) |
-|---|---|
-| 5–8 | 1 short set (3–5 reps) |
-| 15–25 | Moderate session (3–4 sets × 5–8 reps) |
-| 40–60 | Hard session with added weight or many sets |
-
-### Worked example
-
-Pull-up, BW=80 kg, session: 5 reps / 4 reps / 3 reps, rest=180 s between sets
-
-```
-set 0 (first): rest_penalty=1.0, L_eff=80, load_ratio=1.0
-  EBR = 5 × 1.0^1.6 × 1.0 = 5.00
-
-set 1: rest_penalty = 1 + 0.25×exp(-160/90) ≈ 1.042
-  EBR = 4 × 1.0 × 1.042 = 4.17
-
-set 2: same penalty
-  EBR = 3 × 1.0 × 1.042 = 3.13
-
-EBR_session = 12.30   kg_eq = 984
-```
+Volume in kg·reps makes load and effort comparable across sessions with different
+weights and rep counts.  A session of 4 × 8 reps at L_eff = 90 kg gives
+`volume_session = 2880 kg·reps`.
 
 ---
 
-## 2. Capability — current strength estimate
+## 2. 1RM estimation
 
 **Question: "How strong am I right now?"**
 
-```
-one_rm_leff = max over all history: L_eff × (1 + reps / 30)   [Epley 1RM]
-```
+The 1RM for any completed set (or a planned / goal set) is estimated using a
+rep-range-aware blend of formulas for best accuracy:
 
-This is the best effective-load 1RM estimate from all historical sessions (TEST
-and training). Weighted sets naturally yield higher estimates because their L_eff
-is larger.
+| Rep range | Formulas blended | Best for |
+|---|---|---|
+| r ≤ 5 | avg(Brzycki, Lander) | Near-maximal strength sets |
+| 6 ≤ r ≤ 10 | avg(Brzycki, Lander, Epley) | Moderate hypertrophy range |
+| 11 ≤ r ≤ 20 | avg(Lombardi, Epley) | Higher rep / endurance sets |
+| r > 20 | None (unreliable) | — |
 
-`one_rm_leff` is expressed in kg (effective load). To project **max reps at any
-target weight**, use the Epley inverse (see Progress section below).
-
----
-
-## 3. Progress % — nonlinear goal proximity
-
-**Question: "How close am I to my goal?"**
-
-### Computing max reps at goal weight
+The formulas operate on `L_eff` (not raw added weight) and return the estimated 1RM
+in the same `L_eff` units:
 
 ```
-goal_leff        = bw_fraction × BW + goal_weight_kg
-max_reps_at_goal = max(0, 30 × (one_rm_leff / goal_leff − 1))   [Epley inverse]
+epley_1rm    = L_eff × (1 + r / 30)
+brzycki_1rm  = L_eff / (1.0278 − 0.0278 × r)
+lander_1rm   = 100 × L_eff / (101.3 − 2.67123 × r)
+lombardi_1rm = L_eff × r ^ 0.10
 ```
 
-This gives the **concrete, readable number**: "You can currently do ~6 reps at
-+25 kg."
-
-### Log-based progress formula
-
-```
-progress = clamp(log(max_reps_at_goal / EBR_BASE) / log(goal_reps / EBR_BASE), 0, 1)
-progress_pct = progress × 100
-```
-
-With `EBR_BASE = 1.0` this simplifies to:
-
-```
-progress_pct = 100 × ln(max_reps_at_goal) / ln(goal_reps)   (when 1 ≤ max_reps < goal_reps)
-```
-
-### Why log scale?
-
-Strength adaptation follows a power-law curve (Newell & Rosenbloom, 1981): early
-gains are large and fast; gains near the ceiling are small and slow.
-
-Linear progress (`6/12 = 50%`) overstates how far you have to go. Going from 1 rep
-to 6 reps at a given weight requires far more strength adaptation than going from 6
-to 12 reps. The log scale captures this correctly:
-
-| Max reps now | Goal reps | Linear % | Log % |
-|---|---|---|---|
-| 1 | 12 | 8% | 0% |
-| 3 | 12 | 25% | 44% |
-| 6 | 12 | 50% | 72% |
-| 9 | 12 | 75% | 88% |
-| 12 | 12 | 100% | 100% |
-
-### Difficulty ratio
-
-```
-difficulty_ratio = EBR_goal / EBR_cap_at_goal
-```
-
-- `= 1.0` → goal is exactly at current capability
-- `> 1.0` → goal is harder than current level (e.g. 1.5 = 50% more demanding)
-- `< 1.0` → goal already exceeded
-
-### Worked example
-
-User: BW=80 kg, can do 12 pull-ups max → `one_rm_leff = 80 × (1 + 12/30) = 112 kg`
-
-Goal: 12 dips @ +25 kg added weight
-
-```
-goal_leff        = 80×0.92 + 25 = 98.6 kg
-max_reps_at_goal = 30 × (112/98.6 − 1) = 30 × 0.136 = 4.1 reps
-progress_pct     = 100 × ln(4.1) / ln(12) = 100 × 1.411 / 2.485 = 56.8%
-difficulty_ratio = (12 × (98.6/80)^1.6) / (4.1 × (98.6/80)^1.6) = 12/4.1 ≈ 2.93
-```
-
-**Meaning**: "You can currently do ~4 reps at +25 kg dips. Your goal is 12 reps.
-You are 57% of the way there. The goal is 2.9× harder than your current level."
+For a session, the **best** 1RM estimate across all sets is reported
+(the set that yields the highest estimate).
 
 ---
 
 ## API reference
 
+### Goal metrics
+
 ```python
-from bar_scheduler.api import get_ebr_data, get_goal_progress, compute_set_ebr
+from bar_scheduler.api import get_goal_metrics
 
-# Per-session EBR history + projected plan
-data = get_ebr_data(data_dir, "dip", weeks_ahead=4)
-# → {"history": [{"date", "session_type", "ebr", "kg_eq"}, ...],
-#    "plan":    [{"date", "session_type", "ebr", "kg_eq"}, ...]}
-
-# Current capability and progress toward goal
-prog = get_goal_progress(data_dir, "dip")
+prog = get_goal_metrics(data_dir, "pull_up")
 # → {
-#     "one_rm_leff": 112.0,          # best Epley 1RM (effective kg)
-#     "capability_ebr": 1.98,        # EBR of one rep at 1RM
-#     "goal_reps": 12,
-#     "goal_weight_kg": 25.0,
-#     "goal_ebr": 16.76,             # EBR of hitting the goal exactly
-#     "max_reps_at_goal": 4.1,       # predicted reps at goal weight NOW
-#     "progress_pct": 56.8,          # 0–100, nonlinear log scale
-#     "difficulty_ratio": 2.93,      # how much harder goal is vs. now
-#   }
-
-# EBR for a single hypothetical set
-ebr = compute_set_ebr(data_dir, "dip", reps=12, added_weight_kg=25.0)
-# → float (EBR contribution of this set at well-rested, neutral conditions)
+#     "goal_reps": 12,              # int | None
+#     "goal_weight_kg": 0.0,        # float | None  — added weight at goal
+#     "goal_leff": 80.0,            # float | None  — L_eff at goal
+#     "estimated_1rm": 109.3,       # float | None  — 1RM implied by achieving goal
+#     "volume_set": 960.0,          # float | None  — L_eff × goal_reps (one goal set)
+# }
 ```
+
+All fields are `None` when no goal has been set via `set_exercise_target`.
+
+`estimated_1rm` answers: "What 1RM would I have **if** I could do `goal_reps` at
+`goal_weight`?" — computed from `(goal_leff, goal_reps)` using the best formula for
+that rep range.
+
+### History and plan sessions
+
+Each history record returned by `get_history()` and each session in `get_plan()["sessions"]`
+includes a `session_metrics` dict:
+
+```python
+s["session_metrics"]
+# → {
+#     "volume_session": 1280.0,    # float  — Σ(L_eff × reps) over all completed sets
+#     "avg_volume_set": 640.0,     # float  — volume_session / n_sets
+#     "estimated_1rm": 101.7,      # float | None  — best 1RM estimate across all sets
+# }
+```
+
+For **history** sessions: metrics are computed once at log time (`log_session`) and
+stored in the JSONL file.  Sessions logged before this feature was introduced return
+`None` for all three fields.
+
+For **planned** sessions: metrics are computed from the prescription (target reps and
+added weight) using the current bodyweight.
 
 ---
 
@@ -222,5 +127,5 @@ ebr = compute_set_ebr(data_dir, "dip", reps=12, added_weight_kg=25.0)
 
 The Banister fitness-fatigue model (`physiology.py`) still uses `w(t)` internally
 to compute `fitness`, `fatigue`, `readiness_z_score`, and `deload_recommended`
-in `get_training_status()`. These are not exposed as EBR — they are distinct
-internal signals for plan autoregulation.
+in `get_training_status()`.  These are not exposed as volume metrics — they are
+distinct internal signals for plan autoregulation.

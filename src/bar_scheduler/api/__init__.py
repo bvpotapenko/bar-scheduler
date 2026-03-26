@@ -61,13 +61,7 @@ from ._analysis import (
     get_volume_data,
     get_progress_data,
     get_overtraining_status,
-)
-
-# EBR metrics (user-facing volume, capability, progress)
-from ._ebr import (
-    get_ebr_data,
-    get_goal_progress,
-    compute_set_ebr,
+    get_goal_metrics,
 )
 
 # Equipment
@@ -134,10 +128,7 @@ __all__ = [
     "get_volume_data",
     "get_progress_data",
     "get_overtraining_status",
-    # EBR metrics
-    "get_ebr_data",
-    "get_goal_progress",
-    "compute_set_ebr",
+    "get_goal_metrics",
     # Equipment
     "update_equipment",
     "get_current_equipment",

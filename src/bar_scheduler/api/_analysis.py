@@ -8,7 +8,9 @@ from ..core.adaptation import get_training_status as _get_training_status
 from ..core.adaptation import overtraining_severity
 from ..core.config import TM_FACTOR, expected_reps_per_week
 from ..core.exercises.registry import get_exercise
+from ..core.equipment import compute_leff
 from ..core.metrics import (
+    best_1rm_from_leff,
     blended_1rm_added,
     estimate_1rm,
     get_test_sessions,
@@ -230,6 +232,49 @@ def get_progress_data(
         "trajectory_z": traj_z,
         "trajectory_g": traj_g,
         "trajectory_m": traj_m,
+    }
+
+
+def get_goal_metrics(data_dir: Path, exercise_id: str) -> dict:
+    """
+    Return performance metrics for the user's goal for this exercise.
+
+    All fields are ``None`` when no goal has been set via ``set_exercise_target``.
+
+    Returns a dict with:
+    - ``goal_reps`` -- target reps (``int | None``)
+    - ``goal_weight_kg`` -- target added weight (``float | None``)
+    - ``goal_leff`` -- effective load at goal (``float | None``)
+    - ``estimated_1rm`` -- 1RM implied by achieving the goal, in Leff kg (``float | None``)
+    - ``volume_set`` -- ``goal_leff × goal_reps``, a single set at goal spec (``float | None``)
+    """
+    exercise = get_exercise(exercise_id)
+    store = _require_store(data_dir, exercise_id)
+    user_state = store.load_user_state(exercise_id)
+
+    target = user_state.profile.target_for_exercise(exercise_id)
+    if target is None:
+        return {
+            "goal_reps": None,
+            "goal_weight_kg": None,
+            "goal_leff": None,
+            "estimated_1rm": None,
+            "volume_set": None,
+        }
+
+    goal_leff = compute_leff(
+        exercise.bw_fraction,
+        user_state.current_bodyweight_kg,
+        target.weight_kg,
+        0.0,
+    )
+    est_1rm = best_1rm_from_leff(goal_leff, target.reps)
+    return {
+        "goal_reps": target.reps,
+        "goal_weight_kg": target.weight_kg,
+        "goal_leff": round(goal_leff, 2),
+        "estimated_1rm": round(est_1rm, 2) if est_1rm is not None else None,
+        "volume_set": round(goal_leff * target.reps, 2),
     }
 
 

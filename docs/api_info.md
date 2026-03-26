@@ -28,8 +28,8 @@ from bar_scheduler.api import (
     # Analysis
     get_training_status, get_onerepmax_data,
     get_volume_data, get_progress_data, get_overtraining_status,
-    # EBR metrics (user-facing volume, capability, progress)
-    get_ebr_data, get_goal_progress, compute_set_ebr,
+    # Performance metrics (volume, 1RM)
+    get_goal_metrics,
     # Equipment helpers
     get_current_equipment, check_band_progression,
     compute_leff, compute_equipment_adjustment, get_assistance_kg,
@@ -238,6 +238,12 @@ for s in history:
 
     s["equipment_snapshot"]   # dict | None -- equipment active at log time
     s["notes"]                # str | None
+
+    s["session_metrics"]      # dict — pre-computed at log time
+    s["session_metrics"]["volume_session"]  # float  — Σ(L_eff × reps)
+    s["session_metrics"]["avg_volume_set"]  # float  — volume_session / n_sets
+    s["session_metrics"]["estimated_1rm"]   # float | None  — best 1RM from any set
+    # All three are None for sessions logged before metrics caching was added.
 ```
 
 Session types: `S` = Strength, `H` = Hypertrophy, `E` = Endurance, `T` = Technique,
@@ -312,6 +318,13 @@ for s in plan["sessions"]:
     if s["track_b"]:   # between-test max estimates for past non-TEST sessions
         s["track_b"]["fi_est"]     # FI method estimate
         s["track_b"]["nuzzo_est"]  # Nuzzo method estimate
+
+    s["session_metrics"]      # dict | None — performance metrics for this session
+    # For completed ("done") sessions: from cached session_metrics in history.
+    # For future ("planned"/"next") sessions: computed from prescription.
+    s["session_metrics"]["volume_session"]  # float
+    s["session_metrics"]["avg_volume_set"]  # float
+    s["session_metrics"]["estimated_1rm"]   # float | None
 ```
 
 ### `plan["overtraining"]`
@@ -429,38 +442,23 @@ for pt in (progress["trajectory_m"] or []):
 
 ---
 
-## 10. EBR Metrics (user-facing volume, capability, progress)
+## 10. Performance Metrics (volume and 1RM)
 
-Three metrics that replace the internal Banister load in user displays.
+Volume and 1RM metrics for goals, history sessions, and plan prescriptions.
 See `docs/performance-formulas.md` for full formula reference.
 
 ```python
-# Per-session EBR (Equivalent Bodyweight Reps) — history and projected plan
-data = get_ebr_data(data_dir, "dip", weeks_ahead=4)
-for entry in data["history"]:
-    entry["date"]          # "YYYY-MM-DD"
-    entry["session_type"]  # "S" | "H" | "E" | "T" | "TEST"
-    entry["ebr"]           # float — session EBR (how hard was this session?)
-    entry["kg_eq"]         # float — BW × ebr (absolute equivalent in kg-reps)
-# data["plan"] has the same shape (projected future sessions)
+# Goal metrics — what would performance look like if the goal were achieved?
+prog = get_goal_metrics(data_dir, "dip")
+prog["goal_reps"]        # int | None    — target reps (from set_exercise_target)
+prog["goal_weight_kg"]   # float | None  — target added weight
+prog["goal_leff"]        # float | None  — effective load at goal
+prog["estimated_1rm"]    # float | None  — 1RM implied by achieving goal (in Leff kg)
+prog["volume_set"]       # float | None  — goal_leff × goal_reps (one goal set)
+# All fields are None when no goal is set.
 
-# Current capability and nonlinear progress toward goal
-prog = get_goal_progress(data_dir, "dip")
-prog["one_rm_leff"]        # float | None  — best Epley 1RM (effective load kg)
-prog["capability_ebr"]     # float | None  — EBR of one rep at estimated max
-prog["goal_reps"]          # int | None    — target reps (from set_exercise_target)
-prog["goal_weight_kg"]     # float | None  — target added weight
-prog["goal_ebr"]           # float | None  — EBR of hitting goal exactly
-prog["max_reps_at_goal"]   # float | None  — predicted reps at goal weight RIGHT NOW
-                           #                 "You can currently do ~6 reps at +25 kg"
-prog["progress_pct"]       # float | None  — 0–100, log-based nonlinear scale
-prog["difficulty_ratio"]   # float | None  — EBR_goal / EBR_cap (>1 = goal harder)
-
-# EBR for a single hypothetical set (e.g. compare goal vs. current sessions)
-ebr = compute_set_ebr(data_dir, "dip", reps=12, added_weight_kg=25.0)
-# Optional keyword arguments:
-#   rest_seconds=180    — rest before this set (default 180 = well-rested)
-#   bodyweight_kg       — override bodyweight; defaults to current profile value
+# Session metrics are embedded in get_history() and get_plan() responses.
+# See §5 (History: read) and §7 (plan["sessions"]) for the session_metrics shape.
 ```
 
 ---

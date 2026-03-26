@@ -8,33 +8,32 @@ All notable changes to bar-scheduler are documented here.
 
 ### Added
 
-- **EBR metrics — user-facing volume, capability, and progress system** -- replaces the
-  internal Banister load in the public API with three distinct, interpretable metrics:
-  - **`get_ebr_data(data_dir, exercise_id, weeks_ahead=4) -> dict`** — per-session
-    EBR (Equivalent Bodyweight Reps) for history and the upcoming plan. Each entry has
-    `{"date", "session_type", "ebr", "kg_eq"}`. Formula:
-    `EBR_set = reps × (L_eff/BW)^EBR_ALPHA × rest_penalty`. See
-    `docs/performance-formulas.md`.
-  - **`get_goal_progress(data_dir, exercise_id) -> dict`** — current strength capability
-    and nonlinear progress toward the set goal. Key fields: `max_reps_at_goal` (predicted
-    reps at goal weight right now), `progress_pct` (0–100, log-based nonlinear scale),
-    `difficulty_ratio` (EBR_goal / EBR_cap — how much harder the goal is vs. now).
-  - **`compute_set_ebr(data_dir, exercise_id, reps, added_weight_kg=0.0, *, rest_seconds=180,
-    bodyweight_kg=None) -> float`** — EBR for a single hypothetical set. Useful for
-    comparing a goal scenario against historical session EBRs.
-- **EBR config constants** in `exercises.yaml` (section `ebr_metric`): `EBR_ALPHA=1.6`,
-  `REST_TAU=90.0`, `REST_RHO=0.25`, `EBR_BASE=1.0`. User-overridable.
-- **`docs/performance-formulas.md`** — formula reference with worked examples for all
-  three EBR metrics.
-- **`core/ebr.py`** — pure EBR computation functions (no I/O).
+- **`get_goal_metrics(data_dir, exercise_id) -> dict`** — performance metrics implied by
+  the user's goal. Returns `goal_reps`, `goal_weight_kg`, `goal_leff`,
+  `estimated_1rm` (1RM the user would have *if* they hit the goal, in Leff kg), and
+  `volume_set` (`goal_leff × goal_reps`). All fields `None` when no goal is set.
+- **`session_metrics` on every history record** — `get_history()` now returns a
+  `session_metrics` dict on each session: `{"volume_session", "avg_volume_set",
+  "estimated_1rm"}`. Computed once at `log_session()` time and stored in the JSONL file
+  (no recalculation on read). Sessions logged before this change return `None` for all
+  three fields.
+- **`session_metrics` on plan session entries** — `get_plan()["sessions"]` now includes
+  `session_metrics` on every entry. For completed sessions: uses the cached value from
+  history. For planned sessions: computed from the prescription and current bodyweight.
+- **`best_1rm_from_leff(leff, reps) -> float | None`** in `core/metrics.py` — rep-range-
+  aware 1RM estimate in Leff units. Uses Brzycki + Lander (r ≤ 5), blended with Epley
+  (r ≤ 10), or Lombardi + Epley (r ≤ 20). Returns `None` for r = 0 or r > 20.
 - **Dual-dumbbell weight expansion for BSS** -- when `available_weights_kg` is set for BSS, the planner now expands the stored list of individual dumbbell weights into all achievable totals (single DB + all same/mixed pairs) before snapping the prescription. Example: `[8, 10, 16]` → `[8, 10, 16, 18, 20, 24, 26, 32]`. A prescription of 22 kg snaps to 20 kg (10+10) rather than 16 kg. The user decides how to split the total across their hands — the planner only prescribes the total.
 - **`dual_dumbbell` flag on `ExerciseDefinition`** -- new boolean field (default `False`). Set to `true` in `bss.yaml`. Can be set in user-override YAML for custom exercises that also use two dumbbells.
 
 ### Removed
 
-- **`get_load_data()`** -- replaced by `get_ebr_data()`. The internal Banister
-  fitness-fatigue model is unchanged; only the public API surface changes.
-- **`compute_session_load()`** -- replaced by `compute_set_ebr()`.
+- **EBR (Equivalent Bodyweight Reps) system removed** — `get_ebr_data()`,
+  `get_goal_progress()`, `compute_set_ebr()`, `core/ebr.py`, and the `ebr_metric`
+  section in `exercises.yaml` are all gone. Replaced by the simpler volume + 1RM
+  metrics above.
+- **`get_load_data()`** — removed (was a transient internal API).
+- **`compute_session_load()`** — removed.
 
 ---
 

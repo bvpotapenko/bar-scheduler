@@ -345,6 +345,9 @@ def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     # Only include equipment_snapshot when present
     if session.equipment_snapshot is not None:
         d["equipment_snapshot"] = equipment_snapshot_to_dict(session.equipment_snapshot)
+    # Only include session_metrics when present (cached at log time)
+    if session.session_metrics is not None:
+        d["session_metrics"] = session.session_metrics
     return d
 
 
@@ -383,6 +386,7 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
         planned_sets=[dict_to_set_result(s) for s in data.get("planned_sets", [])],
         completed_sets=[dict_to_set_result(s) for s in data.get("completed_sets", [])],
         notes=data.get("notes"),
+        session_metrics=data.get("session_metrics"),
     )
 
 

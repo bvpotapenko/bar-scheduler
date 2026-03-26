@@ -4,7 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..core.adaptation import get_training_status as _get_training_status
+from ..core.equipment import compute_leff
 from ..core.exercises.registry import get_exercise
+from ..core.metrics import best_1rm_from_leff
 from ..io.serializers import session_result_to_dict
 from ._common import (
     SessionNotFoundError,
@@ -47,6 +49,41 @@ def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
                 eq_state.available_items, ex, current_tm, ustate.history[-10:]
             )
             session_obj.equipment_snapshot = snapshot_from_state(eq_state, active_item)
+    # Compute and cache performance metrics at log time.
+    ex = get_exercise(exercise_id)
+    assistance_kg = (
+        session_obj.equipment_snapshot.assistance_kg
+        if session_obj.equipment_snapshot is not None
+        else 0.0
+    )
+    leff_reps = [
+        (
+            compute_leff(
+                ex.bw_fraction,
+                session_obj.bodyweight_kg,
+                s.added_weight_kg,
+                assistance_kg,
+            ),
+            s.actual_reps,
+        )
+        for s in session_obj.completed_sets
+        if s.actual_reps is not None and s.actual_reps > 0
+    ]
+    volumes = [leff * reps for leff, reps in leff_reps]
+    n = len(volumes)
+    volume_session = sum(volumes)
+    avg_volume_set = volume_session / n if n > 0 else 0.0
+    best_1rm: float | None = None
+    for leff, reps in leff_reps:
+        est = best_1rm_from_leff(leff, reps)
+        if est is not None and (best_1rm is None or est > best_1rm):
+            best_1rm = est
+    session_obj.session_metrics = {
+        "volume_session": round(volume_session, 2),
+        "avg_volume_set": round(avg_volume_set, 2),
+        "estimated_1rm": round(best_1rm, 2) if best_1rm is not None else None,
+    }
+
     store.append_session(session_obj)
     return session_result_to_dict(session_obj)
 
@@ -70,7 +107,22 @@ def delete_session(data_dir: Path, exercise_id: str, index: int) -> None:
 def get_history(data_dir: Path, exercise_id: str) -> list[dict]:
     """
     Return the full session history as a list of dicts, sorted by date.
+
+    Each dict includes a ``session_metrics`` key with pre-computed performance
+    metrics (``volume_session``, ``avg_volume_set``, ``estimated_1rm``).
+    For sessions logged before metrics caching was introduced, all values are
+    ``None``.
     """
     store = _require_store(data_dir, exercise_id)
     sessions = store.load_history(exercise_id)
-    return [session_result_to_dict(s) for s in sessions]
+    result = []
+    for s in sessions:
+        d = session_result_to_dict(s)
+        if "session_metrics" not in d:
+            d["session_metrics"] = {
+                "volume_session": None,
+                "avg_volume_set": None,
+                "estimated_1rm": None,
+            }
+        result.append(d)
+    return result

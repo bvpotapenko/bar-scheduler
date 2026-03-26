@@ -375,6 +375,36 @@ def blended_1rm_added(bw_load_kg: float, reps: int) -> float | None:
     return max(0.0, total - bw_load_kg)
 
 
+def best_1rm_from_leff(leff: float, reps: int) -> float | None:
+    """
+    Rep-range-aware 1RM estimate in Leff units (total effective load kg).
+
+    Uses different formula blends by rep range:
+        r ≤ 5   → avg(Brzycki, Lander)         [strength range, most accurate]
+        r ≤ 10  → avg(Brzycki, Lander, Epley)  [moderate reps]
+        r ≤ 20  → avg(Lombardi, Epley)          [high reps]
+        r > 20  → None                          [unreliable]
+
+    Unlike blended_1rm_added, this takes full Leff (BW-derived + added load)
+    and returns total 1RM in Leff units — works for any set, not just BW-only.
+
+    Args:
+        leff: Effective load for the set (bw_fraction × BW + added_kg − assistance_kg)
+        reps: Reps performed
+
+    Returns:
+        Estimated 1RM in Leff kg, or None if reps <= 0 or reps > 20.
+    """
+    if reps <= 0 or reps > 20:
+        return None
+    if reps <= 5:
+        return (brzycki_1rm(leff, reps) + lander_1rm(leff, reps)) / 2
+    elif reps <= 10:
+        return (brzycki_1rm(leff, reps) + lander_1rm(leff, reps) + epley_1rm(leff, reps)) / 3
+    else:  # 11 ≤ r ≤ 20
+        return (lombardi_1rm(leff, reps) + epley_1rm(leff, reps)) / 2
+
+
 def estimate_pullup_1rm(
     history: list[SessionResult],
     current_bodyweight_kg: float,

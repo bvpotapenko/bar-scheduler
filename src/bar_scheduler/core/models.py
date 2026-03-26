@@ -140,6 +140,7 @@ class SessionResult:
     planned_sets: list[SetResult] = field(default_factory=list)
     completed_sets: list[SetResult] = field(default_factory=list)
     notes: str | None = None
+    session_metrics: dict | None = None  # cached at log time: volume_session, avg_volume_set, estimated_1rm
 
     def __post_init__(self) -> None:
         """Validate session data."""

@@ -5,6 +5,9 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from ..core.equipment import compute_leff
+from ..core.exercises.base import ExerciseDefinition
+from ..core.metrics import best_1rm_from_leff
 from ..core.models import SessionResult
 from ..core.timeline import TimelineEntry, build_timeline
 from ..io.user_store import UserStore
@@ -77,7 +80,31 @@ def _total_weeks(plan_start_date: str, weeks_ahead: int = 4) -> int:
     return max(2, min(weeks_since_start + weeks_ahead, MAX_PLAN_WEEKS * 3))
 
 
-def _timeline_entry_to_dict(e: TimelineEntry) -> dict:
+def _session_performance_metrics(
+    sets_leff_reps: list[tuple[float, int]],
+) -> dict:
+    """Compute volume_session, avg_volume_set, estimated_1rm from (leff, reps) pairs."""
+    volumes = [leff * reps for leff, reps in sets_leff_reps]
+    n = len(volumes)
+    volume_session = sum(volumes)
+    avg_volume_set = volume_session / n if n > 0 else 0.0
+    best_1rm: float | None = None
+    for leff, reps in sets_leff_reps:
+        est = best_1rm_from_leff(leff, reps)
+        if est is not None and (best_1rm is None or est > best_1rm):
+            best_1rm = est
+    return {
+        "volume_session": round(volume_session, 2),
+        "avg_volume_set": round(avg_volume_set, 2),
+        "estimated_1rm": round(best_1rm, 2) if best_1rm is not None else None,
+    }
+
+
+def _timeline_entry_to_dict(
+    e: TimelineEntry,
+    exercise: ExerciseDefinition | None = None,
+    current_bw: float | None = None,
+) -> dict:
     """Serialise a TimelineEntry to a JSON-friendly dict."""
     planned_sets = None
     if e.actual is not None and e.actual.planned_sets:
@@ -118,6 +145,21 @@ def _timeline_entry_to_dict(e: TimelineEntry) -> dict:
     )
     plan_grip = e.actual.grip if e.actual else (e.planned.grip if e.planned else "")
 
+    # Performance metrics for this session.
+    # For completed sessions: use cached session_metrics (None if old record).
+    # For planned/future sessions: compute from prescribed sets if exercise/BW available.
+    session_metrics: dict | None = None
+    if e.actual is not None:
+        session_metrics = e.actual.session_metrics
+    elif e.planned is not None and exercise is not None and current_bw is not None:
+        leff_reps = [
+            (compute_leff(exercise.bw_fraction, current_bw, s.added_weight_kg, 0.0), s.target_reps)
+            for s in e.planned.sets
+            if s.target_reps > 0
+        ]
+        if leff_reps:
+            session_metrics = _session_performance_metrics(leff_reps)
+
     return {
         "date": e.date,
         "week": e.week_number,
@@ -129,4 +171,5 @@ def _timeline_entry_to_dict(e: TimelineEntry) -> dict:
         "prescribed_sets": planned_sets,
         "actual_sets": actual_sets,
         "track_b": e.track_b,
+        "session_metrics": session_metrics,
     }

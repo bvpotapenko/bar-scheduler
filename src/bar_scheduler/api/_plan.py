@@ -124,7 +124,10 @@ def get_plan(
             "fitness": round(ff.fitness, 4),
             "fatigue": round(ff.fatigue, 4),
         },
-        "sessions": [_timeline_entry_to_dict(e) for e in timeline],
+        "sessions": [
+            _timeline_entry_to_dict(e, exercise, user_state.current_bodyweight_kg)
+            for e in timeline
+        ],
         "plan_changes": plan_changes,
         "overtraining": ot_severity,
     }

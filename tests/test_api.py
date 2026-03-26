@@ -1012,113 +1012,136 @@ class TestExerciseIdRequired:
 
 
 # ---------------------------------------------------------------------------
-# TestEbrMetrics
+# TestGetGoalMetrics
 # ---------------------------------------------------------------------------
 
 
-class TestEbrMetrics:
-    """get_ebr_data, get_goal_progress, compute_set_ebr public API."""
+class TestGetGoalMetrics:
+    """get_goal_metrics public API."""
 
-    def test_get_ebr_data_returns_history_and_plan_keys(self, tmp_path):
-        from bar_scheduler.api import get_ebr_data
+    def test_no_goal_returns_none_fields(self, tmp_path):
+        from bar_scheduler.api import get_goal_metrics
         _init(tmp_path)
         log_session(tmp_path, "pull_up", _test_session())
-        result = get_ebr_data(tmp_path, "pull_up", weeks_ahead=2)
-        assert "history" in result
-        assert "plan" in result
+        result = get_goal_metrics(tmp_path, "pull_up")
+        assert result["goal_reps"] is None
+        assert result["goal_weight_kg"] is None
+        assert result["goal_leff"] is None
+        assert result["estimated_1rm"] is None
+        assert result["volume_set"] is None
 
-    def test_get_ebr_data_history_entry_shape(self, tmp_path):
-        from bar_scheduler.api import get_ebr_data
-        _init(tmp_path)
-        log_session(tmp_path, "pull_up", _test_session())
-        result = get_ebr_data(tmp_path, "pull_up")
-        assert len(result["history"]) == 1
-        entry = result["history"][0]
-        assert "date" in entry
-        assert "session_type" in entry
-        assert "ebr" in entry
-        assert "kg_eq" in entry
-        assert isinstance(entry["ebr"], float)
-        assert entry["ebr"] > 0
+    def test_bodyweight_goal_returns_correct_volume(self, tmp_path):
+        from bar_scheduler.api import get_goal_metrics, set_exercise_target
+        _init(tmp_path, bodyweight_kg=80.0)
+        set_exercise_target(tmp_path, "pull_up", reps=10)
+        result = get_goal_metrics(tmp_path, "pull_up")
+        assert result["goal_reps"] == 10
+        assert result["goal_weight_kg"] == 0.0
+        # pull_up bw_fraction=1.0, BW=80 → goal_leff=80.0
+        assert result["goal_leff"] == pytest.approx(80.0, abs=0.01)
+        # volume_set = 80 × 10 = 800
+        assert result["volume_set"] == pytest.approx(800.0, abs=0.01)
+        # estimated_1rm must be a float > goal_leff for 10 reps
+        assert isinstance(result["estimated_1rm"], float)
+        assert result["estimated_1rm"] > 80.0
 
-    def test_get_ebr_data_plan_entry_shape(self, tmp_path):
-        from bar_scheduler.api import get_ebr_data
-        _init(tmp_path)
-        log_session(tmp_path, "pull_up", _test_session())
-        result = get_ebr_data(tmp_path, "pull_up", weeks_ahead=2)
-        assert len(result["plan"]) > 0
-        entry = result["plan"][0]
-        assert "date" in entry and "session_type" in entry
-        assert "ebr" in entry and "kg_eq" in entry
-        assert isinstance(entry["ebr"], float)
+    def test_weighted_goal_uses_added_weight(self, tmp_path):
+        from bar_scheduler.api import get_goal_metrics, set_exercise_target
+        _init(tmp_path, bodyweight_kg=80.0)
+        set_exercise_target(tmp_path, "pull_up", reps=5, weight_kg=20.0)
+        result = get_goal_metrics(tmp_path, "pull_up")
+        # goal_leff = 1.0×80 + 20 = 100
+        assert result["goal_leff"] == pytest.approx(100.0, abs=0.01)
+        assert result["volume_set"] == pytest.approx(500.0, abs=0.01)  # 100 × 5
 
-    def test_kg_eq_equals_bw_times_ebr(self, tmp_path):
-        from bar_scheduler.api import get_ebr_data
+    def test_requires_exercise_id(self):
+        import inspect
+        from bar_scheduler.api import get_goal_metrics
+        sig = inspect.signature(get_goal_metrics)
+        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+
+
+# ---------------------------------------------------------------------------
+# TestSessionMetricsCached
+# ---------------------------------------------------------------------------
+
+
+class TestSessionMetricsCached:
+    """session_metrics are computed and cached at log_session time."""
+
+    def test_session_metrics_present_after_log(self, tmp_path):
         _init(tmp_path, bodyweight_kg=80.0)
         log_session(tmp_path, "pull_up", _test_session())
-        result = get_ebr_data(tmp_path, "pull_up")
-        entry = result["history"][0]
-        assert entry["kg_eq"] == pytest.approx(80.0 * entry["ebr"], abs=0.1)
+        history = get_history(tmp_path, "pull_up")
+        assert len(history) == 1
+        m = history[0]["session_metrics"]
+        assert m is not None
+        assert "volume_session" in m
+        assert "avg_volume_set" in m
+        assert "estimated_1rm" in m
 
-    def test_get_goal_progress_no_goal_returns_none_fields(self, tmp_path):
-        from bar_scheduler.api import get_goal_progress
-        _init(tmp_path)
-        log_session(tmp_path, "pull_up", _test_session())
-        result = get_goal_progress(tmp_path, "pull_up")
-        assert result["goal_reps"] is None
-        assert result["progress_pct"] is None
-        assert result["max_reps_at_goal"] is None
-
-    def test_get_goal_progress_with_goal_returns_progress(self, tmp_path):
-        from bar_scheduler.api import get_goal_progress, set_exercise_target
-        _init(tmp_path)
-        log_session(tmp_path, "pull_up", _test_session())
-        set_exercise_target(tmp_path, "pull_up", reps=20)
-        result = get_goal_progress(tmp_path, "pull_up")
-        assert result["goal_reps"] == 20
-        assert result["goal_weight_kg"] == 0.0
-        assert isinstance(result["progress_pct"], float)
-        assert 0.0 <= result["progress_pct"] <= 100.0
-        assert result["max_reps_at_goal"] is not None
-
-    def test_get_goal_progress_goal_met_shows_100(self, tmp_path):
-        from bar_scheduler.api import get_goal_progress, set_exercise_target
-        _init(tmp_path)
-        # Log a test session with many reps — well above goal
+    def test_volume_session_equals_leff_times_reps(self, tmp_path):
+        # BW=80, bw_fraction=1.0 → leff=80, 1 set of 8 reps → volume = 640
+        _init(tmp_path, bodyweight_kg=80.0)
         log_session(tmp_path, "pull_up", {
             "date": _today(),
             "bodyweight_kg": 80.0,
             "grip": "pronated",
-            "session_type": "TEST",
+            "session_type": "S",
             "exercise_id": "pull_up",
-            "completed_sets": [{"actual_reps": 30, "rest_seconds_before": 180}],
+            "completed_sets": [{"actual_reps": 8, "rest_seconds_before": 180}],
         })
-        set_exercise_target(tmp_path, "pull_up", reps=5)  # easy goal
-        result = get_goal_progress(tmp_path, "pull_up")
-        assert result["progress_pct"] == 100.0
+        history = get_history(tmp_path, "pull_up")
+        m = history[0]["session_metrics"]
+        assert m["volume_session"] == pytest.approx(640.0, abs=0.01)
+        assert m["avg_volume_set"] == pytest.approx(640.0, abs=0.01)
 
-    def test_compute_set_ebr_returns_float(self, tmp_path):
-        from bar_scheduler.api import compute_set_ebr
-        _init(tmp_path)
-        result = compute_set_ebr(tmp_path, "pull_up", reps=10)
-        assert isinstance(result, float)
-        assert result > 0.0
+    def test_avg_volume_set_divides_by_n_sets(self, tmp_path):
+        # 2 sets of 8 reps at BW=80 → volume=1280, avg=640
+        _init(tmp_path, bodyweight_kg=80.0)
+        log_session(tmp_path, "pull_up", {
+            "date": _today(),
+            "bodyweight_kg": 80.0,
+            "grip": "pronated",
+            "session_type": "S",
+            "exercise_id": "pull_up",
+            "completed_sets": [
+                {"actual_reps": 8, "rest_seconds_before": 180},
+                {"actual_reps": 8, "rest_seconds_before": 180},
+            ],
+        })
+        history = get_history(tmp_path, "pull_up")
+        m = history[0]["session_metrics"]
+        assert m["volume_session"] == pytest.approx(1280.0, abs=0.01)
+        assert m["avg_volume_set"] == pytest.approx(640.0, abs=0.01)
 
-    def test_compute_set_ebr_heavier_is_more(self, tmp_path):
-        from bar_scheduler.api import compute_set_ebr
-        _init(tmp_path)
-        ebr_bw = compute_set_ebr(tmp_path, "pull_up", reps=10, added_weight_kg=0.0)
-        ebr_heavy = compute_set_ebr(tmp_path, "pull_up", reps=10, added_weight_kg=20.0)
-        assert ebr_heavy > ebr_bw
+    def test_estimated_1rm_is_positive_float(self, tmp_path):
+        _init(tmp_path, bodyweight_kg=80.0)
+        log_session(tmp_path, "pull_up", _test_session())
+        history = get_history(tmp_path, "pull_up")
+        m = history[0]["session_metrics"]
+        assert isinstance(m["estimated_1rm"], float)
+        assert m["estimated_1rm"] > 0.0
 
-    def test_get_ebr_data_requires_exercise_id(self):
-        import inspect
-        from bar_scheduler.api import get_ebr_data
-        sig = inspect.signature(get_ebr_data)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
-
-    def test_get_goal_progress_requires_exercise_id(self):
-        import inspect
-        from bar_scheduler.api import get_goal_progress
-        sig = inspect.signature(get_goal_progress)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
+    def test_get_history_old_record_returns_none_metrics(self, tmp_path):
+        """Records without session_metrics field return None for all metric fields."""
+        import json
+        _init(tmp_path, bodyweight_kg=80.0)
+        from bar_scheduler.io.user_store import UserStore
+        store = UserStore(tmp_path)
+        # Write a bare JSONL record with no session_metrics
+        raw = {
+            "date": _today(),
+            "bodyweight_kg": 80.0,
+            "grip": "pronated",
+            "session_type": "S",
+            "exercise_id": "pull_up",
+            "completed_sets": [{"actual_reps": 5, "rest_seconds_before": 180}],
+        }
+        with open(store.history_path("pull_up"), "w") as f:
+            f.write(json.dumps(raw) + "\n")
+        history = get_history(tmp_path, "pull_up")
+        m = history[0]["session_metrics"]
+        assert m["volume_session"] is None
+        assert m["avg_volume_set"] is None
+        assert m["estimated_1rm"] is None
