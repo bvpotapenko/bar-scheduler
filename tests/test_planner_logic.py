@@ -438,9 +438,11 @@ class TestBest1rmFromLeff:
         from bar_scheduler.core.metrics import best_1rm_from_leff
         assert best_1rm_from_leff(80.0, 0) is None
 
-    def test_over_20_reps_returns_none(self):
+    def test_over_20_reps_returns_estimate(self):
+        # No upper cap — Lombardi+Epley blend used for all r > 10
         from bar_scheduler.core.metrics import best_1rm_from_leff
-        assert best_1rm_from_leff(80.0, 21) is None
+        result = best_1rm_from_leff(80.0, 25)
+        assert result is not None and result > 80.0
 
     def test_strength_range_uses_brzycki_lander_blend(self):
         # r=5, leff=100
@@ -473,6 +475,6 @@ class TestBest1rmFromLeff:
             result = best_1rm_from_leff(100.0, reps)
             assert result is not None and result >= 100.0
 
-    def test_20_reps_is_boundary(self):
+    def test_high_reps_above_20_returns_estimate(self):
         from bar_scheduler.core.metrics import best_1rm_from_leff
-        assert best_1rm_from_leff(80.0, 20) is not None
+        assert best_1rm_from_leff(80.0, 30) is not None

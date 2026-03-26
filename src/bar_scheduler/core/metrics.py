@@ -382,8 +382,7 @@ def best_1rm_from_leff(leff: float, reps: int) -> float | None:
     Uses different formula blends by rep range:
         r ≤ 5   → avg(Brzycki, Lander)         [strength range, most accurate]
         r ≤ 10  → avg(Brzycki, Lander, Epley)  [moderate reps]
-        r ≤ 20  → avg(Lombardi, Epley)          [high reps]
-        r > 20  → None                          [unreliable]
+        r > 10  → avg(Lombardi, Epley)          [high reps; Lombardi handles these best]
 
     Unlike blended_1rm_added, this takes full Leff (BW-derived + added load)
     and returns total 1RM in Leff units — works for any set, not just BW-only.
@@ -393,9 +392,9 @@ def best_1rm_from_leff(leff: float, reps: int) -> float | None:
         reps: Reps performed
 
     Returns:
-        Estimated 1RM in Leff kg, or None if reps <= 0 or reps > 20.
+        Estimated 1RM in Leff kg, or None if reps <= 0.
     """
-    if reps <= 0 or reps > 20:
+    if reps <= 0:
         return None
     if reps <= 5:
         return (brzycki_1rm(leff, reps) + lander_1rm(leff, reps)) / 2

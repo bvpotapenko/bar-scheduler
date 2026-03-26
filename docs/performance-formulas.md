@@ -59,8 +59,7 @@ rep-range-aware blend of formulas for best accuracy:
 |---|---|---|
 | r ≤ 5 | avg(Brzycki, Lander) | Near-maximal strength sets |
 | 6 ≤ r ≤ 10 | avg(Brzycki, Lander, Epley) | Moderate hypertrophy range |
-| 11 ≤ r ≤ 20 | avg(Lombardi, Epley) | Higher rep / endurance sets |
-| r > 20 | None (unreliable) | — |
+| r > 10 | avg(Lombardi, Epley) | High-rep / endurance / BW goals |
 
 The formulas operate on `L_eff` (not raw added weight) and return the estimated 1RM
 in the same `L_eff` units:

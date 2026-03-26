@@ -6,6 +6,10 @@ All notable changes to bar-scheduler are documented here.
 
 ## [Unreleased]
 
+---
+
+## [0.5.2] -- 2026-03-26
+
 ### Added
 
 - **`get_goal_metrics(data_dir, exercise_id) -> dict`** — performance metrics implied by
@@ -22,18 +26,20 @@ All notable changes to bar-scheduler are documented here.
   history. For planned sessions: computed from the prescription and current bodyweight.
 - **`best_1rm_from_leff(leff, reps) -> float | None`** in `core/metrics.py` — rep-range-
   aware 1RM estimate in Leff units. Uses Brzycki + Lander (r ≤ 5), blended with Epley
-  (r ≤ 10), or Lombardi + Epley (r ≤ 20). Returns `None` for r = 0 or r > 20.
-- **Dual-dumbbell weight expansion for BSS** -- when `available_weights_kg` is set for BSS, the planner now expands the stored list of individual dumbbell weights into all achievable totals (single DB + all same/mixed pairs) before snapping the prescription. Example: `[8, 10, 16]` → `[8, 10, 16, 18, 20, 24, 26, 32]`. A prescription of 22 kg snaps to 20 kg (10+10) rather than 16 kg. The user decides how to split the total across their hands — the planner only prescribes the total.
-- **`dual_dumbbell` flag on `ExerciseDefinition`** -- new boolean field (default `False`). Set to `true` in `bss.yaml`. Can be set in user-override YAML for custom exercises that also use two dumbbells.
+  (r ≤ 10), or Lombardi + Epley (r > 10, no upper cap). Returns `None` only for r ≤ 0.
+- **Dual-dumbbell weight expansion for BSS** — when `available_weights_kg` is set for
+  BSS, the planner expands individual dumbbell weights into all achievable single + pair
+  totals before snapping the prescription. Example: `[8, 10, 16]` →
+  `[8, 10, 16, 18, 20, 24, 26, 32]`. A prescription of 22 kg snaps to 20 kg (10+10).
+- **`dual_dumbbell` flag on `ExerciseDefinition`** — new boolean field (default `False`),
+  set to `true` in `bss.yaml`.
 
 ### Removed
 
-- **EBR (Equivalent Bodyweight Reps) system removed** — `get_ebr_data()`,
-  `get_goal_progress()`, `compute_set_ebr()`, `core/ebr.py`, and the `ebr_metric`
-  section in `exercises.yaml` are all gone. Replaced by the simpler volume + 1RM
-  metrics above.
-- **`get_load_data()`** — removed (was a transient internal API).
-- **`compute_session_load()`** — removed.
+- **EBR (Equivalent Bodyweight Reps) system** — `get_ebr_data()`, `get_goal_progress()`,
+  `compute_set_ebr()`, `core/ebr.py`, and the `ebr_metric` section in `exercises.yaml`
+  are removed. Replaced by the simpler volume + 1RM metrics above.
+- **`get_load_data()`** and **`compute_session_load()`** — removed (transient internal APIs).
 
 ---
 
