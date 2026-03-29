@@ -134,7 +134,6 @@ def snapshot_from_state(
     return EquipmentSnapshot(
         active_item=active_item,
         assistance_kg=a_kg,
-        elevation_height_cm=state.elevation_height_cm,
     )
 
 

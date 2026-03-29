@@ -98,23 +98,19 @@ class EquipmentSnapshot:
 
     active_item: str                    # e.g. "BAND_MEDIUM", "BAR_ONLY"
     assistance_kg: float                # kg of assistance subtracted from Leff
-    elevation_height_cm: int | None = None  # BSS ELEVATION_SURFACE height
 
 
 @dataclass
 class EquipmentState:
     """
-    Per-exercise equipment state for one time period.
+    Per-exercise equipment configuration.
 
-    Stored as an append-only list in profile.json.  When equipment changes,
-    the current entry's valid_until is set and a new entry is appended.
+    Stored as a single current entry per exercise in profile.json.
+    Updating equipment overwrites the previous state.
     """
 
     exercise_id: str
     available_items: list[str]          # all items the user owns / has access to
-    elevation_height_cm: int | None = None      # only for BSS ELEVATION_SURFACE
-    valid_from: str = ""                # ISO date of this entry
-    valid_until: str | None = None      # None = still current
     available_weights_kg: list[float] = field(default_factory=list)
     # Discrete dumbbell / plate weights the user owns for this exercise.
     # Empty list = continuous (0.5 kg rounding, existing behaviour).

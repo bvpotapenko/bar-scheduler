@@ -529,7 +529,6 @@ class TestLogSessionEquipmentAutoAttach:
             "equipment_snapshot": {
                 "active_item": "BAND_LIGHT",
                 "assistance_kg": 8.0,
-                "elevation_height_cm": None,
             },
         }
         result = log_session(tmp_path, "pull_up", session)

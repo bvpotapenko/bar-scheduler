@@ -13,8 +13,6 @@ def update_equipment(
     exercise_id: str,
     *,
     available_items: list[str],
-    elevation_height_cm: int | None = None,
-    valid_from: str | None = None,
     available_weights_kg: list[float] | None = None,
     available_machine_assistance_kg: list[float] | None = None,
 ) -> None:
@@ -38,7 +36,6 @@ def update_equipment(
     assistance to the smallest available level ≥ that value.  Pass ``[]`` to
     clear.  Pass ``None`` (default) to inherit from the previous entry.
 
-    The previous entry is automatically closed (valid_until = yesterday).
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
     from ..core.models import EquipmentState
@@ -61,8 +58,6 @@ def update_equipment(
     state = EquipmentState(
         exercise_id=exercise_id,
         available_items=list(available_items),
-        elevation_height_cm=elevation_height_cm,
-        valid_from=valid_from or "",
         available_weights_kg=inherited_weights,
         available_machine_assistance_kg=inherited_machine,
     )
@@ -113,7 +108,6 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         "recommended_item": recommended,
         "available_items": list(state.available_items),
         "available_machine_assistance_kg": list(state.available_machine_assistance_kg),
-        "elevation_height_cm": state.elevation_height_cm,
         "assistance_kg": _get_assistance_kg(
             recommended, state.exercise_id, state.available_machine_assistance_kg
         ),

@@ -266,21 +266,17 @@ def _planned_set_result_to_dict(s: SetResult) -> dict[str, Any]:
 
 def equipment_snapshot_to_dict(snapshot: EquipmentSnapshot) -> dict[str, Any]:
     """Serialize EquipmentSnapshot to a compact JSON-compatible dict."""
-    d: dict[str, Any] = {
+    return {
         "active_item": snapshot.active_item,
         "assistance_kg": snapshot.assistance_kg,
     }
-    if snapshot.elevation_height_cm is not None:
-        d["elevation_height_cm"] = snapshot.elevation_height_cm
-    return d
 
 
 def dict_to_equipment_snapshot(data: dict[str, Any]) -> EquipmentSnapshot:
-    """Deserialize an EquipmentSnapshot from a dict (backward compat: returns None-safe)."""
+    """Deserialize an EquipmentSnapshot from a dict."""
     return EquipmentSnapshot(
         active_item=str(data.get("active_item", "")),
         assistance_kg=float(data.get("assistance_kg", 0.0)),
-        elevation_height_cm=data.get("elevation_height_cm"),
     )
 
 
@@ -289,11 +285,7 @@ def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
     d: dict[str, Any] = {
         "exercise_id": state.exercise_id,
         "available_items": list(state.available_items),
-        "valid_from": state.valid_from,
-        "valid_until": state.valid_until,
     }
-    if state.elevation_height_cm is not None:
-        d["elevation_height_cm"] = state.elevation_height_cm
     if state.available_weights_kg:
         d["available_weights_kg"] = list(state.available_weights_kg)
     if state.available_machine_assistance_kg:
@@ -306,9 +298,6 @@ def dict_to_equipment_state(data: dict[str, Any]) -> EquipmentState:
     return EquipmentState(
         exercise_id=str(data.get("exercise_id", "")),
         available_items=list(data.get("available_items", [])),
-        elevation_height_cm=data.get("elevation_height_cm"),
-        valid_from=str(data.get("valid_from", "")),
-        valid_until=data.get("valid_until"),
         available_weights_kg=[float(w) for w in data.get("available_weights_kg", [])],
         available_machine_assistance_kg=[
             float(w) for w in data.get("available_machine_assistance_kg", [])
