@@ -10,21 +10,21 @@ from ..io.serializers import exercise_target_to_dict
 from ._common import _require_profile_store
 
 
-def list_exercises() -> list[dict]:
+def list_exercises() -> dict[str, dict]:
     """
     Return metadata for all registered exercises.
 
-    Returns a list of dicts with keys: ``id``, ``display_name``,
-    ``muscle_group``, ``variants``, ``primary_variant``,
-    ``has_variant_rotation``.
+    Returns a dict keyed by exercise ID. Each value has keys:
+    ``display_name``, ``muscle_group``, ``variants``, ``primary_variant``,
+    ``has_variant_rotation``, ``bw_fraction``, ``onerm_includes_bodyweight``,
+    ``session_params``, ``onerm_explanation``.
     """
     from ..core.exercises.registry import EXERCISE_REGISTRY
 
     import dataclasses
 
-    return [
-        {
-            "id": ex.exercise_id,
+    return {
+        ex.exercise_id: {
             "display_name": ex.display_name,
             "muscle_group": ex.muscle_group,
             "variants": list(ex.variants),
@@ -36,14 +36,14 @@ def list_exercises() -> list[dict]:
             "onerm_explanation": ex.onerm_explanation,
         }
         for ex in EXERCISE_REGISTRY.values()
-    ]
+    }
 
 
 def get_exercise_info(exercise_id: str) -> dict:
     """
     Return metadata for a single exercise by ID.
 
-    Same shape as one item from ``list_exercises()``.
+    Same keys as ``list_exercises()`` values, plus ``"id"``.
     Raises ``ValueError`` for unknown IDs.
     """
     import dataclasses

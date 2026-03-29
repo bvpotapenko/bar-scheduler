@@ -346,18 +346,17 @@ class TestEnableDisableExercise:
 
 
 class TestListExercises:
-    def test_returns_list(self):
+    def test_returns_dict(self):
         result = list_exercises()
-        assert isinstance(result, list)
+        assert isinstance(result, dict)
         assert len(result) > 0
 
     def test_contains_pull_up(self):
-        ids = [e["id"] for e in list_exercises()]
-        assert "pull_up" in ids
+        assert "pull_up" in list_exercises()
 
     def test_has_required_keys(self):
-        for ex in list_exercises():
-            assert "id" in ex
+        for ex in list_exercises().values():
+            assert "id" not in ex
             assert "display_name" in ex
             assert "muscle_group" in ex
             assert "variants" in ex
@@ -483,7 +482,7 @@ class TestGetExerciseInfo:
 
     def test_consistent_with_list_exercises(self):
         info = get_exercise_info("pull_up")
-        match = next(e for e in list_exercises() if e["id"] == "pull_up")
+        match = list_exercises()["pull_up"]
         for key in match:
             assert info[key] == match[key]
 
@@ -795,8 +794,7 @@ class TestExerciseInfoExtended:
         assert len(info["onerm_explanation"]) > 0
 
     def test_session_params_in_list_exercises(self):
-        items = list_exercises()
-        pu = next(e for e in items if e["id"] == "pull_up")
+        pu = list_exercises()["pull_up"]
         assert "session_params" in pu
         assert "onerm_explanation" in pu
 
