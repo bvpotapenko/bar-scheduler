@@ -6,6 +6,31 @@ All notable changes to bar-scheduler are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **`machine_assistance_kg: float`** replaced by **`available_machine_assistance_kg: list[float]`**
+  in `EquipmentState`. The planner now auto-selects the right assistance level from the discrete
+  list each session (ceiling-snap to smallest available ≥ ideal), exactly like `available_weights_kg`
+  does for external loads. Users configure the list once; no manual updates needed as they
+  progress to less assistance.
+- **`update_equipment()`** — `machine_assistance_kg` parameter removed; new
+  `available_machine_assistance_kg: list[float] | None` parameter added. `None` inherits from the
+  previous entry; `[]` clears. Example: `available_machine_assistance_kg=[10, 15, 20, 25, 30]`.
+- **`get_current_equipment()`** — `machine_assistance_kg` key removed from the returned dict;
+  replaced by `available_machine_assistance_kg: list[float]` and a new
+  `recommended_assistance_kg: float` (the assistance level prescribed for the next H session, 0.0
+  when not applicable).
+- **`get_assistance_kg()`** — `machine_assistance_kg: float | None` parameter replaced by
+  `available_machine_assistance_kg: list[float] | None`; returns `max(list)` as a conservative
+  fallback when no target Leff is known.
+- **`SessionPlan`** gains `prescribed_assistance_kg: float | None` — each planned session now
+  carries the exact machine assistance level the user should set for that session. Exposed in
+  `get_plan()["sessions"][]["prescribed_assistance_kg"]`.
+- **`log_session()`** auto-computes the prescribed machine assistance at log time (same Epley
+  prescription as the planner) and records it in the `equipment_snapshot`. Previously a single
+  fixed value was stored.
+- `machine_assistance_kg` key is no longer written to `profile.json`.
+
 ---
 
 ## [0.5.2] -- 2026-03-26

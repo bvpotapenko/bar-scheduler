@@ -671,6 +671,113 @@ class TestEquipmentComputations:
 
 
 # ---------------------------------------------------------------------------
+# TestMachineAssistanceList
+# ---------------------------------------------------------------------------
+
+
+class TestMachineAssistanceList:
+    def test_update_equipment_stores_machine_assistance_list(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+            available_machine_assistance_kg=[10.0, 15.0, 20.0, 25.0, 30.0],
+        )
+        eq = get_current_equipment(tmp_path, "pull_up")
+        assert eq is not None
+        assert eq["available_machine_assistance_kg"] == [10.0, 15.0, 20.0, 25.0, 30.0]
+        assert isinstance(eq["recommended_assistance_kg"], float)
+        assert "machine_assistance_kg" not in eq
+
+    def test_get_current_equipment_recommended_assistance_is_from_list(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+            available_machine_assistance_kg=[10.0, 20.0, 30.0],
+        )
+        eq = get_current_equipment(tmp_path, "pull_up")
+        assert eq["recommended_assistance_kg"] in [10.0, 20.0, 30.0]
+
+    def test_log_session_snapshot_captures_prescribed_assistance(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+            available_machine_assistance_kg=[10.0, 20.0, 30.0],
+        )
+        result = log_session(tmp_path, "pull_up", _test_session())
+        snap = result["equipment_snapshot"]
+        assert snap is not None
+        assert snap["active_item"] == "MACHINE_ASSISTED"
+        assert snap["assistance_kg"] in [10.0, 20.0, 30.0]
+
+    def test_plan_includes_prescribed_assistance_kg_below_threshold(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+            available_machine_assistance_kg=[10.0, 20.0, 30.0],
+        )
+        # Log a TEST session at low reps to keep TM below weight threshold (9)
+        log_session(tmp_path, "pull_up", {
+            **_test_session(),
+            "completed_sets": [{"actual_reps": 5, "rest_seconds_before": 180}],
+        })
+        plan = get_plan(tmp_path, "pull_up")
+        future = [
+            s for s in plan["sessions"]
+            if s["status"] in ("next", "planned")
+        ]
+        assert len(future) > 0
+        # All future sessions should have prescribed_assistance_kg from the list or 0
+        for s in future:
+            val = s.get("prescribed_assistance_kg")
+            assert val is None or val in [0.0, 10.0, 20.0, 30.0]
+        # At least one session should have assistance > 0 (TM is below weight threshold)
+        assisted = [s for s in future if (s.get("prescribed_assistance_kg") or 0) > 0]
+        assert len(assisted) > 0
+
+    def test_machine_assistance_inherits_from_previous_entry(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+            available_machine_assistance_kg=[10.0, 20.0, 30.0],
+        )
+        # Update equipment without specifying available_machine_assistance_kg → inherits
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["MACHINE_ASSISTED", "BAR_ONLY", "WEIGHT_BELT"],
+        )
+        eq = get_current_equipment(tmp_path, "pull_up")
+        assert eq["available_machine_assistance_kg"] == [10.0, 20.0, 30.0]
+
+    def test_machine_assistance_cleared_with_empty_list(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+            available_machine_assistance_kg=[10.0, 20.0, 30.0],
+        )
+        update_equipment(
+            tmp_path,
+            "pull_up",
+            available_items=["BAR_ONLY"],
+            available_machine_assistance_kg=[],
+        )
+        eq = get_current_equipment(tmp_path, "pull_up")
+        assert eq["available_machine_assistance_kg"] == []
+
+
+# ---------------------------------------------------------------------------
 # TestExerciseInfoExtended
 # ---------------------------------------------------------------------------
 

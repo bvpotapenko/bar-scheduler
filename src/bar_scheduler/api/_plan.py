@@ -48,6 +48,9 @@ def get_plan(
 
     eq_state = store.load_current_equipment(exercise_id)
     available_weights_kg = eq_state.available_weights_kg if eq_state is not None else []
+    available_machine_assistance_kg = (
+        eq_state.available_machine_assistance_kg if eq_state is not None else []
+    )
 
     plans = generate_plan(
         user_state,
@@ -56,6 +59,7 @@ def get_plan(
         weeks_ahead=total_weeks,
         overtraining_level=ot_level,
         available_weights_kg=available_weights_kg or None,
+        available_machine_assistance_kg=available_machine_assistance_kg or None,
     )
 
     training_status = _get_training_status(

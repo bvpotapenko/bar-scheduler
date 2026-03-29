@@ -13,10 +13,10 @@ def update_equipment(
     exercise_id: str,
     *,
     available_items: list[str],
-    machine_assistance_kg: float | None = None,
     elevation_height_cm: int | None = None,
     valid_from: str | None = None,
     available_weights_kg: list[float] | None = None,
+    available_machine_assistance_kg: list[float] | None = None,
 ) -> None:
     """
     Update the equipment available for an exercise.
@@ -32,27 +32,39 @@ def update_equipment(
     Pass ``None`` (default) to leave the value unchanged from the previous
     equipment entry.
 
+    ``available_machine_assistance_kg`` is a list of discrete assistance levels
+    the user can set on their assisted pull-up / dip machine (e.g.
+    ``[10, 15, 20, 25, 30]``).  The planner ceiling-snaps the computed ideal
+    assistance to the smallest available level ≥ that value.  Pass ``[]`` to
+    clear.  Pass ``None`` (default) to inherit from the previous entry.
+
     The previous entry is automatically closed (valid_until = yesterday).
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
     from ..core.models import EquipmentState
 
     store = _require_store(data_dir, exercise_id)
+    prev = store.load_current_equipment(exercise_id)
 
     # Inherit available_weights_kg from the previous entry when not supplied
     if available_weights_kg is None:
-        prev = store.load_current_equipment(exercise_id)
-        inherited = prev.available_weights_kg if prev is not None else []
+        inherited_weights = prev.available_weights_kg if prev is not None else []
     else:
-        inherited = list(available_weights_kg)
+        inherited_weights = list(available_weights_kg)
+
+    # Inherit available_machine_assistance_kg from the previous entry when not supplied
+    if available_machine_assistance_kg is None:
+        inherited_machine = prev.available_machine_assistance_kg if prev is not None else []
+    else:
+        inherited_machine = list(available_machine_assistance_kg)
 
     state = EquipmentState(
         exercise_id=exercise_id,
         available_items=list(available_items),
-        machine_assistance_kg=machine_assistance_kg,
         elevation_height_cm=elevation_height_cm,
         valid_from=valid_from or "",
-        available_weights_kg=inherited,
+        available_weights_kg=inherited_weights,
+        available_machine_assistance_kg=inherited_machine,
     )
     store.update_equipment(state)
 
@@ -63,15 +75,17 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
 
     Returns ``None`` if no equipment has been configured.  The dict includes
     computed fields: ``recommended_item`` (auto-selected from available_items
-    based on current training level), ``assistance_kg`` (from catalog), and
-    ``is_bss_degraded`` (True when ``ELEVATION_SURFACE`` is absent from
-    ``available_items``).
+    based on current training level), ``assistance_kg`` (from catalog),
+    ``recommended_assistance_kg`` (machine assistance prescribed for the next
+    session; 0.0 when not applicable), and ``is_bss_degraded`` (True when
+    ``ELEVATION_SURFACE`` is absent from ``available_items``).
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     from ..core.equipment import (
         get_assistance_kg as _get_assistance_kg,
         recommend_equipment_item,
     )
+    from ..core.planner.load_calculator import calculate_machine_assistance
 
     store = _require_store(data_dir, exercise_id)
     state = store.load_current_equipment(exercise_id)
@@ -85,15 +99,25 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     recommended = recommend_equipment_item(
         state.available_items, ex, current_tm, user_state.history[-10:]
     )
+    # Compute recommended machine assistance using H-session target reps as reference
+    if recommended == "MACHINE_ASSISTED" and state.available_machine_assistance_kg:
+        history = [s for s in user_state.history if s.exercise_id == exercise_id]
+        recommended_assistance_kg = calculate_machine_assistance(
+            ex, current_tm, user_state.current_bodyweight_kg, history, "H",
+            available_machine_assistance_kg=state.available_machine_assistance_kg,
+        )
+    else:
+        recommended_assistance_kg = 0.0
     return {
         "exercise_id": state.exercise_id,
         "recommended_item": recommended,
         "available_items": list(state.available_items),
-        "machine_assistance_kg": state.machine_assistance_kg,
+        "available_machine_assistance_kg": list(state.available_machine_assistance_kg),
         "elevation_height_cm": state.elevation_height_cm,
         "assistance_kg": _get_assistance_kg(
-            recommended, state.exercise_id, state.machine_assistance_kg
+            recommended, state.exercise_id, state.available_machine_assistance_kg
         ),
+        "recommended_assistance_kg": recommended_assistance_kg,
         "is_bss_degraded": "ELEVATION_SURFACE" not in state.available_items,
     }
 
@@ -147,16 +171,20 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
 def get_assistance_kg(
     exercise_id: str,
     item_id: str,
-    machine_assistance_kg: float | None = None,
+    available_machine_assistance_kg: list[float] | None = None,
 ) -> float:
     """
     Return the assistance in kg for an equipment item.
 
     Positive value = assistive (reduces Leff); zero = neutral or additive.
+
+    For MACHINE_ASSISTED items, pass ``available_machine_assistance_kg`` to get
+    the maximum available assistance (conservative fallback).
     """
     from ..core.equipment import get_assistance_kg as _get
 
-    return _get(item_id, exercise_id, machine_assistance_kg)
+    machine_list = list(available_machine_assistance_kg) if available_machine_assistance_kg else []
+    return _get(item_id, exercise_id, machine_list)
 
 
 def get_next_band_step(item_id: str, exercise_id: str) -> str | None:

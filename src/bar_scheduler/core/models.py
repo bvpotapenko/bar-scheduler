@@ -112,7 +112,6 @@ class EquipmentState:
 
     exercise_id: str
     available_items: list[str]          # all items the user owns / has access to
-    machine_assistance_kg: float | None = None  # only for MACHINE_ASSISTED items
     elevation_height_cm: int | None = None      # only for BSS ELEVATION_SURFACE
     valid_from: str = ""                # ISO date of this entry
     valid_until: str | None = None      # None = still current
@@ -121,6 +120,11 @@ class EquipmentState:
     # Empty list = continuous (0.5 kg rounding, existing behaviour).
     # When non-empty, the planner floor-snaps weight prescriptions to the
     # largest available weight ≤ the computed ideal.
+    available_machine_assistance_kg: list[float] = field(default_factory=list)
+    # Discrete machine assistance levels available (e.g. [10, 15, 20, 25, 30]).
+    # Empty list = no machine assistance list configured.
+    # When non-empty, the planner ceiling-snaps prescriptions to the smallest
+    # available assistance ≥ the computed ideal.
 
 
 @dataclass
@@ -187,6 +191,7 @@ class SessionPlan:
     sets: list[PlannedSet] = field(default_factory=list)
     expected_tm: int = 0  # Expected training max after completing this session
     week_number: int = 1  # Week number in the plan (1-indexed)
+    prescribed_assistance_kg: float | None = None  # Machine assistance for this session (None = not applicable)
 
     def __post_init__(self) -> None:
         """Validate session plan data."""

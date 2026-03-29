@@ -166,10 +166,21 @@ catalog = get_equipment_catalog("pull_up")
 update_equipment(
     data_dir, "pull_up",
     available_items=["BAR_ONLY", "BAND_MEDIUM", "WEIGHT_BELT"],
-    # machine_assistance_kg=None   # required for MACHINE_ASSISTED; kg of assistance
     # elevation_height_cm=None     # required for BSS ELEVATION_SURFACE: 30 | 45 | 60
     # valid_from=None              # ISO date; defaults to today
     # available_weights_kg=None    # None = inherit; [] = clear; [4.0, 6.0, ...] = discrete weights
+    # available_machine_assistance_kg=None  # None = inherit; [] = clear; [10, 15, 20, ...] = machine settings
+)
+
+# For an assisted pull-up / dip machine — configure the available assistance settings.
+# The planner ceiling-snaps the computed ideal assistance to the smallest available
+# value ≥ that ideal, and emits prescribed_assistance_kg on each planned session.
+update_equipment(
+    data_dir, "pull_up",
+    available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+    available_machine_assistance_kg=[10.0, 15.0, 20.0, 25.0, 30.0],
+    # planner will automatically reduce the assistance level session-by-session
+    # as the user's training max grows — no manual updates needed
 )
 
 # For dumbbell exercises -- set available dumbbell weights the user owns.
@@ -193,10 +204,13 @@ update_equipment(
 
 # Read current equipment state (None if never configured)
 eq = get_current_equipment(data_dir, "pull_up")
-# → {"exercise_id", "recommended_item", "available_items", "machine_assistance_kg",
+# → {"exercise_id", "recommended_item", "available_items",
+#    "available_machine_assistance_kg", "recommended_assistance_kg",
 #    "elevation_height_cm", "assistance_kg", "is_bss_degraded"}
 # recommended_item is auto-selected from available_items based on current TM and
 # band-progression readiness (WEIGHT_BELT when TM > threshold, else best band/bar)
+# recommended_assistance_kg: float — the assistance level to set for the next session
+#   (0.0 when MACHINE_ASSISTED is not the recommended item)
 
 # Band/load computations (no data_dir -- pure math)
 leff = compute_leff(bw_fraction=1.0, bodyweight_kg=82.0,
@@ -318,6 +332,11 @@ for s in plan["sessions"]:
     if s["track_b"]:   # between-test max estimates for past non-TEST sessions
         s["track_b"]["fi_est"]     # FI method estimate
         s["track_b"]["nuzzo_est"]  # Nuzzo method estimate
+
+    s["prescribed_assistance_kg"]  # float | None — machine assistance to set for this session
+    # Non-None only when MACHINE_ASSISTED equipment has available_machine_assistance_kg configured
+    # and the session is within the BW/assist phase (TM ≤ weight threshold).
+    # Value is always one of the entries in available_machine_assistance_kg.
 
     s["session_metrics"]      # dict | None — performance metrics for this session
     # For completed ("done") sessions: from cached session_metrics in history.

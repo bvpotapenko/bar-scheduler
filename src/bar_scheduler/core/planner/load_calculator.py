@@ -196,6 +196,73 @@ def _calculate_added_weight(
     return _apply_rounding(added)
 
 
+def _ceiling_snap_assistance(assistance_kg: float, available: list[float]) -> float:
+    """Ceiling-snap assistance to the smallest available value ≥ assistance_kg.
+
+    If all available values are below the ideal (user can't provide enough
+    assistance), return the maximum available as the best approximation.
+    """
+    above = [a for a in available if a >= assistance_kg]
+    return min(above) if above else max(available)
+
+
+def calculate_machine_assistance(
+    exercise: ExerciseDefinition,
+    training_max: int,
+    bodyweight_kg: float,
+    history: list,
+    session_type: str,
+    available_machine_assistance_kg: list[float],
+) -> float:
+    """
+    Calculate the machine assistance to prescribe for a session.
+
+    Mirrors _calculate_added_weight but for the assistive side: when the
+    target Leff is below the bodyweight contribution the user needs external
+    assistance.  The result is ceiling-snapped to the available list (smallest
+    available ≥ ideal) so the session remains achievable.
+
+    Returns 0.0 when:
+    - ``available_machine_assistance_kg`` is empty, or
+    - TM > ``exercise.weight_tm_threshold`` (user is in the weighted phase), or
+    - the computed target Leff already ≥ bw_contribution (no assistance needed).
+
+    Args:
+        exercise: Exercise definition.
+        training_max: Current training max (reps).
+        bodyweight_kg: User's current bodyweight.
+        history: Full exercise history for 1RM estimation.
+        session_type: Session type string ("S", "H", "E", "T", "TEST").
+        available_machine_assistance_kg: Discrete assistance levels the user can set.
+
+    Returns:
+        Assistance in kg (≥ 0, ceiling-snapped to available list).
+    """
+    if not available_machine_assistance_kg:
+        return 0.0
+
+    if training_max > exercise.weight_tm_threshold:
+        return 0.0
+
+    bw_contrib = bodyweight_kg * exercise.bw_fraction
+    leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
+    leff_1rm_tm = bw_contrib * (1 + training_max / (TM_FACTOR * 30))
+
+    if leff_1rm_hist is None or leff_1rm_hist <= 0:
+        leff_1rm = leff_1rm_tm
+    else:
+        leff_1rm = max(leff_1rm_hist, leff_1rm_tm)
+
+    target_reps = _SESSION_TARGET_REPS.get(session_type, 8)
+    leff_target = leff_1rm * TM_FACTOR / (1 + target_reps / 30)
+
+    needed = max(0.0, bw_contrib - leff_target)
+    if needed <= 0.0:
+        return 0.0
+
+    return _ceiling_snap_assistance(needed, available_machine_assistance_kg)
+
+
 def estimate_prescription_weight(
     history: list,
     exercise: ExerciseDefinition,

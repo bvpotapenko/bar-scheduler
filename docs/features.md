@@ -38,13 +38,14 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 3.3 | Equipment catalog per exercise | `get_equipment_catalog` |
 | 3.4 | Effective load (Leff) computed from bodyweight fraction + added weight − assistance | `compute_leff` |
 | 3.5 | Equipment snapshot attached to each logged session at log time | automatic |
-| 3.6 | Current equipment state as a dict (exercise_id, recommended_item, available_items, assistance_kg, is_bss_degraded); recommended_item auto-selected from available_items by planner | `get_current_equipment` |
+| 3.6 | Current equipment state as a dict (exercise_id, recommended_item, available_items, available_machine_assistance_kg, recommended_assistance_kg, assistance_kg, is_bss_degraded); recommended_item auto-selected from available_items by planner | `get_current_equipment` |
 | 3.7 | Band progression readiness check (n consecutive sessions on current band) | `check_band_progression` |
 | 3.8 | Equipment adjustment factor when switching bands (reps_factor, description) | `compute_equipment_adjustment` |
-| 3.9 | Assistance kg for any item (including machine-assisted) | `get_assistance_kg` |
+| 3.9 | Assistance kg for any item | `get_assistance_kg` |
 | 3.10 | Next item in assist progression for an exercise | `get_next_band_step(item_id, exercise_id)` |
 | 3.11 | Full assist progression list for an exercise (YAML-driven, per-exercise) | `get_assist_progression(exercise_id)` |
 | 3.12 | Per-exercise discrete weight set stored in profile (`available_weights_kg`); planner floor-snaps prescriptions to largest available weight ≤ ideal — no fractional or unavailable weights prescribed | `update_equipment(…, available_weights_kg=[…])` |
+| 3.13 | Per-exercise discrete machine assistance list (`available_machine_assistance_kg`); planner ceiling-snaps ideal assistance to smallest available ≥ ideal; prescribed level shown per session in `get_plan()["sessions"][]["prescribed_assistance_kg"]`; user configures once and the planner automatically reduces assistance as TM grows | `update_equipment(…, available_machine_assistance_kg=[…])` |
 
 ## 4. Training Log (Session Logging)
 
@@ -126,4 +127,4 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 ---
 
-*Last updated: 2026-03-25 (0.5.1: added incline_db_press exercise; added available_weights_kg to EquipmentState for discrete weight snapping).*
+*Last updated: 2026-03-29 (unreleased: machine_assistance_kg replaced by available_machine_assistance_kg list; planner auto-prescribes assistance per session).*

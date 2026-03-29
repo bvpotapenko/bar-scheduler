@@ -53,7 +53,7 @@ def get_catalog(exercise_id: str) -> dict[str, dict]:
 def get_assistance_kg(
     item_id: str,
     exercise_id: str,
-    machine_assistance_kg: float | None = None,
+    available_machine_assistance_kg: list[float] | None = None,
 ) -> float:
     """
     Return the assistance kg for an equipment item.
@@ -61,10 +61,15 @@ def get_assistance_kg(
     Positive value = assistive (reduces Leff).
     Zero = neutral or additive.
 
+    For MACHINE_ASSISTED items, returns the maximum value from
+    ``available_machine_assistance_kg`` as a conservative fallback (used
+    when no target Leff is known, e.g. for historical snapshots where the
+    assistance was already resolved at log time).
+
     Args:
         item_id: Equipment item identifier (e.g. "BAND_MEDIUM")
         exercise_id: Exercise identifier (e.g. "pull_up")
-        machine_assistance_kg: User-entered assistance for MACHINE_ASSISTED items
+        available_machine_assistance_kg: Discrete assistance levels available
 
     Returns:
         Assistance in kg (≥ 0)
@@ -74,10 +79,8 @@ def get_assistance_kg(
         return 0.0
     a = catalog[item_id]["assistance_kg"]
     if a is None:
-        # MACHINE_ASSISTED: user-entered value
-        return (
-            float(machine_assistance_kg) if machine_assistance_kg is not None else 0.0
-        )
+        # MACHINE_ASSISTED: use max of available list (conservative fallback)
+        return max(available_machine_assistance_kg) if available_machine_assistance_kg else 0.0
     return float(a)
 
 
@@ -108,18 +111,26 @@ def compute_leff(
 def snapshot_from_state(
     state: EquipmentState,
     active_item: str,
+    override_assistance_kg: float | None = None,
 ) -> EquipmentSnapshot:
     """
     Build an EquipmentSnapshot from the current EquipmentState.
 
     ``active_item`` is provided explicitly (recommended by ``recommend_equipment_item``).
     Used when logging a session to capture the equipment context.
+
+    ``override_assistance_kg`` bypasses catalog lookup — pass the value computed
+    by ``calculate_machine_assistance()`` so the snapshot reflects the actual
+    prescription rather than a generic fallback.
     """
-    a_kg = get_assistance_kg(
-        active_item,
-        state.exercise_id,
-        state.machine_assistance_kg,
-    )
+    if override_assistance_kg is not None:
+        a_kg = override_assistance_kg
+    else:
+        a_kg = get_assistance_kg(
+            active_item,
+            state.exercise_id,
+            state.available_machine_assistance_kg,
+        )
     return EquipmentSnapshot(
         active_item=active_item,
         assistance_kg=a_kg,

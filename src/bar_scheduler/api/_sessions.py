@@ -33,6 +33,7 @@ def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
     exercise is read from the profile and attached automatically.
     """
     from ..core.equipment import recommend_equipment_item, snapshot_from_state
+    from ..core.planner.load_calculator import calculate_machine_assistance
     from ..io.serializers import dict_to_session_result
 
     store = _require_store(data_dir, exercise_id)
@@ -48,7 +49,25 @@ def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
             active_item = recommend_equipment_item(
                 eq_state.available_items, ex, current_tm, ustate.history[-10:]
             )
-            session_obj.equipment_snapshot = snapshot_from_state(eq_state, active_item)
+            # For machine-assisted exercises with a discrete assistance list,
+            # compute the prescribed assistance level rather than using a fixed value.
+            override_assistance: float | None = None
+            if (
+                active_item == "MACHINE_ASSISTED"
+                and eq_state.available_machine_assistance_kg
+            ):
+                history = [s for s in ustate.history if s.exercise_id == exercise_id]
+                override_assistance = calculate_machine_assistance(
+                    ex,
+                    current_tm,
+                    ustate.current_bodyweight_kg,
+                    history,
+                    session_obj.session_type,
+                    available_machine_assistance_kg=eq_state.available_machine_assistance_kg,
+                )
+            session_obj.equipment_snapshot = snapshot_from_state(
+                eq_state, active_item, override_assistance_kg=override_assistance
+            )
     # Compute and cache performance metrics at log time.
     ex = get_exercise(exercise_id)
     assistance_kg = (

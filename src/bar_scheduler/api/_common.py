@@ -172,4 +172,7 @@ def _timeline_entry_to_dict(
         "actual_sets": actual_sets,
         "track_b": e.track_b,
         "session_metrics": session_metrics,
+        "prescribed_assistance_kg": (
+            e.planned.prescribed_assistance_kg if e.planned is not None else None
+        ),
     }

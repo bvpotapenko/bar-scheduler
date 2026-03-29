@@ -34,7 +34,11 @@ from ..models import (
     UserState,
 )
 from .grip_selector import GripSelector, _init_grip_counts, _next_grip
-from .load_calculator import _calculate_added_weight, estimate_prescription_weight
+from .load_calculator import (
+    _calculate_added_weight,
+    calculate_machine_assistance,
+    estimate_prescription_weight,
+)
 from .rest_advisor import calculate_adaptive_rest
 from .schedule_builder import (
     calculate_session_days,
@@ -97,6 +101,7 @@ def _plan_core(
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
     available_weights_kg: list[float] | None = None,
+    available_machine_assistance_kg: list[float] | None = None,
 ) -> Generator[tuple[SessionPlan, _SessionTrace], None, None]:
     """
     Core plan generator -- single source of truth for all plan logic.
@@ -286,6 +291,13 @@ def _plan_core(
             exercise, current_tm, user_state.current_bodyweight_kg, history, session_type,
             available_weights_kg=available_weights_kg,
         )
+        if available_machine_assistance_kg:
+            prescribed_assistance = calculate_machine_assistance(
+                exercise, current_tm, user_state.current_bodyweight_kg, history, session_type,
+                available_machine_assistance_kg=available_machine_assistance_kg,
+            )
+        else:
+            prescribed_assistance = None
         expected_tm_after = int(tm_float)
 
         # --- Build the plan entry ---
@@ -327,6 +339,7 @@ def _plan_core(
             sets=sets,
             expected_tm=expected_tm_after,
             week_number=week_num,
+            prescribed_assistance_kg=prescribed_assistance,
         )
 
         trace = _SessionTrace(
@@ -382,6 +395,7 @@ def generate_plan(
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
     available_weights_kg: list[float] | None = None,
+    available_machine_assistance_kg: list[float] | None = None,
 ) -> list[SessionPlan]:
     """
     Generate a deterministic training plan with progressive overload.
@@ -397,6 +411,8 @@ def generate_plan(
                                 (computed from overtraining severity; NOT saved to store)
         available_weights_kg: Discrete weights the user owns for this exercise;
                               empty = continuous 0.5 kg rounding.
+        available_machine_assistance_kg: Discrete machine assistance levels available;
+                              empty / None = no machine assistance planning.
 
     Returns:
         List of SessionPlan for the planning horizon
@@ -413,6 +429,7 @@ def generate_plan(
             overtraining_rest_days=overtraining_rest_days,
             history_init_cutoff=history_init_cutoff,
             available_weights_kg=available_weights_kg,
+            available_machine_assistance_kg=available_machine_assistance_kg,
         )
     ]
 
@@ -428,6 +445,7 @@ def explain_plan_entry(
     overtraining_rest_days: int = 0,
     history_init_cutoff: str | None = None,
     available_weights_kg: list[float] | None = None,
+    available_machine_assistance_kg: list[float] | None = None,
 ) -> str:
     """
     Generate a step-by-step Rich-markup explanation of a planned session.
@@ -465,6 +483,7 @@ def explain_plan_entry(
             overtraining_rest_days=overtraining_rest_days,
             history_init_cutoff=history_init_cutoff,
             available_weights_kg=available_weights_kg,
+            available_machine_assistance_kg=available_machine_assistance_kg,
         ):
             last_weeks_ahead = trace.weeks_ahead
             if plan.date == target_date:

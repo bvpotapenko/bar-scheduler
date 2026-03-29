@@ -31,7 +31,7 @@ from .grip_selector import (
 )
 
 # --- Load calculation (imported by test_cli_smoke.py) ---
-from .load_calculator import _calculate_added_weight
+from .load_calculator import _calculate_added_weight, calculate_machine_assistance
 
 # --- Rest calculation (imported by test_core_formulas.py) ---
 from .rest_advisor import calculate_adaptive_rest
@@ -63,6 +63,7 @@ __all__ = [
     "GripSelector",
     # Load
     "_calculate_added_weight",
+    "calculate_machine_assistance",
     # Rest
     "calculate_adaptive_rest",
     # Sets

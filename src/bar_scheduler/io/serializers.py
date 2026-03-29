@@ -292,12 +292,12 @@ def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
         "valid_from": state.valid_from,
         "valid_until": state.valid_until,
     }
-    if state.machine_assistance_kg is not None:
-        d["machine_assistance_kg"] = state.machine_assistance_kg
     if state.elevation_height_cm is not None:
         d["elevation_height_cm"] = state.elevation_height_cm
     if state.available_weights_kg:
         d["available_weights_kg"] = list(state.available_weights_kg)
+    if state.available_machine_assistance_kg:
+        d["available_machine_assistance_kg"] = list(state.available_machine_assistance_kg)
     return d
 
 
@@ -306,11 +306,13 @@ def dict_to_equipment_state(data: dict[str, Any]) -> EquipmentState:
     return EquipmentState(
         exercise_id=str(data.get("exercise_id", "")),
         available_items=list(data.get("available_items", [])),
-        machine_assistance_kg=data.get("machine_assistance_kg"),
         elevation_height_cm=data.get("elevation_height_cm"),
         valid_from=str(data.get("valid_from", "")),
         valid_until=data.get("valid_until"),
         available_weights_kg=[float(w) for w in data.get("available_weights_kg", [])],
+        available_machine_assistance_kg=[
+            float(w) for w in data.get("available_machine_assistance_kg", [])
+        ],
     )
 
 
