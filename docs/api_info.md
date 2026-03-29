@@ -39,8 +39,8 @@ from bar_scheduler.api import (
     # Input parsers
     parse_sets_string, parse_compact_sets,
 )
-# Input types (optional — for typed session logging)
-from bar_scheduler.api.types import SessionType, SetInput, SessionInput
+# Input types (required for session logging)
+from bar_scheduler.api.types import SessionInput, SetInput, SessionType
 ```
 
 Everything you need is in `bar_scheduler.api`.
@@ -268,23 +268,24 @@ Session types: `S` = Strength, `H` = Hypertrophy, `E` = Endurance, `T` = Techniq
 ## 6. History: log & delete
 
 ```python
+from bar_scheduler.api.types import SessionInput, SetInput
+
 # Log a session -- returns the persisted session dict
-result = log_session(data_dir, "pull_up", {
-    "date": "2026-03-22",
-    "bodyweight_kg": 82.0,
-    "grip": "pronated",
-    "session_type": "S",
-    "exercise_id": "pull_up",
-    "completed_sets": [
-        {"actual_reps": 5, "rest_seconds_before": 180, "rir_reported": 2},
-        {"actual_reps": 4, "rest_seconds_before": 180, "rir_reported": 1},
-        {"actual_reps": 3, "rest_seconds_before": 180, "rir_reported": 0},
+result = log_session(data_dir, "pull_up", SessionInput(
+    date="2026-03-22",
+    session_type="S",
+    bodyweight_kg=82.0,
+    grip="pronated",
+    sets=[
+        SetInput(reps=5, rest_seconds=180, rir_reported=2),
+        SetInput(reps=4, rest_seconds=180, rir_reported=1),
+        SetInput(reps=3, rest_seconds=180, rir_reported=0),
     ],
-})
-# equipment_snapshot is auto-attached from the current profile equipment if omitted.
+))
+# equipment_snapshot is auto-attached from the current profile equipment.
 # A session with the same (date, session_type) replaces the existing entry.
-# Optional set fields: target_reps (default 0), added_weight_kg (default 0.0),
-#                      rir_target (default 2)
+# Optional SetInput fields: added_weight_kg (default 0.0), rir_reported (default None)
+# Optional SessionInput fields: grip (default "neutral"), notes (default "")
 
 # Delete by 1-based index -- matches the "id" field returned by get_plan
 delete_session(data_dir, "pull_up", 3)   # raises SessionNotFoundError if out of range

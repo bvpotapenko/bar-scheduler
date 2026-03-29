@@ -12,32 +12,47 @@ from ._common import (
     SessionNotFoundError,
     _require_store,
 )
+from .types import SessionInput
 
 
-def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
+def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict:
     """
     Append a training session to the history.
 
-    ``session`` must be a dict with fields matching ``SessionResult``
-    (see ``io/serializers.py``).  The most important required fields are:
+    ``session`` is a ``SessionInput`` with:
 
-    - ``date``             -- ISO date string (YYYY-MM-DD)
-    - ``bodyweight_kg``    -- float
-    - ``grip``             -- exercise-specific variant string
-    - ``session_type``     -- one of ``"S"``, ``"H"``, ``"E"``, ``"T"``, ``"TEST"``
-    - ``exercise_id``      -- exercise identifier (must match the ``exercise_id`` arg)
-    - ``completed_sets``   -- list of set dicts
+    - ``date``           -- ISO date string (YYYY-MM-DD)
+    - ``session_type``   -- one of ``"S"``, ``"H"``, ``"E"``, ``"T"``, ``"TEST"``
+    - ``bodyweight_kg``  -- float (> 0)
+    - ``sets``           -- list of ``SetInput``
+    - ``grip``           -- exercise-specific variant (default ``"neutral"``)
+    - ``notes``          -- optional notes string
 
-    Returns the serialised ``SessionResult`` dict that was persisted.
-    If no ``equipment_snapshot`` is provided, the current equipment for the
-    exercise is read from the profile and attached automatically.
+    Returns the serialised session dict. The equipment snapshot is read from
+    the profile and attached automatically.
     """
     from ..core.equipment import recommend_equipment_item, snapshot_from_state
     from ..core.planner.load_calculator import calculate_machine_assistance
     from ..io.serializers import dict_to_session_result
 
     store = _require_store(data_dir, exercise_id)
-    session_obj = dict_to_session_result(session)
+    session_obj = dict_to_session_result({
+        "date": session.date,
+        "bodyweight_kg": session.bodyweight_kg,
+        "grip": session.grip,
+        "session_type": session.session_type,
+        "exercise_id": exercise_id,
+        "completed_sets": [
+            {
+                "actual_reps": s.reps,
+                "rest_seconds_before": s.rest_seconds,
+                "added_weight_kg": s.added_weight_kg,
+                **({"rir_reported": s.rir_reported} if s.rir_reported is not None else {}),
+            }
+            for s in session.sets
+        ],
+        **({"notes": session.notes} if session.notes else {}),
+    })
     if session_obj.equipment_snapshot is None:
         eq_state = store.load_current_equipment(exercise_id)
         if eq_state is not None:

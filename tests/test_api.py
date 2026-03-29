@@ -45,6 +45,7 @@ from bar_scheduler.api import (
     update_height,
     update_profile,
 )
+from bar_scheduler.api.types import SessionInput, SetInput
 
 
 # ---------------------------------------------------------------------------
@@ -70,15 +71,14 @@ def _today() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def _test_session(date: str | None = None) -> dict:
-    return {
-        "date": date or _today(),
-        "bodyweight_kg": 80.0,
-        "grip": "pronated",
-        "session_type": "TEST",
-        "exercise_id": "pull_up",
-        "completed_sets": [{"actual_reps": 12, "rest_seconds_before": 180}],
-    }
+def _test_session(date: str | None = None) -> SessionInput:
+    return SessionInput(
+        date=date or _today(),
+        session_type="TEST",
+        bodyweight_kg=80.0,
+        grip="pronated",
+        sets=[SetInput(reps=12, rest_seconds=180)],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -551,20 +551,14 @@ class TestLogSessionEquipmentAutoAttach:
         result = log_session(tmp_path, "pull_up", _test_session())
         assert result.get("equipment_snapshot") is None
 
-    def test_explicit_snapshot_not_overwritten(self, tmp_path):
+    def test_auto_attaches_band_snapshot(self, tmp_path):
         _init(tmp_path)
         update_equipment(
             tmp_path, "pull_up", available_items=["BAR_ONLY", "BAND_LIGHT"]
         )
-        session = {
-            **_test_session(),
-            "equipment_snapshot": {
-                "active_item": "BAND_LIGHT",
-                "assistance_kg": 8.0,
-            },
-        }
-        result = log_session(tmp_path, "pull_up", session)
-        assert result["equipment_snapshot"]["active_item"] == "BAND_LIGHT"
+        result = log_session(tmp_path, "pull_up", _test_session())
+        assert result["equipment_snapshot"] is not None
+        assert result["equipment_snapshot"]["active_item"] in ("BAR_ONLY", "BAND_LIGHT")
 
 
 # ---------------------------------------------------------------------------
@@ -755,10 +749,13 @@ class TestMachineAssistanceList:
             available_machine_assistance_kg=[10.0, 20.0, 30.0],
         )
         # Log a TEST session at low reps to keep TM below weight threshold (9)
-        log_session(tmp_path, "pull_up", {
-            **_test_session(),
-            "completed_sets": [{"actual_reps": 5, "rest_seconds_before": 180}],
-        })
+        log_session(tmp_path, "pull_up", SessionInput(
+            date=_today(),
+            session_type="TEST",
+            bodyweight_kg=80.0,
+            grip="pronated",
+            sets=[SetInput(reps=5, rest_seconds=180)],
+        ))
         plan = get_plan(tmp_path, "pull_up")
         future = [
             s for s in plan["sessions"]
@@ -1220,14 +1217,10 @@ class TestSessionMetricsCached:
     def test_volume_session_equals_leff_times_reps(self, tmp_path):
         # BW=80, bw_fraction=1.0 → leff=80, 1 set of 8 reps → volume = 640
         _init(tmp_path, bodyweight_kg=80.0)
-        log_session(tmp_path, "pull_up", {
-            "date": _today(),
-            "bodyweight_kg": 80.0,
-            "grip": "pronated",
-            "session_type": "S",
-            "exercise_id": "pull_up",
-            "completed_sets": [{"actual_reps": 8, "rest_seconds_before": 180}],
-        })
+        log_session(tmp_path, "pull_up", SessionInput(
+            date=_today(), session_type="S", bodyweight_kg=80.0, grip="pronated",
+            sets=[SetInput(reps=8, rest_seconds=180)],
+        ))
         history = get_history(tmp_path, "pull_up")
         m = history[0]["session_metrics"]
         assert m["volume_session"] == pytest.approx(640.0, abs=0.01)
@@ -1236,17 +1229,10 @@ class TestSessionMetricsCached:
     def test_avg_volume_set_divides_by_n_sets(self, tmp_path):
         # 2 sets of 8 reps at BW=80 → volume=1280, avg=640
         _init(tmp_path, bodyweight_kg=80.0)
-        log_session(tmp_path, "pull_up", {
-            "date": _today(),
-            "bodyweight_kg": 80.0,
-            "grip": "pronated",
-            "session_type": "S",
-            "exercise_id": "pull_up",
-            "completed_sets": [
-                {"actual_reps": 8, "rest_seconds_before": 180},
-                {"actual_reps": 8, "rest_seconds_before": 180},
-            ],
-        })
+        log_session(tmp_path, "pull_up", SessionInput(
+            date=_today(), session_type="S", bodyweight_kg=80.0, grip="pronated",
+            sets=[SetInput(reps=8, rest_seconds=180), SetInput(reps=8, rest_seconds=180)],
+        ))
         history = get_history(tmp_path, "pull_up")
         m = history[0]["session_metrics"]
         assert m["volume_session"] == pytest.approx(1280.0, abs=0.01)
@@ -1282,3 +1268,32 @@ class TestSessionMetricsCached:
         assert m["volume_session"] is None
         assert m["avg_volume_set"] is None
         assert m["estimated_1rm"] is None
+
+
+# ---------------------------------------------------------------------------
+# TestLogSessionTyped
+# ---------------------------------------------------------------------------
+
+
+class TestLogSessionTyped:
+    """Regression: log_session accepts SessionInput / SetInput."""
+
+    def test_session_input_round_trips(self, tmp_path):
+        _init(tmp_path, bodyweight_kg=80.0)
+        si = SessionInput(
+            date=_today(),
+            session_type="S",
+            bodyweight_kg=80.0,
+            grip="pronated",
+            sets=[
+                SetInput(reps=5, rest_seconds=180),
+                SetInput(reps=4, rest_seconds=180, added_weight_kg=5.0, rir_reported=1),
+            ],
+        )
+        result = log_session(tmp_path, "pull_up", si)
+        assert result["date"] == _today()
+        assert result["session_type"] == "S"
+        assert len(result["completed_sets"]) == 2
+        assert result["completed_sets"][1]["added_weight_kg"] == 5.0
+        assert result["completed_sets"][1]["rir_reported"] == 1
+        assert result["session_metrics"]["volume_session"] is not None

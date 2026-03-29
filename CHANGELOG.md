@@ -4,9 +4,12 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
-## [Unreleased]
+## [0.6.0] - 2026-03-30
 
 ### Changed
+- **`log_session()`** now accepts `SessionInput` instead of a plain dict.
+  Use `SessionInput(date, session_type, bodyweight_kg, sets=[SetInput(...)])`.
+
 
 - **`UserProfile`** gains `bodyweight_kg: float` field. Bodyweight is no longer a
   separate argument in internal storage — `save_profile(profile)` drops the second
