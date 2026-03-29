@@ -5,7 +5,6 @@ Handles reading, writing, and managing the training history file.
 """
 
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -16,7 +15,6 @@ from .serializers import (
     dict_to_session_result,
     dict_to_user_profile,
     equipment_state_to_dict,
-    session_result_to_dict,
     session_to_json_line,
     user_profile_to_dict,
 )
@@ -142,38 +140,19 @@ class UserStore:
                 return entry
         return None
 
-    def save_profile(self, profile: UserProfile, bodyweight_kg: float) -> None:
+    def save_profile(self, profile: UserProfile) -> None:
         """
         Save user profile to profile.json.
 
         Args:
-            profile: User profile to save
-            bodyweight_kg: Current bodyweight
+            profile: User profile to save (bodyweight_kg is part of UserProfile)
         """
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         data = user_profile_to_dict(profile)
-        data["current_bodyweight_kg"] = bodyweight_kg
 
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
-
-    def load_bodyweight(self) -> float | None:
-        """
-        Load current bodyweight from profile.json.
-
-        Returns:
-            Bodyweight in kg or None if not set
-        """
-        if not self.profile_path.exists():
-            return None
-
-        try:
-            with open(self.profile_path, "r") as f:
-                data = json.load(f)
-            return float(data.get("current_bodyweight_kg", 0)) or None
-        except (json.JSONDecodeError, ValueError):
-            return None
 
     def update_bodyweight(self, bodyweight_kg: float) -> None:
         """
@@ -259,7 +238,7 @@ class UserStore:
         Load complete user state (profile + history for the given exercise).
 
         Returns:
-            UserState with profile, bodyweight, and history
+            UserState with profile and history
 
         Raises:
             FileNotFoundError: If required files don't exist
@@ -271,17 +250,10 @@ class UserStore:
                 f"Profile not found: {self.profile_path}. Run 'init' first."
             )
 
-        bodyweight = self.load_bodyweight()
-        if bodyweight is None:
-            raise ValidationError(
-                "Bodyweight not set in profile. Run 'init' with --bodyweight-kg."
-            )
-
         history = self.load_history(exercise_id)
 
         return UserState(
             profile=profile,
-            current_bodyweight_kg=bodyweight,
             history=history,
         )
 

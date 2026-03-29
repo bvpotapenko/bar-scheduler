@@ -1,7 +1,6 @@
 """Shared exceptions and private helpers for the bar-scheduler API."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -9,7 +8,7 @@ from ..core.equipment import compute_leff
 from ..core.exercises.base import ExerciseDefinition
 from ..core.metrics import best_1rm_from_leff
 from ..core.models import SessionResult
-from ..core.timeline import TimelineEntry, build_timeline
+from ..core.timeline import TimelineEntry
 from ..io.user_store import UserStore
 
 

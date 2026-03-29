@@ -20,6 +20,7 @@ from ._profile import (
     init_profile,
     get_profile,
     update_bodyweight,
+    update_height,
     update_language,
     update_profile,
 )
@@ -62,6 +63,7 @@ from ._analysis import (
     get_progress_data,
     get_overtraining_status,
     get_goal_metrics,
+    training_max_from_baseline,
 )
 
 # Equipment
@@ -79,7 +81,6 @@ from ._equipment import (
 # Utils
 from ._utils import (
     get_data_dir,
-    training_max_from_baseline,
     parse_sets_string,
     parse_compact_sets,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "init_profile",
     "get_profile",
     "update_bodyweight",
+    "update_height",
     "update_language",
     "update_profile",
     # Exercises

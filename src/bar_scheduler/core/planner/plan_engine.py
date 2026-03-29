@@ -23,17 +23,13 @@ from ..config import (
 )
 from ..exercises.base import ExerciseDefinition
 from ..exercises.registry import get_exercise
-from ..metrics import training_max_from_baseline
 from ..models import (
-    PlannedSet,
     SessionPlan,
     SessionResult,
-    SessionType,
     SetResult,
-    TrainingStatus,
     UserState,
 )
-from .grip_selector import GripSelector, _init_grip_counts, _next_grip
+from .grip_selector import _init_grip_counts, _next_grip
 from .load_calculator import (
     _calculate_added_weight,
     calculate_machine_assistance,
@@ -129,7 +125,7 @@ def _plan_core(
         today = datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=1)
         synthetic = create_synthetic_test_session(
             today.strftime("%Y-%m-%d"),
-            user_state.current_bodyweight_kg,
+            user_state.profile.bodyweight_kg,
             baseline_max,  # type: ignore
             exercise.exercise_id,
         )
@@ -234,7 +230,7 @@ def _plan_core(
                 # driving higher Epley 1RM and thus higher weight prescription.
                 assert exercise_target is not None  # weighted_goal implies this
                 current_weight = estimate_prescription_weight(
-                    history, exercise, user_state.current_bodyweight_kg, exercise_target.reps,
+                    history, exercise, user_state.profile.bodyweight_kg, exercise_target.reps,
                     available_weights_kg=available_weights_kg,
                 )
                 goal_met = int(tm_float) >= exercise_target.reps and current_weight >= exercise_target.weight_kg
@@ -288,12 +284,12 @@ def _plan_core(
             session_type, recent_same_type, ff_state, exercise
         )
         added_weight = _calculate_added_weight(
-            exercise, current_tm, user_state.current_bodyweight_kg, history, session_type,
+            exercise, current_tm, user_state.profile.bodyweight_kg, history, session_type,
             available_weights_kg=available_weights_kg,
         )
         if available_machine_assistance_kg:
             prescribed_assistance = calculate_machine_assistance(
-                exercise, current_tm, user_state.current_bodyweight_kg, history, session_type,
+                exercise, current_tm, user_state.profile.bodyweight_kg, history, session_type,
                 available_machine_assistance_kg=available_machine_assistance_kg,
             )
         else:
@@ -305,7 +301,7 @@ def _plan_core(
             session_type,  # type: ignore
             current_tm,
             ff_state,
-            user_state.current_bodyweight_kg,
+            user_state.profile.bodyweight_kg,
             exercise=exercise,
             history=history,
             history_sessions=len(effective_init),
@@ -487,7 +483,7 @@ def explain_plan_entry(
         ):
             last_weeks_ahead = trace.weeks_ahead
             if plan.date == target_date:
-                return _format_explain(trace, user_state.current_bodyweight_kg)
+                return _format_explain(trace, user_state.profile.bodyweight_kg)
     except ValueError as exc:
         return f"[yellow]{exc}[/yellow]"
 
@@ -556,7 +552,7 @@ def estimate_plan_completion_date(
     history = [s for s in user_state.history if s.exercise_id == exercise_id]
     status = get_training_status(
         user_state.history,
-        user_state.current_bodyweight_kg,
+        user_state.profile.bodyweight_kg,
         baseline_max,
     )
 
@@ -566,7 +562,7 @@ def estimate_plan_completion_date(
         # Weighted goal: check both rep and weight dimensions.
         current_weight = estimate_prescription_weight(
             history, get_exercise(exercise_id),
-            user_state.current_bodyweight_kg, exercise_target.reps
+            user_state.profile.bodyweight_kg, exercise_target.reps
         )
         if tm >= exercise_target.reps and current_weight >= exercise_target.weight_kg:
             return None

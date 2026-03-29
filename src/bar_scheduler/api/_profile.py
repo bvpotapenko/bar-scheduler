@@ -42,12 +42,13 @@ def init_profile(
 
     profile = UserProfile(
         height_cm=height_cm,
+        bodyweight_kg=bodyweight_kg,
         language=language,
     )
 
     store = UserStore(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    store.save_profile(profile, bodyweight_kg)
+    store.save_profile(profile)
 
     return get_profile(data_dir)
 
@@ -56,16 +57,13 @@ def get_profile(data_dir: Path) -> dict | None:
     """
     Return the current user profile as a dict, or None if not initialised.
 
-    The dict includes all UserProfile fields plus ``current_bodyweight_kg``.
+    The dict includes all UserProfile fields including ``current_bodyweight_kg``.
     """
     store = UserStore(data_dir)
     profile = store.load_profile()
     if profile is None:
         return None
-    bw = store.load_bodyweight()
-    d = user_profile_to_dict(profile)
-    d["current_bodyweight_kg"] = bw
-    return d
+    return user_profile_to_dict(profile)
 
 
 def update_bodyweight(data_dir: Path, bodyweight_kg: float) -> None:
@@ -90,17 +88,29 @@ def update_language(data_dir: Path, lang: str) -> None:
     store.update_language(lang)
 
 
+def update_height(data_dir: Path, *, height_cm: int) -> dict:
+    """
+    Update the user's height in cm.
+
+    Returns the updated profile dict.
+    Raises ``ProfileNotFoundError`` if not yet initialised.
+    Raises ``ValueError`` if ``height_cm`` is not positive.
+    """
+    return update_profile(data_dir, height_cm=height_cm)
+
+
 def update_profile(
     data_dir: Path,
     *,
     height_cm: int | None = None,
+    bodyweight_kg: float | None = None,
+    language: str | None = None,
 ) -> dict:
     """
-    Update general profile fields.
+    Update one or more top-level profile fields.
 
-    Only the fields you pass are changed; all others are preserved.
-    Also preserves ``plan_start_dates``, ``equipment``, and other keys
-    stored alongside the profile in profile.json.
+    Only the fields you pass are changed; all others (including exercise data,
+    ``plan_start_dates``, ``equipment``, etc.) are preserved.
 
     Returns the updated profile dict (same shape as ``get_profile()``).
     Raises ``ProfileNotFoundError`` if not yet initialised.
@@ -108,6 +118,10 @@ def update_profile(
     """
     if height_cm is not None and height_cm <= 0:
         raise ValueError(f"height_cm must be positive, got {height_cm}")
+    if bodyweight_kg is not None and bodyweight_kg <= 0:
+        raise ValueError(f"bodyweight_kg must be positive, got {bodyweight_kg}")
+    if language is not None and not language:
+        raise ValueError("language must be a non-empty string")
 
     store = _require_profile_store(data_dir)
     with open(store.profile_path) as f:
@@ -115,6 +129,13 @@ def update_profile(
 
     if height_cm is not None:
         data["height_cm"] = height_cm
+    if bodyweight_kg is not None:
+        data["current_bodyweight_kg"] = bodyweight_kg
+    if language is not None:
+        if language == "en":
+            data.pop("language", None)
+        else:
+            data["language"] = language
 
     dict_to_user_profile(data)  # validate -- raises ValidationError if inconsistent
 

@@ -60,7 +60,7 @@ def compute_training_state(
     effective_init = history_for_init if history_for_init else history
 
     status: TrainingStatus = get_training_status(
-        effective_init, user_state.current_bodyweight_kg, baseline_max
+        effective_init, user_state.profile.bodyweight_kg, baseline_max
     )
     initial_tm = status.training_max
     if initial_tm <= 1 and baseline_max is not None:

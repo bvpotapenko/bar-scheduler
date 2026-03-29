@@ -64,7 +64,7 @@ def get_plan(
 
     training_status = _get_training_status(
         user_state.history,
-        user_state.current_bodyweight_kg,
+        user_state.profile.bodyweight_kg,
     )
 
     timeline = build_timeline(plans, user_state.history)
@@ -129,7 +129,7 @@ def get_plan(
             "fatigue": round(ff.fatigue, 4),
         },
         "sessions": [
-            _timeline_entry_to_dict(e, exercise, user_state.current_bodyweight_kg)
+            _timeline_entry_to_dict(e, exercise, user_state.profile.bodyweight_kg)
             for e in timeline
         ],
         "plan_changes": plan_changes,

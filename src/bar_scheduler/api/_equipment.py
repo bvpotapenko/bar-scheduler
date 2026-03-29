@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ..core.adaptation import get_training_status as _get_training_status
 from ..core.exercises.registry import get_exercise
-from ._common import _require_profile_store, _require_store
+from ._common import _require_store
 
 
 def update_equipment(
@@ -89,7 +89,7 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     ex = get_exercise(exercise_id)
     user_state = store.load_user_state(exercise_id)
     current_tm = _get_training_status(
-        user_state.history, user_state.current_bodyweight_kg
+        user_state.history, user_state.profile.bodyweight_kg
     ).training_max
     recommended = recommend_equipment_item(
         state.available_items, ex, current_tm, user_state.history[-10:]
@@ -98,7 +98,7 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     if recommended == "MACHINE_ASSISTED" and state.available_machine_assistance_kg:
         history = [s for s in user_state.history if s.exercise_id == exercise_id]
         recommended_assistance_kg = calculate_machine_assistance(
-            ex, current_tm, user_state.current_bodyweight_kg, history, "H",
+            ex, current_tm, user_state.profile.bodyweight_kg, history, "H",
             available_machine_assistance_kg=state.available_machine_assistance_kg,
         )
     else:

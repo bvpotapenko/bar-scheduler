@@ -8,6 +8,30 @@ All notable changes to bar-scheduler are documented here.
 
 ### Changed
 
+- **`UserProfile`** gains `bodyweight_kg: float` field. Bodyweight is no longer a
+  separate argument in internal storage — `save_profile(profile)` drops the second
+  arg; `UserState` loses `current_bodyweight_kg`; all internal callers now read
+  `user_state.profile.bodyweight_kg`.
+- **`update_profile()`** is now a full partial-update function accepting any subset of
+  `height_cm`, `bodyweight_kg`, `language`. The previous single-field function is
+  preserved as `update_height(height_cm)`.
+- **`update_height(data_dir, *, height_cm)`** — new explicit function; equivalent to
+  the old `update_profile(height_cm=...)`.
+- **`list_exercises()`** return type changed from `list[dict]` to `dict[str, dict]`
+  keyed by exercise ID. The `"id"` key is removed from each value (it became the key).
+  `get_exercise_info()` still returns `"id"` in its dict.
+- **`EquipmentState`** removes `elevation_height_cm`, `valid_from`, `valid_until`.
+  Equipment is now stored as a single current-state dict per exercise (no history list).
+  Updating equipment overwrites the previous entry.
+- **`EquipmentSnapshot`** removes `elevation_height_cm`.
+- **`update_equipment()`** removes `elevation_height_cm` and `valid_from` parameters.
+- **`get_current_equipment()`** removes `elevation_height_cm` from the returned dict.
+
+### Tooling
+
+- **ruff** added as dev dependency (`>=0.9`). Run `uv run ruff check src/ tests/` to lint.
+  Existing unused imports cleaned up across the codebase.
+
 - **`machine_assistance_kg: float`** replaced by **`available_machine_assistance_kg: list[float]`**
   in `EquipmentState`. The planner now auto-selects the right assistance level from the discrete
   list each session (ceiling-snap to smallest available ≥ ideal), exactly like `available_weights_kg`

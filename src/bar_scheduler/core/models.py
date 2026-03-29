@@ -252,6 +252,7 @@ class UserProfile:
     """
 
     height_cm: int
+    bodyweight_kg: float
     exercise_days: dict = field(default_factory=dict)   # {exercise_id: days_per_week}
     exercise_targets: dict = field(default_factory=dict)  # {exercise_id: ExerciseTarget}
     exercises_enabled: list = field(default_factory=list)
@@ -273,6 +274,8 @@ class UserProfile:
         """Validate profile data."""
         if self.height_cm <= 0:
             raise ValueError("height_cm must be positive")
+        if self.bodyweight_kg <= 0:
+            raise ValueError("bodyweight_kg must be positive")
 
         for ex_id, days in self.exercise_days.items():
             if days not in (1, 2, 3, 4, 5):
@@ -293,17 +296,13 @@ class UserProfile:
 @dataclass
 class UserState:
     """
-    Complete user state including profile, current bodyweight, and history.
+    Complete user state including profile and history.
+
+    Bodyweight is accessed via ``profile.bodyweight_kg``.
     """
 
     profile: UserProfile
-    current_bodyweight_kg: float
     history: list[SessionResult] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        """Validate user state."""
-        if self.current_bodyweight_kg <= 0:
-            raise ValueError("current_bodyweight_kg must be positive")
 
 
 @dataclass

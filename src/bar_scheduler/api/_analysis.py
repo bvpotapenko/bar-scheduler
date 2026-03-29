@@ -30,7 +30,7 @@ def get_training_status(data_dir: Path, exercise_id: str) -> dict:
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state(exercise_id)
     status = _get_training_status(
-        user_state.history, user_state.current_bodyweight_kg
+        user_state.history, user_state.profile.bodyweight_kg
     )
     ff = status.fitness_fatigue_state
     return {
@@ -58,7 +58,7 @@ def get_onerepmax_data(data_dir: Path, exercise_id: str) -> dict | None:
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state(exercise_id)
     return estimate_1rm(
-        exercise, user_state.current_bodyweight_kg, user_state.history
+        exercise, user_state.profile.bodyweight_kg, user_state.history
     )
 
 
@@ -151,7 +151,7 @@ def get_progress_data(
     traj_m = None
 
     if traj_types and test_sessions:
-        bw = user_state.current_bodyweight_kg
+        bw = user_state.profile.bodyweight_kg
         bw_load = bw * exercise_def.bw_fraction
         traj_target = TARGET_MAX_REPS
         target_weight_kg = 0.0
@@ -264,7 +264,7 @@ def get_goal_metrics(data_dir: Path, exercise_id: str) -> dict:
 
     goal_leff = compute_leff(
         exercise.bw_fraction,
-        user_state.current_bodyweight_kg,
+        user_state.profile.bodyweight_kg,
         target.weight_kg,
         0.0,
     )

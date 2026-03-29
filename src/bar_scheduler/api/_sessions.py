@@ -44,7 +44,7 @@ def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
             ex = get_exercise(exercise_id)
             ustate = store.load_user_state(exercise_id)
             current_tm = _get_training_status(
-                ustate.history, ustate.current_bodyweight_kg
+                ustate.history, ustate.profile.bodyweight_kg
             ).training_max
             active_item = recommend_equipment_item(
                 eq_state.available_items, ex, current_tm, ustate.history[-10:]
@@ -60,7 +60,7 @@ def log_session(data_dir: Path, exercise_id: str, session: dict) -> dict:
                 override_assistance = calculate_machine_assistance(
                     ex,
                     current_tm,
-                    ustate.current_bodyweight_kg,
+                    ustate.profile.bodyweight_kg,
                     history,
                     session_obj.session_type,
                     available_machine_assistance_kg=eq_state.available_machine_assistance_kg,

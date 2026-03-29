@@ -300,7 +300,7 @@ def _format_explain(trace: _SessionTrace, bodyweight_kg: float) -> str:
     next_week_prog = expected_reps_per_week(trace.current_tm, trace.user_target)
     next_week_tm = trace.tm_float + next_week_prog
     L.append(f"\n[bold]EXPECTED TM AFTER: {trace.expected_tm_after}[/bold]")
-    L.append(f"  TM is updated once per calendar week boundary.")
+    L.append("  TM is updated once per calendar week boundary.")
     L.append(
         f"  Current TM (this week): int({trace.tm_float:.2f}) = {trace.current_tm}."
     )

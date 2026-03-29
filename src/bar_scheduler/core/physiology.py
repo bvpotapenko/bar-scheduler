@@ -6,7 +6,7 @@ See docs/training_model.md for detailed explanation.
 """
 
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from .config import (
     A_RIR,

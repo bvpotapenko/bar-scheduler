@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..core.metrics import training_max_from_baseline
 
 
 def get_data_dir() -> Path:

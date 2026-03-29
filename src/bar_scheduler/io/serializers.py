@@ -19,7 +19,6 @@ from ..core.models import (
     SessionType,
     SetResult,
     UserProfile,
-    UserState,
 )
 
 
@@ -409,6 +408,7 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     """
     d: dict[str, Any] = {
         "height_cm": profile.height_cm,
+        "current_bodyweight_kg": profile.bodyweight_kg,
         "exercises_enabled": list(profile.exercises_enabled),
     }
     if profile.exercise_days:
@@ -437,6 +437,7 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
         ValidationError: If data is invalid
     """
     validate_positive(data.get("height_cm", 0), "height_cm")
+    validate_positive(data.get("current_bodyweight_kg", 0), "current_bodyweight_kg")
 
     raw_exercise_days = data.get("exercise_days") or {}
     exercise_days = {k: int(v) for k, v in raw_exercise_days.items()}
@@ -447,6 +448,7 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
 
     return UserProfile(
         height_cm=int(data["height_cm"]),
+        bodyweight_kg=float(data["current_bodyweight_kg"]),
         exercise_days=exercise_days,
         exercise_targets=raw_exercise_targets,
         exercises_enabled=list(data.get("exercises_enabled", [])),

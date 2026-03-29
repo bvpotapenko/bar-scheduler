@@ -42,6 +42,7 @@ from bar_scheduler.api import (
     training_max_from_baseline,
     update_bodyweight,
     update_equipment,
+    update_height,
     update_profile,
 )
 
@@ -213,6 +214,38 @@ class TestUpdateProfile:
         _init(tmp_path)
         with pytest.raises(ValueError):
             update_profile(tmp_path, height_cm=0)
+
+    def test_update_bodyweight_via_update_profile(self, tmp_path):
+        _init(tmp_path)
+        update_profile(tmp_path, bodyweight_kg=82.5)
+        assert get_profile(tmp_path)["current_bodyweight_kg"] == 82.5
+
+    def test_update_language_via_update_profile(self, tmp_path):
+        _init(tmp_path)
+        update_profile(tmp_path, language="de")
+        assert get_profile(tmp_path)["language"] == "de"
+
+    def test_update_multiple_fields_at_once(self, tmp_path):
+        _init(tmp_path, height_cm=180)
+        result = update_profile(tmp_path, height_cm=185, bodyweight_kg=82.0)
+        assert result["height_cm"] == 185
+        assert result["current_bodyweight_kg"] == 82.0
+
+    def test_invalid_bodyweight_raises(self, tmp_path):
+        _init(tmp_path)
+        with pytest.raises(ValueError):
+            update_profile(tmp_path, bodyweight_kg=0)
+
+
+class TestUpdateHeight:
+    def test_updates_height(self, tmp_path):
+        _init(tmp_path, height_cm=180)
+        result = update_height(tmp_path, height_cm=182)
+        assert result["height_cm"] == 182
+
+    def test_raises_profile_not_found(self, tmp_path):
+        with pytest.raises(ProfileNotFoundError):
+            update_height(tmp_path, height_cm=180)
 
 
 # ---------------------------------------------------------------------------
@@ -836,7 +869,7 @@ class TestProfileCleanup:
         """days_for_exercise raises KeyError when exercise not in exercise_days."""
         from bar_scheduler.core.models import UserProfile
 
-        profile = UserProfile(height_cm=175, exercise_days={"pull_up": 3})
+        profile = UserProfile(height_cm=175, bodyweight_kg=80.0, exercise_days={"pull_up": 3})
         with pytest.raises(KeyError):
             profile.days_for_exercise("dip")
 

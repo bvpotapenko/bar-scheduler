@@ -25,7 +25,6 @@ from .config import (
 from .metrics import (
     get_test_sessions,
     overall_max_reps,
-    session_compliance,
     session_max_reps,
     trend_slope_per_week,
     weekly_compliance,

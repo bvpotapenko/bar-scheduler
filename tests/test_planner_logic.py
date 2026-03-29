@@ -37,10 +37,11 @@ def make_user_state(
 ) -> UserState:
     profile = UserProfile(
         height_cm=180,
+        bodyweight_kg=bw,
         exercise_days={"pull_up": days_per_week},
         exercises_enabled=["pull_up"],
     )
-    return UserState(profile=profile, current_bodyweight_kg=bw, history=history)
+    return UserState(profile=profile, history=history)
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
