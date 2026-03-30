@@ -15,6 +15,7 @@ from ..core.models import (
     ExerciseTarget,
     Grip,
     PlannedSet,
+    SessionPlan,
     SessionResult,
     SessionType,
     SetResult,
@@ -656,3 +657,47 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
         raise ValidationError("No valid sets found in sets string")
 
     return sets
+
+
+def session_plan_to_dict(plan: SessionPlan) -> dict:
+    """Convert a SessionPlan to a JSON-compatible dict."""
+    return {
+        "date": plan.date,
+        "grip": plan.grip,
+        "session_type": plan.session_type,
+        "exercise_id": plan.exercise_id,
+        "sets": [
+            {
+                "target_reps": s.target_reps,
+                "rest_seconds_before": s.rest_seconds_before,
+                "added_weight_kg": s.added_weight_kg,
+                "rir_target": s.rir_target,
+            }
+            for s in plan.sets
+        ],
+        "expected_tm": plan.expected_tm,
+        "week_number": plan.week_number,
+        "prescribed_assistance_kg": plan.prescribed_assistance_kg,
+    }
+
+
+def dict_to_session_plan(data: dict) -> SessionPlan:
+    """Parse a SessionPlan from a dict."""
+    return SessionPlan(
+        date=data["date"],
+        grip=data["grip"],
+        session_type=data["session_type"],
+        exercise_id=data["exercise_id"],
+        sets=[
+            PlannedSet(
+                target_reps=s["target_reps"],
+                rest_seconds_before=s["rest_seconds_before"],
+                added_weight_kg=s.get("added_weight_kg", 0.0),
+                rir_target=s.get("rir_target", 2),
+            )
+            for s in data.get("sets", [])
+        ],
+        expected_tm=data.get("expected_tm", 0),
+        week_number=data.get("week_number", 1),
+        prescribed_assistance_kg=data.get("prescribed_assistance_kg"),
+    )

@@ -8,7 +8,8 @@ from ..core.adaptation import get_training_status as _get_training_status
 from ..core.adaptation import overtraining_severity
 from ..core.exercises.registry import get_exercise
 from ..core.planner import explain_plan_entry, generate_plan
-from ..core.timeline import TimelineEntry, build_timeline
+from ..core.timeline import build_timeline
+from ..io.serializers import dict_to_session_plan, session_plan_to_dict
 from ._common import (
     _require_profile_store,
     _require_store,
@@ -52,15 +53,21 @@ def get_plan(
         eq_state.available_machine_assistance_kg if eq_state is not None else []
     )
 
-    plans = generate_plan(
-        user_state,
-        plan_start_date,
-        exercise,
-        weeks_ahead=total_weeks,
-        overtraining_level=ot_level,
-        available_weights_kg=available_weights_kg or None,
-        available_machine_assistance_kg=available_machine_assistance_kg or None,
-    )
+    cache = store.load_plan_result_cache(exercise_id)
+    input_mtime = store._input_files_mtime(exercise_id)
+    if cache is not None and cache.get("generated_at", 0.0) >= input_mtime:
+        plans = [dict_to_session_plan(d) for d in cache["plans"]]
+    else:
+        plans = generate_plan(
+            user_state,
+            plan_start_date,
+            exercise,
+            weeks_ahead=total_weeks,
+            overtraining_level=ot_level,
+            available_weights_kg=available_weights_kg or None,
+            available_machine_assistance_kg=available_machine_assistance_kg or None,
+        )
+        store.save_plan_result_cache(exercise_id, [session_plan_to_dict(p) for p in plans])
 
     training_status = _get_training_status(
         user_state.history,
@@ -68,53 +75,6 @@ def get_plan(
     )
 
     timeline = build_timeline(plans, user_state.history)
-
-    # Plan change detection
-    def _snapshot(e: TimelineEntry) -> dict:
-        p = e.planned
-        if p is None:
-            return {}
-        first_set = p.sets[0] if p.sets else None
-        return {
-            "date": p.date,
-            "type": p.session_type,
-            "sets": len(p.sets),
-            "reps": first_set.target_reps if first_set else 0,
-            "weight": first_set.added_weight_kg if first_set else 0.0,
-            "rest": first_set.rest_seconds_before if first_set else 0,
-            "expected_tm": p.expected_tm,
-        }
-
-    old_cache = store.load_plan_cache(exercise_id)
-    new_cache = [
-        _snapshot(e)
-        for e in timeline
-        if e.status in ("next", "planned") and e.planned is not None
-    ]
-    plan_changes: list[str] = []
-    if old_cache is not None:
-        old_idx = {(s["date"], s["type"]): s for s in old_cache if s}
-        new_idx = {(s["date"], s["type"]): s for s in new_cache if s}
-        for key, snap in new_idx.items():
-            if key not in old_idx:
-                plan_changes.append(f"New: {snap['date']} {snap['type']}")
-        for key, snap in old_idx.items():
-            if key not in new_idx:
-                plan_changes.append(f"Removed: {snap['date']} {snap['type']}")
-        for key in sorted(set(old_idx) & set(new_idx)):
-            o, n = old_idx[key], new_idx[key]
-            parts: list[str] = []
-            if o["sets"] != n["sets"]:
-                parts.append(f"{o['sets']}→{n['sets']} sets")
-            if o["reps"] != n["reps"]:
-                parts.append(f"{o['reps']}→{n['reps']} reps")
-            if abs(o.get("weight", 0.0) - n.get("weight", 0.0)) > 0.01:
-                parts.append(f"+{o['weight']:.1f}→+{n['weight']:.1f} kg")
-            if o["expected_tm"] != n["expected_tm"]:
-                parts.append(f"TM {o['expected_tm']}→{n['expected_tm']}")
-            if parts:
-                plan_changes.append(f"{n['date']} {n['type']}: {', '.join(parts)}")
-    store.save_plan_cache(exercise_id, new_cache)
 
     ff = training_status.fitness_fatigue_state
     return {
@@ -132,7 +92,6 @@ def get_plan(
             _timeline_entry_to_dict(e, exercise, user_state.profile.bodyweight_kg)
             for e in timeline
         ],
-        "plan_changes": plan_changes,
         "overtraining": ot_severity,
     }
 
@@ -275,15 +234,3 @@ def set_plan_weeks(data_dir: Path, weeks: int) -> None:
     store.set_plan_weeks(weeks)
 
 
-def get_plan_cache_entry(
-    data_dir: Path, exercise_id: str, date: str, session_type: str
-) -> dict | None:
-    """
-    Look up a cached plan prescription for a specific (date, session_type).
-
-    Returns the cached session dict if found, or ``None`` if no cache entry
-    matches.  Useful for pre-populating a session log form with planned sets.
-    Raises ``ProfileNotFoundError`` if the profile has not been initialised.
-    """
-    store = _require_profile_store(data_dir)
-    return store.lookup_plan_cache_entry(exercise_id, date, session_type)

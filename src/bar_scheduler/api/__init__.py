@@ -52,7 +52,6 @@ from ._plan import (
     set_plan_start_date,
     get_plan_weeks,
     set_plan_weeks,
-    get_plan_cache_entry,
 )
 
 # Analysis
@@ -123,7 +122,6 @@ __all__ = [
     "set_plan_start_date",
     "get_plan_weeks",
     "set_plan_weeks",
-    "get_plan_cache_entry",
     # Analysis
     "get_training_status",
     "get_onerepmax_data",

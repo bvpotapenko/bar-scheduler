@@ -24,7 +24,7 @@ from bar_scheduler.api import (
     # Planning
     get_plan, refresh_plan, explain_session,
     # Plan configuration
-    set_plan_start_date, get_plan_weeks, set_plan_weeks, get_plan_cache_entry,
+    set_plan_start_date, get_plan_weeks, set_plan_weeks,
     # Analysis
     get_training_status, get_onerepmax_data,
     get_volume_data, get_progress_data, get_overtraining_status,
@@ -356,11 +356,6 @@ plan["overtraining"]["description"]     # str
 plan["overtraining"]["extra_rest_days"] # int
 ```
 
-### `plan["plan_changes"]`
-
-List of human-readable strings describing what changed vs. the last cached plan.
-Empty on first call.
-
 ### Refresh plan anchor
 
 ```python
@@ -380,10 +375,6 @@ weeks = get_plan_weeks(data_dir)   # → 6 | None
 
 # Manually reset the plan anchor (e.g. after a long break)
 set_plan_start_date(data_dir, "pull_up", "2026-04-01")
-
-# Pre-populate a session log form with the planned prescription
-entry = get_plan_cache_entry(data_dir, "pull_up", "2026-04-03", "S")
-# → cached session dict | None
 ```
 
 ---
@@ -493,7 +484,7 @@ prog["volume_set"]       # float | None  — goal_leff × goal_reps (one goal se
   dip_history.jsonl
   bss_history.jsonl
   incline_db_press_history.jsonl
-  pull_up_plan_cache.json              -- last plan snapshot for change diffing
+  pull_up_plan_cache.json              -- cached plan (timestamp-based, internal)
   dip_plan_cache.json
   bss_plan_cache.json
   incline_db_press_plan_cache.json

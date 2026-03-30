@@ -4,6 +4,20 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.6.2] - 2026-03-30
+
+### Added
+- Plan generation cache: `get_plan()` now caches the computed plan in
+  `{exercise_id}_plan_cache.json` and reuses it as long as neither `profile.json` nor
+  the history JSONL has been modified since generation. Cache miss triggers a full
+  regeneration and overwrites the cache.
+
+### Removed
+- `get_plan_cache_entry()` API function and the `"plan_changes"` field in the
+  `get_plan()` return dict (plan-diff feature removed).
+
+---
+
 ## [0.6.1] - 2026-03-30
 
 ### Fixed

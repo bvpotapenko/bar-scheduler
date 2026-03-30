@@ -27,7 +27,6 @@ from bar_scheduler.api import (
     get_next_band_step,
     get_overtraining_status,
     get_plan,
-    get_plan_cache_entry,
     get_plan_weeks,
     get_profile,
     init_profile,
@@ -582,26 +581,43 @@ class TestPlanConfig:
 
 
 # ---------------------------------------------------------------------------
-# TestPlanCacheEntry
+# TestPlanCache
 # ---------------------------------------------------------------------------
 
 
-class TestPlanCacheEntry:
-    def test_returns_none_when_no_cache(self, tmp_path):
-        _init(tmp_path)
-        result = get_plan_cache_entry(tmp_path, "pull_up", "2026-01-01", "S")
-        assert result is None
-
-    def test_returns_entry_after_plan(self, tmp_path):
+class TestPlanCache:
+    def test_cache_hit_skips_generate_plan(self, tmp_path):
         _init(tmp_path)
         log_session(tmp_path, "pull_up", _test_session())
-        plan = get_plan(tmp_path, "pull_up")
-        future = next((s for s in plan["sessions"] if s["status"] in ("next", "planned")), None)
-        if future is None:
-            return
-        entry = get_plan_cache_entry(tmp_path, "pull_up", future["date"], future["type"])
-        assert entry is not None
-        assert entry["date"] == future["date"]
+        from unittest.mock import patch
+        import bar_scheduler.api._plan as plan_mod
+        with patch.object(plan_mod, "generate_plan", wraps=plan_mod.generate_plan) as mock_gen:
+            get_plan(tmp_path, "pull_up")
+            get_plan(tmp_path, "pull_up")
+        assert mock_gen.call_count == 1
+
+    def test_history_change_invalidates_cache(self, tmp_path):
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        from unittest.mock import patch
+        import bar_scheduler.api._plan as plan_mod
+        with patch.object(plan_mod, "generate_plan", wraps=plan_mod.generate_plan) as mock_gen:
+            get_plan(tmp_path, "pull_up")
+            log_session(tmp_path, "pull_up", _test_session("2026-02-10"))
+            get_plan(tmp_path, "pull_up")
+        assert mock_gen.call_count == 2
+
+    def test_profile_change_invalidates_cache(self, tmp_path):
+        _init(tmp_path)
+        log_session(tmp_path, "pull_up", _test_session())
+        from unittest.mock import patch
+        import bar_scheduler.api._plan as plan_mod
+        from bar_scheduler.api import update_profile
+        with patch.object(plan_mod, "generate_plan", wraps=plan_mod.generate_plan) as mock_gen:
+            get_plan(tmp_path, "pull_up")
+            update_profile(tmp_path, bodyweight_kg=85.0)
+            get_plan(tmp_path, "pull_up")
+        assert mock_gen.call_count == 2
 
 
 # ---------------------------------------------------------------------------

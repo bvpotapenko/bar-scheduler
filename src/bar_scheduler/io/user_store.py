@@ -128,18 +128,6 @@ class UserStore:
         with open(self.profile_path, "w") as f:
             json.dump(data, f, indent=2)
 
-    def lookup_plan_cache_entry(
-        self, exercise_id: str, date: str, session_type: str
-    ) -> dict | None:
-        """Find the cached plan prescription for a given (date, session_type), or None."""
-        cache = self.load_plan_cache(exercise_id)
-        if not cache:
-            return None
-        for entry in cache:
-            if entry.get("date") == date and entry.get("type") == session_type:
-                return entry
-        return None
-
     def save_profile(self, profile: UserProfile) -> None:
         """
         Save user profile to profile.json.
@@ -358,33 +346,32 @@ class UserStore:
         del sessions[index]
         self._write_sessions(exercise_id, sessions)
 
-    def load_plan_cache(self, exercise_id: str) -> list[dict] | None:
-        """
-        Load the previously saved plan snapshot for diffing.
+    def _input_files_mtime(self, exercise_id: str) -> float:
+        """Max mtime of profile.json and history JSONL (the two plan inputs)."""
+        mtimes = [
+            p.stat().st_mtime
+            for p in (self.profile_path, self.history_path(exercise_id))
+            if p.exists()
+        ]
+        return max(mtimes) if mtimes else 0.0
 
-        Returns:
-            List of session snapshot dicts or None if not found
-        """
-        cache_path = self.data_dir / f"{exercise_id}_plan_cache.json"
-        if not cache_path.exists():
+    def load_plan_result_cache(self, exercise_id: str) -> dict | None:
+        """Load the plan result cache, or None if absent/corrupt."""
+        path = self.data_dir / f"{exercise_id}_plan_cache.json"
+        if not path.exists():
             return None
         try:
-            with open(cache_path) as f:
+            with open(path) as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             return None
 
-    def save_plan_cache(self, exercise_id: str, sessions: list[dict]) -> None:
-        """
-        Persist upcoming plan sessions for next-run diffing.
-
-        Args:
-            exercise_id: Exercise identifier
-            sessions: List of session snapshot dicts
-        """
-        cache_path = self.data_dir / f"{exercise_id}_plan_cache.json"
-        with open(cache_path, "w") as f:
-            json.dump(sessions, f, indent=2)
+    def save_plan_result_cache(self, exercise_id: str, plans: list[dict]) -> None:
+        """Persist the generated plan list with a generation timestamp."""
+        import time
+        path = self.data_dir / f"{exercise_id}_plan_cache.json"
+        with open(path, "w") as f:
+            json.dump({"generated_at": time.time(), "plans": plans}, f)
 
     # ------------------------------------------------------------------
     # Equipment profile persistence
