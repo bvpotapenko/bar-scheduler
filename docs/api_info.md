@@ -22,7 +22,7 @@ from bar_scheduler.api import (
     # Sessions
     log_session, delete_session, get_history,
     # Planning
-    get_plan, refresh_plan, explain_session,
+    get_plan, refresh_plan,
     # Plan configuration
     set_plan_start_date, get_plan_weeks, set_plan_weeks,
     # Analysis
@@ -157,7 +157,7 @@ Built-in exercise IDs: `"pull_up"`, `"dip"`, `"bss"`, `"incline_db_press"`. Any 
 ```python
 # Discover available items for an exercise
 catalog = get_equipment_catalog("pull_up")
-# → {"BAR_ONLY": {"assistance_kg": 0}, "BAND_LIGHT": {"assistance_kg": 8},
+# -> {"BAR_ONLY": {"assistance_kg": 0}, "BAND_LIGHT": {"assistance_kg": 8},
 #    "BAND_MEDIUM": {"assistance_kg": 15}, "BAND_HEAVY": {"assistance_kg": 25},
 #    "MACHINE_ASSISTED": {"assistance_kg": 0}, "WEIGHT_BELT": {"assistance_kg": 0}}
 
@@ -189,22 +189,22 @@ update_equipment(
     data_dir, "incline_db_press",
     available_items=["DUMBBELLS"],
     available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0],
-    # incline_db_press: one DB per hand → prescription = per-hand weight
+    # incline_db_press: one DB per hand -> prescription = per-hand weight
     # planner snaps to the largest available weight ≤ ideal
 )
 update_equipment(
     data_dir, "bss",
     available_items=["DUMBBELLS"],
     available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0],
-    # bss: one or two DBs total → prescription = total external weight
+    # bss: one or two DBs total -> prescription = total external weight
     # planner expands available weights into all achievable single + pair totals
-    # e.g. [8, 10, 16] → [8, 10, 16, 18, 20, 24, 26, 32] before snapping
+    # e.g. [8, 10, 16] -> [8, 10, 16, 18, 20, 24, 26, 32] before snapping
     # user decides how to split the total (one 16 kg DB or two 8 kg DBs — same to the planner)
 )
 
 # Read current equipment state (None if never configured)
 eq = get_current_equipment(data_dir, "pull_up")
-# → {"exercise_id", "recommended_item", "available_items",
+# -> {"exercise_id", "recommended_item", "available_items",
 #    "available_machine_assistance_kg", "recommended_assistance_kg",
 #    "elevation_height_cm", "assistance_kg", "is_bss_degraded"}
 # recommended_item is auto-selected from available_items based on current TM and
@@ -214,16 +214,16 @@ eq = get_current_equipment(data_dir, "pull_up")
 
 # Band/load computations (no data_dir -- pure math)
 leff = compute_leff(bw_fraction=1.0, bodyweight_kg=82.0,
-                    added_weight_kg=10.0, assistance_kg=0.0)  # → 92.0
+                    added_weight_kg=10.0, assistance_kg=0.0)  # -> 92.0
 adj  = compute_equipment_adjustment(old_leff=72.0, new_leff=82.0)
-# → {"reps_factor": 0.80, "description": "..."}
-kg   = get_assistance_kg("pull_up", "BAND_LIGHT")   # → 8.0
+# -> {"reps_factor": 0.80, "description": "..."}
+kg   = get_assistance_kg("pull_up", "BAND_LIGHT")   # -> 8.0
 
 # Band progression
 ready = check_band_progression(data_dir, "pull_up", n_sessions=2)  # bool
-next_item = get_next_band_step("BAND_MEDIUM", "pull_up")  # → "BAND_LIGHT"
-get_assist_progression("pull_up")  # → ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]
-get_assist_progression("bss")      # → []  (BSS has no fixed-assistance progression)
+next_item = get_next_band_step("BAND_MEDIUM", "pull_up")  # -> "BAND_LIGHT"
+get_assist_progression("pull_up")  # -> ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]
+get_assist_progression("bss")      # -> []  (BSS has no fixed-assistance progression)
 ```
 
 Equipment history is preserved (append-only). The previous active entry gets
@@ -235,7 +235,7 @@ Equipment history is preserved (append-only). The previous active entry gets
 
 ```python
 history = get_history(data_dir, "pull_up")
-# → list[dict], sorted by date
+# -> list[dict], sorted by date
 
 for s in history:
     s["date"]           # "YYYY-MM-DD"
@@ -371,7 +371,7 @@ Call after a break when unlogged sessions have accumulated in the past.
 ```python
 # Persist / recall the plan horizon
 set_plan_weeks(data_dir, 6)
-weeks = get_plan_weeks(data_dir)   # → 6 | None
+weeks = get_plan_weeks(data_dir)   # -> 6 | None
 
 # Manually reset the plan anchor (e.g. after a long break)
 set_plan_start_date(data_dir, "pull_up", "2026-04-01")
@@ -379,30 +379,7 @@ set_plan_start_date(data_dir, "pull_up", "2026-04-01")
 
 ---
 
-## 8. Explanation text
-
-```python
-text = explain_session(data_dir, "pull_up", "2026-03-24")
-
-# Use "next" to explain the first upcoming session:
-text = explain_session(data_dir, "pull_up", "next")
-```
-
-`text` is a Rich markup string. Strip markup for plain text (e.g. Telegram):
-
-```python
-from rich.text import Text
-plain = Text.from_markup(text).plain
-```
-
-Fallback logic:
-1. Date is a planned session → full breakdown (TM formula, grip rotation, sets, weight, rest)
-2. Date is within the horizon but not a training day → rest day message
-3. Date is in history → brief session summary
-
----
-
-## 9. Analysis
+## 8. Analysis
 
 ```python
 # Training status (same shape as plan["status"])
@@ -454,7 +431,7 @@ for pt in (progress["trajectory_m"] or []):
 
 ---
 
-## 10. Performance Metrics (volume and 1RM)
+## 9. Performance Metrics (volume and 1RM)
 
 Volume and 1RM metrics for goals, history sessions, and plan prescriptions.
 See `docs/performance-formulas.md` for full formula reference.
@@ -492,7 +469,7 @@ prog["volume_set"]       # float | None  — goal_leff × goal_reps (one goal se
 
 ```python
 get_data_dir()                     # Path("~/.bar-scheduler") -- default single-user path
-training_max_from_baseline(12)     # → 10  (floor(baseline × 0.9), min 1)
+training_max_from_baseline(12)     # -> 10  (floor(baseline × 0.9), min 1)
 ```
 
 ---
@@ -506,15 +483,15 @@ Parse user-typed sets strings — useful for bots and CLIs collecting session da
 # Per-set format:  "reps@weight/rest"  or  "reps weight rest"  or  bare "reps"
 
 sets = parse_sets_string("3×5/120s")
-# → [(3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120)]
+# -> [(3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120), (3, 0.0, 120)]
 #   (5 sets of 3 reps, 120 s rest, 0 kg added weight)
 
 sets = parse_sets_string("5@10/180 4@10/180 3@10")
-# → [(5, 10.0, 180), (4, 10.0, 180), (3, 10.0, 0)]
+# -> [(5, 10.0, 180), (4, 10.0, 180), (3, 10.0, 0)]
 
 # Returns None if the string is not in compact format:
-parse_compact_sets("8")         # → None
-parse_compact_sets("3×5/120s")  # → [(3, 0.0, 120), ...]
+parse_compact_sets("8")         # -> None
+parse_compact_sets("3×5/120s")  # -> [(3, 0.0, 120), ...]
 ```
 
 Each tuple is ``(reps: int, added_weight_kg: float, rest_seconds: int)``.

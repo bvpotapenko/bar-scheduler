@@ -8,7 +8,6 @@ continue to work without modification.
 
 # --- Primary public API (imported by cli/commands/planning.py) ---
 from .plan_engine import (
-    explain_plan_entry,
     generate_plan,
     create_synthetic_test_session,
     estimate_plan_completion_date,
@@ -42,12 +41,8 @@ from .set_prescriptor import calculate_set_prescription
 # --- TEST injection (imported by test_cli_smoke.py) ---
 from .test_session_inserter import _insert_test_sessions
 
-# --- Internal types (available for advanced consumers) ---
-from .types import _SessionTrace
-
 __all__ = [
     # Public API
-    "explain_plan_entry",
     "generate_plan",
     "create_synthetic_test_session",
     "estimate_plan_completion_date",
@@ -70,6 +65,4 @@ __all__ = [
     "calculate_set_prescription",
     # Test sessions
     "_insert_test_sessions",
-    # Types
-    "_SessionTrace",
 ]

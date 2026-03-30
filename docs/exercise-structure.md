@@ -12,7 +12,7 @@ src/bar_scheduler/exercises.yaml      ← bundled definitions (all three exercis
 ~/.bar-scheduler/exercises.yaml       ← optional user overrides (deep-merged)
 src/bar_scheduler/core/exercises/
   base.py        ← ExerciseDefinition + SessionTypeParams dataclasses
-  loader.py      ← YAML → typed objects; falls back gracefully on failure
+  loader.py      ← YAML -> typed objects; falls back gracefully on failure
   registry.py    ← EXERCISE_REGISTRY dict; get_exercise() lookup function
   pull_up.py     ← Python constants (fallback if YAML unavailable)
   dip.py
@@ -109,7 +109,7 @@ or set it to `{}` to keep the YAML tidy.
 1. **Missing required exercise field** -- raises `ValueError` listing the absent keys.
    The registry catches this, emits a `warnings.warn`, and uses Python defaults.
 
-2. **Missing required SessionTypeParams field** -- same: `ValueError` → warning → fallback.
+2. **Missing required SessionTypeParams field** -- same: `ValueError` -> warning -> fallback.
 
 3. **PyYAML not installed** -- `load_exercises_from_yaml()` returns `None` silently;
    Python defaults are used. No crash.
@@ -260,7 +260,6 @@ Or manually edit `~/.bar-scheduler/profile.json`:
 
 ```bash
 bar-scheduler plan -e ring_row
-bar-scheduler explain next -e ring_row
 ```
 
 The exercise will appear in the plan table with correct variant rotation and

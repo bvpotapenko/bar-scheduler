@@ -48,7 +48,6 @@ from ._sessions import (
 from ._plan import (
     get_plan,
     refresh_plan,
-    explain_session,
     set_plan_start_date,
     get_plan_weeks,
     set_plan_weeks,
@@ -118,7 +117,6 @@ __all__ = [
     # Planning
     "get_plan",
     "refresh_plan",
-    "explain_session",
     "set_plan_start_date",
     "get_plan_weeks",
     "set_plan_weeks",

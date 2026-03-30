@@ -38,7 +38,7 @@ At r = 15: `1RM ≈ w × 1.311` (Epley gives `w × 1.500`).
 ```
 
 Hyperbolic formula; accurate for r ≤ 10.
-Denominator → 0 as r → 37 (physiologically irrelevant in practice).
+Denominator -> 0 as r -> 37 (physiologically irrelevant in practice).
 
 ### Lander (1985)
 
@@ -86,7 +86,7 @@ Based on Nuzzo et al. (2024, PMC10933212):
 ## Chart Implementation
 
 - The m-trajectory is computed in `cli/commands/analysis.py` using `blended_1rm_added` on each point of the projected BW-reps trajectory (`base_pts`), capped at r = 20.
-- The right axis in `core/ascii_plot.py` is calibrated **independently** from the m-trajectory's own kg range (0 → max_m_val × 1.1), so m dots land at different grid positions than z dots.
+- The right axis in `core/ascii_plot.py` is calibrated **independently** from the m-trajectory's own kg range (0 -> max_m_val × 1.1), so m dots land at different grid positions than z dots.
 - m dots use the `○` marker; z dots use `·`; g dots use `×`.
 
 ---

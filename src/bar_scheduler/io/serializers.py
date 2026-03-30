@@ -160,9 +160,9 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
 
     Handles both old format (both target_reps and actual_reps) and new compact
     format (only one reps field):
-      - completed set: only "actual_reps" present → target_reps = actual_reps
-      - planned set:   only "target_reps" present → actual_reps = None
-      - old format:    both present → use both as-is
+      - completed set: only "actual_reps" present -> target_reps = actual_reps
+      - planned set:   only "target_reps" present -> actual_reps = None
+      - old format:    both present -> use both as-is
 
     Args:
         data: Dict representation
@@ -289,7 +289,9 @@ def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
     if state.available_weights_kg:
         d["available_weights_kg"] = list(state.available_weights_kg)
     if state.available_machine_assistance_kg:
-        d["available_machine_assistance_kg"] = list(state.available_machine_assistance_kg)
+        d["available_machine_assistance_kg"] = list(
+            state.available_machine_assistance_kg
+        )
     return d
 
 
@@ -310,8 +312,8 @@ def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     Convert SessionResult to JSON-compatible dict.
 
     Uses compact per-set serialization:
-      completed_sets → only actual_reps (target always equals actual)
-      planned_sets   → only target_reps (actual is always None / not meaningful)
+      completed_sets -> only actual_reps (target always equals actual)
+      planned_sets   -> only target_reps (actual is always None / not meaningful)
 
     Args:
         session: SessionResult to convert
@@ -363,7 +365,7 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
     if "exercise_id" not in data:
         raise ValidationError("Missing required field: exercise_id")
 
-    # Deserialize equipment snapshot if present (absent → None)
+    # Deserialize equipment snapshot if present (absent -> None)
     eq_data = data.get("equipment_snapshot")
     equipment_snapshot = dict_to_equipment_snapshot(eq_data) if eq_data else None
 
@@ -507,11 +509,11 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
     All sets in a compact expression share the same weight and rest.
 
     Examples:
-        "5x4"                → 4 sets of 5 reps, BW, 180s rest
-        "5x4 / 240s"         → 4 sets of 5 reps, BW, 240s rest
-        "5x4 +0.5kg / 240s"  → 4 sets of 5 reps, +0.5 kg, 240s rest
-        "4, 3x8 / 60s"       → 1 set of 4 + 8 sets of 3, BW, 60s rest
-        "8, 7, 6, 5 / 60s"   → 4 individual sets [8,7,6,5] reps, BW, 60s rest
+        "5x4"                -> 4 sets of 5 reps, BW, 180s rest
+        "5x4 / 240s"         -> 4 sets of 5 reps, BW, 240s rest
+        "5x4 +0.5kg / 240s"  -> 4 sets of 5 reps, +0.5 kg, 240s rest
+        "4, 3x8 / 60s"       -> 1 set of 4 + 8 sets of 3, BW, 60s rest
+        "8, 7, 6, 5 / 60s"   -> 4 individual sets [8,7,6,5] reps, BW, 60s rest
 
     Returns list of (reps, weight, rest) tuples, or None if format not recognised.
     Triggers on at least one 'x'/'×' OR a shared rest suffix '/ Ns'.
@@ -546,7 +548,7 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
 
     result: list[tuple[int, float, int]] = []
     for group in groups:
-        # NxM / N×M → N reps × M sets
+        # NxM / N×M -> N reps × M sets
         m = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", group)
         if m:
             n_reps = int(m.group(1))
@@ -556,7 +558,7 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
             for _ in range(n_sets):
                 result.append((n_reps, weight, rest))
             continue
-        # Bare integer → 1 set of N reps
+        # Bare integer -> 1 set of N reps
         m = re.fullmatch(r"(\d+)", group)
         if m:
             result.append((int(m.group(1)), weight, rest))
@@ -572,8 +574,8 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
     Parse a sets string.
 
     Compact plan format (tried first):
-        NxM [+Wkg] [/ Rs]   e.g. "4x5 +0.5kg / 240s"  → 4 sets of 5 reps
-        N, MxK [/ Rs]        e.g. "4, 3x8 / 60s"        → 1×4 + 3×8 reps
+        NxM [+Wkg] [/ Rs]   e.g. "4x5 +0.5kg / 240s"  -> 4 sets of 5 reps
+        N, MxK [/ Rs]        e.g. "4, 3x8 / 60s"        -> 1×4 + 3×8 reps
 
     Per-set formats (comma-separated):
         reps@+kg/rest   e.g. "8@0/180"   canonical

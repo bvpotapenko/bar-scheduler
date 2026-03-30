@@ -370,13 +370,14 @@ class UserStore:
     def save_plan_result_cache(self, exercise_id: str, plans: list[dict]) -> None:
         """Persist the generated plan list with a generation timestamp."""
         import time
+
         path = self.data_dir / f"{exercise_id}_plan_cache.json"
         with open(path, "w") as f:
             json.dump({"generated_at": time.time(), "plans": plans}, f)
 
     # ------------------------------------------------------------------
     # Equipment profile persistence
-    # Current equipment is stored under profile.json → "equipment" key,
+    # Current equipment is stored under profile.json -> "equipment" key,
     # as a dict: {exercise_id: EquipmentState}.  Updating overwrites.
     # ------------------------------------------------------------------
 
@@ -421,5 +422,3 @@ class UserStore:
         path = self.history_path(exercise_id)
         if path.exists():
             path.write_text("")
-
-

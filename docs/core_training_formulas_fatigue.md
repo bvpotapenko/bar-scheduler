@@ -13,7 +13,7 @@ This is intentionally “parameterized”: constants live in `core/config.py` so
 
 All “max reps” comparisons should be standardized to:
 
-- Movement: strict pull-up, dead hang → chin over bar.
+- Movement: strict pull-up, dead hang -> chin over bar.
 - Grip: **pronated** (palms forward).
 - External load: **0 kg**.
 - Inter-set rest reference: **180 s** (used only for normalization).
@@ -232,7 +232,7 @@ If `rir_j` is known, define effort multiplier:
 E_{rir}(rir) = 1 + a\,\max(0, 3-rir)
 \]
 
-- Example: RIR 3 → 1.0, RIR 2 → 1.0+a, RIR 0 → 1.0+3a.
+- Example: RIR 3 -> 1.0, RIR 2 -> 1.0+a, RIR 0 -> 1.0+3a.
 - `a` default 0.10–0.25.
 
 If `rir_j` missing, estimate it from rep fraction of estimated max:
@@ -286,10 +286,10 @@ Where `S_grip` is a mild factor (≈1.0) if you want to reflect differing stress
 
 This definition ensures:
 
-- More reps → higher impulse.
-- Closer to failure → higher impulse.
-- Shorter rests → higher impulse.
-- Added load → higher impulse.
+- More reps -> higher impulse.
+- Closer to failure -> higher impulse.
+- Shorter rests -> higher impulse.
+- Added load -> higher impulse.
 
 ---
 
@@ -374,7 +374,7 @@ Then default targets:
   - rest = 120–180 s
 
 - Endurance day (E):
-  - total reps target = `kE * TM` where `kE` grows with level (e.g., 3.0→5.0)
+  - total reps target = `kE * TM` where `kE` grows with level (e.g., 3.0->5.0)
   - implement as multiple sets of `round(0.35–0.55 * TM)` with 45–90 s rest
 
 - Technique day (T, optional):
@@ -390,7 +390,7 @@ Let `z = (R(t) - mean_R)/sd_R`.
 
 ### 7.5 Progression rules toward 30
 
-Because 29→30 is disproportionately hard, use a nonlinear progression limiter:
+Because 29->30 is disproportionately hard, use a nonlinear progression limiter:
 
 \[
 \Delta TM_{week} = \Delta_{min} + (\Delta_{max}-\Delta_{min})\,(1 - TM/30)^{\eta}

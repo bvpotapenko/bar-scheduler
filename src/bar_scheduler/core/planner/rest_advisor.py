@@ -11,8 +11,8 @@ def _analyze_rir(sets: list, rest: int) -> int:
     """
     Adjust rest based on RIR values from the last session's sets.
 
-    Any set with RIR ≤ 1 → +30 s (near failure).
-    All sets with RIR ≥ 3 → −15 s (felt easy).
+    Any set with RIR ≤ 1 -> +30 s (near failure).
+    All sets with RIR ≥ 3 -> −15 s (felt easy).
     """
     rirs = [s.rir_reported for s in sets if s.rir_reported is not None]
     if not rirs:
@@ -28,7 +28,7 @@ def _analyze_rep_drop(sets: list, rest: int) -> int:
     """
     Adjust rest based on within-session rep drop-off.
 
-    Drop-off > DROP_OFF_THRESHOLD → +15 s.
+    Drop-off > DROP_OFF_THRESHOLD -> +15 s.
     """
     reps_list = [s.actual_reps for s in sets if s.actual_reps is not None]
     if len(reps_list) >= 2 and reps_list[0] > 0:
@@ -42,7 +42,7 @@ def _adjust_for_readiness(ff_state, rest: int) -> int:
     """
     Adjust rest based on readiness z-score.
 
-    z < READINESS_Z_LOW → +30 s.
+    z < READINESS_Z_LOW -> +30 s.
     """
     if ff_state is None:
         return rest
@@ -62,8 +62,8 @@ def _adjust_for_user_rest_pattern(
     """
     Shift rest prescription toward the user's actual rest behaviour.
 
-    Avg actual rest < rest_min × 0.85 → −20 s (user consistently rests short).
-    Avg actual rest > rest_max × 1.10 → +20 s (user needs more rest).
+    Avg actual rest < rest_min × 0.85 -> −20 s (user consistently rests short).
+    Avg actual rest > rest_max × 1.10 -> +20 s (user needs more rest).
     Only applied when ≥ 3 actual-rest data points exist.
     """
     actual_rests = [

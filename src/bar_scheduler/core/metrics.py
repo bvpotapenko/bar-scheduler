@@ -353,10 +353,10 @@ def blended_1rm_added(bw_load_kg: float, reps: int) -> float | None:
     Rep-range–aware 1RM estimate returning ADDED kg only (total 1RM − bw_load).
 
     Uses different formula blends by rep range for better accuracy:
-        r ≤ 5   → avg(Brzycki, Lander)         [strength range, most accurate]
-        r ≤ 10  → avg(Brzycki, Lander, Epley)  [moderate reps]
-        r ≤ 20  → avg(Lombardi, Epley)          [high reps; Lombardi corrects Epley bias]
-        r > 20  → None                          [unreliable; caller should cap at 20]
+        r ≤ 5   -> avg(Brzycki, Lander)         [strength range, most accurate]
+        r ≤ 10  -> avg(Brzycki, Lander, Epley)  [moderate reps]
+        r ≤ 20  -> avg(Lombardi, Epley)          [high reps; Lombardi corrects Epley bias]
+        r > 20  -> None                          [unreliable; caller should cap at 20]
 
     Args:
         bw_load_kg: BW × bw_fraction (the load the exercise uses from bodyweight)
@@ -384,9 +384,9 @@ def best_1rm_from_leff(leff: float, reps: int) -> float | None:
     Rep-range-aware 1RM estimate in Leff units (total effective load kg).
 
     Uses different formula blends by rep range:
-        r ≤ 5   → avg(Brzycki, Lander)         [strength range, most accurate]
-        r ≤ 10  → avg(Brzycki, Lander, Epley)  [moderate reps]
-        r > 10  → avg(Lombardi, Epley)          [high reps; Lombardi handles these best]
+        r ≤ 5   -> avg(Brzycki, Lander)         [strength range, most accurate]
+        r ≤ 10  -> avg(Brzycki, Lander, Epley)  [moderate reps]
+        r > 10  -> avg(Lombardi, Epley)          [high reps; Lombardi handles these best]
 
     Unlike blended_1rm_added, this takes full Leff (BW-derived + added load)
     and returns total 1RM in Leff units — works for any set, not just BW-only.
@@ -403,7 +403,9 @@ def best_1rm_from_leff(leff: float, reps: int) -> float | None:
     if reps <= 5:
         return (brzycki_1rm(leff, reps) + lander_1rm(leff, reps)) / 2
     elif reps <= 10:
-        return (brzycki_1rm(leff, reps) + lander_1rm(leff, reps) + epley_1rm(leff, reps)) / 3
+        return (
+            brzycki_1rm(leff, reps) + lander_1rm(leff, reps) + epley_1rm(leff, reps)
+        ) / 3
     else:  # 11 ≤ r ≤ 20
         return (lombardi_1rm(leff, reps) + epley_1rm(leff, reps)) / 2
 

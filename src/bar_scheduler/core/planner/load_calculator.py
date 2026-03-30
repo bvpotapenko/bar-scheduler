@@ -10,10 +10,10 @@ Inverse:        Leff_target = 1RM_Leff × TM_FACTOR / (1 + target_reps / 30)
 Added weight:   added = Leff_target − BW × bw_fraction
 
 Session target reps (used for Epley inverse):
-    S  →  5  reps  (~85 % 1RM)
-    H  →  8  reps  (~78 % 1RM)
-    E  → 12  reps  (~67 % 1RM)
-    T  →  6  reps  (~83 % 1RM)
+    S  ->  5  reps  (~85 % 1RM)
+    H  ->  8  reps  (~78 % 1RM)
+    E  -> 12  reps  (~67 % 1RM)
+    T  ->  6  reps  (~83 % 1RM)
 """
 
 from ..config import TM_FACTOR
@@ -44,7 +44,7 @@ def _expand_dual_dumbbell_totals(available: list[float]) -> list[float]:
 
     Includes single-DB weights and all same/mixed pairs, since the user is
     assumed to own at least two of each dumbbell in their set. For example,
-    [8, 10, 16] → [8, 10, 16, 18, 20, 24, 26, 32].
+    [8, 10, 16] -> [8, 10, 16, 18, 20, 24, 26, 32].
     """
     totals: set[float] = set(available)
     for i, a in enumerate(available):
@@ -79,7 +79,8 @@ def _last_test_weight_bss(history: list, exercise: ExerciseDefinition) -> float:
     is carried forward from the last test.
     """
     test_hist = [
-        s for s in history
+        s
+        for s in history
         if s.session_type == "TEST" and s.exercise_id == exercise.exercise_id
     ]
     if not test_hist or not test_hist[-1].completed_sets:

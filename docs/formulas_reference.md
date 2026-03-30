@@ -13,7 +13,7 @@ F_rest(r) = clip( (r / REST_REF_SECONDS)^GAMMA_REST, F_REST_MIN, F_REST_MAX )
 | Parameter | Default | Effect |
 |---|---|---|
 | `REST_REF_SECONDS` | 180 | Reference rest; F_rest = 1.0 at this value |
-| `GAMMA_REST` | 0.20 | Steeper → short rest penalised more |
+| `GAMMA_REST` | 0.20 | Steeper -> short rest penalised more |
 | `F_REST_MIN` | 0.80 | Floor; even very short rest never drops below this |
 | `F_REST_MAX` | 1.05 | Ceiling; very long rest adds at most 5% credit |
 | `REST_MIN_CLAMP` | 30 | Any rest < 30 s is treated as 30 s before the formula |
@@ -22,7 +22,7 @@ F_rest(r) = clip( (r / REST_REF_SECONDS)^GAMMA_REST, F_REST_MIN, F_REST_MAX )
 ```
 reps* = reps / F_rest(rest)
 ```
-Short rest → F_rest < 1 → reps* > reps (harder effort gets more credit).
+Short rest -> F_rest < 1 -> reps* > reps (harder effort gets more credit).
 
 ---
 
@@ -96,7 +96,7 @@ TM = max(1, floor(TM_FACTOR * baseline_max))
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `TM_FACTOR` | 0.90 | Conservative anchor; lower → more buffer below test max |
+| `TM_FACTOR` | 0.90 | Conservative anchor; lower -> more buffer below test max |
 
 Note: `status --json` reports `training_max = floor(0.9 × test_max)` (conventional definition). The plan's starting TM uses `latest_test_max` directly (not `TM_FACTOR × test_max`) so the plan starts from proven performance and grows beyond it rather than spending weeks catching up.
 
@@ -121,9 +121,9 @@ reps_pred[j] = floor( (p - RIR) * e^(-LAMBDA_DECAY*(j-1)) * Q_rest(rest_j) )
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `LAMBDA_DECAY` | 0.08 | Per-set rep decay within a session; higher → faster drop-off |
-| `Q_REST_RECOVERY` | 0.30 | Max recovery possible from rest; higher → rest matters more |
-| `TAU_REST_RECOVERY` | 60.0 s | Time constant for rest recovery; higher → need longer rest |
+| `LAMBDA_DECAY` | 0.08 | Per-set rep decay within a session; higher -> faster drop-off |
+| `Q_REST_RECOVERY` | 0.30 | Max recovery possible from rest; higher -> rest matters more |
+| `TAU_REST_RECOVERY` | 60.0 s | Time constant for rest recovery; higher -> need longer rest |
 
 ---
 
@@ -132,11 +132,11 @@ reps_pred[j] = floor( (p - RIR) * e^(-LAMBDA_DECAY*(j-1)) * Q_rest(rest_j) )
 **trend_slope_per_week**
 ```
 OLS linear regression on (day_index, session_max_reps) for TEST sessions
-within the last TREND_WINDOW_DAYS days → slope converted to reps/week
+within the last TREND_WINDOW_DAYS days -> slope converted to reps/week
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `TREND_WINDOW_DAYS` | 21 | Wider window → smoother, less reactive slope |
+| `TREND_WINDOW_DAYS` | 21 | Wider window -> smoother, less reactive slope |
 
 ---
 
@@ -158,9 +158,9 @@ E_rir(rir) = 1 + A_RIR * max(0, 3 - rir)
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `A_RIR` | 0.15 | Per-RIR-below-3 bonus; higher → near-failure sets contribute much more load |
+| `A_RIR` | 0.15 | Per-RIR-below-3 bonus; higher -> near-failure sets contribute much more load |
 
-RIR 3 → ×1.0 · RIR 2 → ×1.15 · RIR 1 → ×1.30 · RIR 0 → ×1.45
+RIR 3 -> ×1.0 · RIR 2 -> ×1.15 · RIR 1 -> ×1.30 · RIR 0 -> ×1.45
 
 ---
 
@@ -172,7 +172,7 @@ S_rest(r) = clip( (REST_REF_SECONDS / max(r, REST_MIN_CLAMP))^GAMMA_S, 1, S_REST
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `GAMMA_S` | 0.15 | Steeper → short rest adds more training stress |
+| `GAMMA_S` | 0.15 | Steeper -> short rest adds more training stress |
 | `S_REST_MAX` | 1.5 | Cap on stress multiplier from short rest |
 
 ---
@@ -239,10 +239,10 @@ H(t) = H(t-1) * e^(-days / TAU_FATIGUE)
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `TAU_FITNESS` | 42 days | Longer → fitness accumulates and dissipates slowly |
-| `TAU_FATIGUE` | 7 days | Shorter → fatigue clears within ~1–2 weeks |
+| `TAU_FITNESS` | 42 days | Longer -> fitness accumulates and dissipates slowly |
+| `TAU_FATIGUE` | 7 days | Shorter -> fatigue clears within ~1–2 weeks |
 | `K_FITNESS` | 0.5 | Fitness gain per unit load |
-| `K_FATIGUE` | 1.0 | Fatigue gain per unit load; > K_FITNESS → net readiness drops after training |
+| `K_FATIGUE` | 1.0 | Fatigue gain per unit load; > K_FITNESS -> net readiness drops after training |
 
 **readiness** (from `FitnessFatigueState`)
 ```
@@ -262,8 +262,8 @@ sigma²_new = (1 - BETA_SIGMA) * sigma² + BETA_SIGMA * (M_obs - M_hat)²
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `ALPHA_MHAT` | 0.25 | Higher → M_hat tracks recent tests faster, more volatile |
-| `BETA_SIGMA` | 0.15 | Higher → uncertainty estimate reacts faster to outlier tests |
+| `ALPHA_MHAT` | 0.25 | Higher -> M_hat tracks recent tests faster, more volatile |
+| `BETA_SIGMA` | 0.15 | Higher -> uncertainty estimate reacts faster to outlier tests |
 | `INITIAL_SIGMA_M` | 1.5 | Starting uncertainty (reps) for a new user |
 
 ---
@@ -290,8 +290,8 @@ plateau = (slope < PLATEAU_SLOPE_THRESHOLD)
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `PLATEAU_SLOPE_THRESHOLD` | 0.05 reps/week | Lower → harder to call plateau |
-| `PLATEAU_WINDOW_DAYS` | 21 days | Shorter → plateau called sooner without a new PR |
+| `PLATEAU_SLOPE_THRESHOLD` | 0.05 reps/week | Lower -> harder to call plateau |
+| `PLATEAU_WINDOW_DAYS` | 21 days | Shorter -> plateau called sooner without a new PR |
 
 ---
 
@@ -314,7 +314,7 @@ underperforming if: last N S-sessions all have max_reps < threshold
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `UNDERPERFORMANCE_THRESHOLD` | 0.10 | 10% below predicted triggers flag; lower → more sensitive |
+| `UNDERPERFORMANCE_THRESHOLD` | 0.10 | 10% below predicted triggers flag; lower -> more sensitive |
 
 Default `consecutive_required = 2`.
 
@@ -330,8 +330,8 @@ Default `consecutive_required = 2`.
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `FATIGUE_Z_THRESHOLD` | -0.5 | Less negative → deload triggered more easily with plateau |
-| `COMPLIANCE_THRESHOLD` | 0.70 | Higher → deload triggered by smaller shortfall |
+| `FATIGUE_Z_THRESHOLD` | -0.5 | Less negative -> deload triggered more easily with plateau |
+| `COMPLIANCE_THRESHOLD` | 0.70 | Higher -> deload triggered by smaller shortfall |
 
 ---
 
@@ -370,10 +370,10 @@ else:                      (sets, reps) = (base_sets, base_reps)
 ```
 | Parameter | Default | Effect |
 |---|---|---|
-| `READINESS_Z_LOW` | -1.0 | Below this z → reduce sets |
-| `READINESS_Z_HIGH` | 1.0 | Above this z → add 1 rep |
+| `READINESS_Z_LOW` | -1.0 | Below this z -> reduce sets |
+| `READINESS_Z_HIGH` | 1.0 | Above this z -> add 1 rep |
 | `READINESS_VOLUME_REDUCTION` | 0.30 | How much to cut when readiness is low |
-| `MIN_SESSIONS_FOR_AUTOREG` | 10 | Autoregulation is only applied when history has ≥ 10 sessions; fewer sessions → base prescription used unchanged |
+| `MIN_SESSIONS_FOR_AUTOREG` | 10 | Autoregulation is only applied when history has ≥ 10 sessions; fewer sessions -> base prescription used unchanged |
 
 Minimum 3 sets even at extreme low readiness.
 
@@ -391,9 +391,9 @@ delta    = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESSION_MI
 | `TARGET_MAX_REPS` | 30 | Goal; progression approaches zero as TM nears this |
 | `DELTA_PROGRESSION_MIN` | 0.3 reps/week | Floor rate near the goal |
 | `DELTA_PROGRESSION_MAX` | 1.0 reps/week | Peak rate at low TM |
-| `ETA_PROGRESSION` | 1.5 | Exponent; higher → deceleration kicks in earlier |
+| `ETA_PROGRESSION` | 1.5 | Exponent; higher -> deceleration kicks in earlier |
 
-Example values: TM = 5 → ~0.97 reps/week · TM = 15 → ~0.68 · TM = 25 → ~0.36 · TM = 29 → ~0.30
+Example values: TM = 5 -> ~0.97 reps/week · TM = 15 -> ~0.68 · TM = 25 -> ~0.36 · TM = 29 -> ~0.30
 
 **Added weight (all session types S, H, E, T)**
 
@@ -485,6 +485,6 @@ if days_since_last_test >= test_frequency_weeks * 7:
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `test_frequency_weeks` | set per exercise | Longer → less frequent mandatory retesting |
+| `test_frequency_weeks` | set per exercise | Longer -> less frequent mandatory retesting |
 
 The auto-TEST is inserted before the next regular session slot. After a TEST is logged, the next auto-TEST window resets from that date.

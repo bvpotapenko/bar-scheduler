@@ -39,7 +39,7 @@ The planner uses the Epley 1RM inverse formula to determine how much external we
 2. **Invert for the session's target reps**: `Leff_target = 1RM_Leff × TM_FACTOR / (1 + target_reps / 30)`.
 3. **Derive added weight**: `added = max(0, Leff_target − BW × bw_fraction)`, rounded to 0.5 kg, capped at the exercise maximum.
 
-Session target reps: S → 5, H → 8, E → 12, T → 6 (corresponding to ~85/78/67/83 % of 1RM).
+Session target reps: S -> 5, H -> 8, E -> 12, T -> 6 (corresponding to ~85/78/67/83 % of 1RM).
 
 No weight is prescribed when `TM ≤ weight_tm_threshold` (the bodyweight-only phase).
 

@@ -1,13 +1,13 @@
 """Planning functions for the bar-scheduler API."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from ..core.adaptation import get_training_status as _get_training_status
 from ..core.adaptation import overtraining_severity
 from ..core.exercises.registry import get_exercise
-from ..core.planner import explain_plan_entry, generate_plan
+from ..core.planner import generate_plan
 from ..core.timeline import build_timeline
 from ..io.serializers import dict_to_session_plan, session_plan_to_dict
 from ._common import (
@@ -132,71 +132,6 @@ def refresh_plan(data_dir: Path, exercise_id: str) -> dict:
             else None
         ),
     }
-
-
-def explain_session(
-    data_dir: Path,
-    exercise_id: str,
-    date: str,
-    weeks_ahead: int = 4,
-) -> str:
-    """
-    Return a plain-text explanation of how a session's parameters were derived.
-
-    ``date`` is an ISO date string (YYYY-MM-DD) or ``"next"`` for the next
-    upcoming session.  The returned string contains no Rich markup.
-    """
-    exercise = get_exercise(exercise_id)
-    store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state(exercise_id)
-
-    plan_start_date = _resolve_plan_start(store, exercise_id, user_state.history)
-    total_weeks = _total_weeks(plan_start_date, weeks_ahead)
-
-    ot_severity = overtraining_severity(
-        user_state.history, user_state.profile.days_for_exercise(exercise_id)
-    )
-    ot_level = ot_severity["level"]
-    ot_rest = ot_severity["extra_rest_days"] if ot_level >= 2 else 0
-
-    today_dt = datetime.now()
-    ot_cutoff = (today_dt + timedelta(days=max(ot_rest + 14, 14))).strftime(
-        "%Y-%m-%d"
-    )
-
-    eq_state = store.load_current_equipment(exercise_id)
-    available_weights_kg = eq_state.available_weights_kg if eq_state is not None else []
-    avail = available_weights_kg or None
-
-    if date.lower() == "next":
-        plans = generate_plan(
-            user_state,
-            plan_start_date,
-            exercise,
-            weeks_ahead=total_weeks,
-            overtraining_level=ot_level,
-            overtraining_rest_days=ot_rest,
-            available_weights_kg=avail,
-        )
-        today_str = today_dt.strftime("%Y-%m-%d")
-        nxt = next((p for p in plans if p.date >= today_str), None)
-        if nxt is None:
-            raise ValueError("No upcoming sessions found in the plan horizon.")
-        date = nxt.date
-
-    if date > ot_cutoff:
-        ot_level, ot_rest = 0, 0
-
-    return explain_plan_entry(
-        user_state,
-        plan_start_date,
-        date,
-        exercise,
-        weeks_ahead=total_weeks,
-        overtraining_level=ot_level,
-        overtraining_rest_days=ot_rest,
-        available_weights_kg=avail,
-    )
 
 
 def set_plan_start_date(data_dir: Path, exercise_id: str, date: str) -> None:

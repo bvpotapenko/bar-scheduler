@@ -17,7 +17,6 @@ from ..config import (
     DELTA_PROGRESSION_MIN,
     MAX_PLAN_WEEKS,
     MIN_PLAN_WEEKS,
-    MIN_SESSIONS_FOR_AUTOREG,
     estimate_weeks_to_target,
     expected_reps_per_week,
 )
@@ -31,21 +30,17 @@ from ..models import (
 )
 from .grip_selector import _init_grip_counts, _next_grip
 from .load_calculator import (
-    _calculate_added_weight,
     calculate_machine_assistance,
     estimate_prescription_weight,
 )
-from .rest_advisor import calculate_adaptive_rest
 from .schedule_builder import (
     calculate_session_days,
     get_next_session_type_index,
     get_schedule_template,
 )
-from .session_trace_builder import _format_explain
 from .set_prescriptor import calculate_set_prescription
 from .test_session_inserter import _insert_test_sessions
 from .training_state_calculator import compute_training_state
-from .types import _SessionTrace
 
 
 def create_synthetic_test_session(
@@ -98,18 +93,15 @@ def _plan_core(
     history_init_cutoff: str | None = None,
     available_weights_kg: list[float] | None = None,
     available_machine_assistance_kg: list[float] | None = None,
-) -> Generator[tuple[SessionPlan, _SessionTrace], None, None]:
+) -> Generator[SessionPlan, None, None]:
     """
     Core plan generator -- single source of truth for all plan logic.
 
-    Yields (SessionPlan, _SessionTrace) for every planned session.
-    Both generate_plan() and explain_plan_entry() delegate here so that
-    the explanation is guaranteed to reflect the actual plan.
+    Yields SessionPlan for every planned session.
 
     When overtraining_rest_days > 0 the training start is shifted forward
     by that many days (without persisting to the store), so the next session
-    falls after adequate recovery.  The shift is reported in the trace so
-    explain_plan_entry() can explain it.
+    falls after adequate recovery.
 
     Raises ValueError if there is no history and no baseline_max.
     """
@@ -145,7 +137,7 @@ def _plan_core(
     history_for_init = [s for s in history if s.date < cutoff]
     effective_init = history_for_init if history_for_init else history
 
-    status, initial_tm, ff_state, z_score, last_test_weight = compute_training_state(
+    status, initial_tm, ff_state, _, _ = compute_training_state(
         user_state, history, history_for_init, exercise, baseline_max
     )
 
@@ -189,7 +181,6 @@ def _plan_core(
         if original_history
         else None
     )
-    week_offset = (start - first_date).days // 7 if first_date is not None else 0
     # Display weeks are anchored to the Monday of the week containing first_date
     # so that Mon-Sun calendar weeks stay together (e.g. Mon 03.02 and Wed 03.04
     # are both "week 3", not split across week 2 / week 3).
@@ -202,8 +193,6 @@ def _plan_core(
     # Grip rotation: initialise from pre-plan history (effective_init) so that
     # logging sessions during the plan period does not shift grip assignments.
     grip_counts = _init_grip_counts(effective_init, exercise)
-    grip_history_counts = dict(grip_counts)  # snapshot of history-only counts
-
     # Pre-index FULL history by session type for per-slot date-filtered lookups.
     # The filter (date < slot_date) is applied at read time in the loop below,
     # allowing future slots to benefit from sessions logged mid-plan while
@@ -213,7 +202,6 @@ def _plan_core(
         history_by_type.setdefault(s.session_type, []).append(s)
 
     current_plan_week_idx = 0
-    weekly_log: list[tuple[int, float, float, float]] = []
     # Overtraining protection: how many upcoming sessions still need adjustment
     density_sessions_left = overtraining_level  # level = number of sessions to affect
 
@@ -230,27 +218,36 @@ def _plan_core(
                 # driving higher Epley 1RM and thus higher weight prescription.
                 assert exercise_target is not None  # weighted_goal implies this
                 current_weight = estimate_prescription_weight(
-                    history, exercise, user_state.profile.bodyweight_kg, exercise_target.reps,
+                    history,
+                    exercise,
+                    user_state.profile.bodyweight_kg,
+                    exercise_target.reps,
                     available_weights_kg=available_weights_kg,
                 )
-                goal_met = int(tm_float) >= exercise_target.reps and current_weight >= exercise_target.weight_kg
-                prog = 0.0 if goal_met else max(DELTA_PROGRESSION_MIN, expected_reps_per_week(int(tm_float), user_target))
+                goal_met = (
+                    int(tm_float) >= exercise_target.reps
+                    and current_weight >= exercise_target.weight_kg
+                )
+                prog = (
+                    0.0
+                    if goal_met
+                    else max(
+                        DELTA_PROGRESSION_MIN,
+                        expected_reps_per_week(int(tm_float), user_target),
+                    )
+                )
             else:
                 prog = expected_reps_per_week(int(tm_float), user_target)
-            old_tm = tm_float
             tm_float += prog
-            weekly_log.append((week_offset + session_week_idx, prog, old_tm, tm_float))
             current_plan_week_idx = session_week_idx
 
         current_tm = int(tm_float)
 
         # Grip selection
-        count_before = grip_counts.get(session_type, 0)
         if exercise.has_variant_rotation:
             grip = _next_grip(session_type, grip_counts, exercise)
         else:
             grip = exercise.primary_variant
-        cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
 
         week_num = (
             (date - first_monday).days // 7 + 1
@@ -258,38 +255,21 @@ def _plan_core(
             else session_week_idx + 1
         )
 
-        # --- Compute trace values (pure math, cheap) ---
         params = exercise.session_params[session_type]
-        reps_low = max(params.reps_min, int(current_tm * params.reps_fraction_low))
-        reps_high = min(params.reps_max, int(current_tm * params.reps_fraction_high))
-        base_reps = max(
-            params.reps_min, min(params.reps_max, (reps_low + reps_high) // 2)
-        )
-        base_sets = (params.sets_min + params.sets_max) // 2
-        has_autoreg = len(effective_init) >= MIN_SESSIONS_FOR_AUTOREG
-
-        from ..adaptation import apply_autoregulation
-
-        if has_autoreg:
-            adj_sets, adj_reps = apply_autoregulation(base_sets, base_reps, ff_state)
-        else:
-            adj_sets, adj_reps = base_sets, base_reps
 
         # Only sessions strictly before this slot's date: logging at D must not
         # change adaptive rest for D or any earlier slot.
         recent_same_type = [
             s for s in history_by_type.get(session_type, []) if s.date < date_str
         ][-5:]
-        adj_rest = calculate_adaptive_rest(
-            session_type, recent_same_type, ff_state, exercise
-        )
-        added_weight = _calculate_added_weight(
-            exercise, current_tm, user_state.profile.bodyweight_kg, history, session_type,
-            available_weights_kg=available_weights_kg,
-        )
+
         if available_machine_assistance_kg:
             prescribed_assistance = calculate_machine_assistance(
-                exercise, current_tm, user_state.profile.bodyweight_kg, history, session_type,
+                exercise,
+                current_tm,
+                user_state.profile.bodyweight_kg,
+                history,
+                session_type,
                 available_machine_assistance_kg=available_machine_assistance_kg,
             )
         else:
@@ -338,47 +318,7 @@ def _plan_core(
             prescribed_assistance_kg=prescribed_assistance,
         )
 
-        trace = _SessionTrace(
-            date_str=date_str,
-            session_type=session_type,
-            session_week_idx=session_week_idx,
-            week_num=week_num,
-            week_offset=week_offset,
-            weeks_ahead=weeks_ahead,
-            grip=grip,
-            cycle=list(cycle),
-            count_before=count_before,
-            hist_count=grip_history_counts.get(session_type, 0),
-            initial_tm=initial_tm,
-            current_tm=current_tm,
-            tm_float=tm_float,
-            weekly_log=list(weekly_log),  # snapshot at yield time
-            base_sets=base_sets,
-            base_reps=base_reps,
-            adj_sets=adj_sets,
-            adj_reps=adj_reps,
-            has_autoreg=has_autoreg,
-            z_score=z_score,
-            reps_low=reps_low,
-            reps_high=reps_high,
-            added_weight=added_weight,
-            last_test_weight=last_test_weight,
-            adj_rest=adj_rest,
-            recent_same_type=recent_same_type,
-            expected_tm_after=expected_tm_after,
-            history=history,
-            history_len=len(history),
-            days_per_week=days_per_week,
-            user_target=user_target,
-            schedule=list(schedule),
-            params=params,
-            exercise=exercise,
-            ff_state=ff_state,
-            overtraining_shift_days=overtraining_rest_days,
-            overtraining_level=overtraining_level,
-        )
-
-        yield plan, trace
+        yield plan
 
 
 def generate_plan(
@@ -415,7 +355,7 @@ def generate_plan(
     """
     return [
         plan
-        for plan, _ in _plan_core(
+        for plan in _plan_core(
             user_state,
             start_date,
             exercise,
@@ -428,105 +368,6 @@ def generate_plan(
             available_machine_assistance_kg=available_machine_assistance_kg,
         )
     ]
-
-
-def explain_plan_entry(
-    user_state: UserState,
-    plan_start_date: str,
-    target_date: str,
-    exercise: ExerciseDefinition,
-    weeks_ahead: int | None = None,
-    baseline_max: int | None = None,
-    overtraining_level: int = 0,
-    overtraining_rest_days: int = 0,
-    history_init_cutoff: str | None = None,
-    available_weights_kg: list[float] | None = None,
-    available_machine_assistance_kg: list[float] | None = None,
-) -> str:
-    """
-    Generate a step-by-step Rich-markup explanation of a planned session.
-
-    Delegates to _plan_core() so the explanation is guaranteed to match
-    the plan produced by generate_plan() exactly.
-
-    For dates within the plan horizon that are not training sessions, returns
-    a rest-day explanation.  For past dates found in history, returns a brief
-    session summary.
-
-    Args:
-        user_state: Current user state
-        plan_start_date: Start date of the plan (ISO)
-        target_date: Date of the session to explain (ISO)
-        exercise: ExerciseDefinition to parameterise the plan
-        weeks_ahead: Plan horizon (None = estimate)
-        baseline_max: Baseline max if no history
-        overtraining_level: Level from overtraining_severity() (for shift notice)
-        overtraining_rest_days: Days the plan start was shifted forward
-        history_init_cutoff: Cutoff date for effective_init (stable across backward skips)
-
-    Returns:
-        Rich-markup string ready for console.print()
-    """
-    last_weeks_ahead: int | None = None
-    try:
-        for plan, trace in _plan_core(
-            user_state,
-            plan_start_date,
-            exercise,
-            weeks_ahead=weeks_ahead,
-            baseline_max=baseline_max,
-            overtraining_level=overtraining_level,
-            overtraining_rest_days=overtraining_rest_days,
-            history_init_cutoff=history_init_cutoff,
-            available_weights_kg=available_weights_kg,
-            available_machine_assistance_kg=available_machine_assistance_kg,
-        ):
-            last_weeks_ahead = trace.weeks_ahead
-            if plan.date == target_date:
-                return _format_explain(trace, user_state.profile.bodyweight_kg)
-    except ValueError as exc:
-        return f"[yellow]{exc}[/yellow]"
-
-    # Fallback 1: date is within the plan horizon → scheduled rest day
-    try:
-        start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
-        target_dt = datetime.strptime(target_date, "%Y-%m-%d")
-        end_dt = start_dt + timedelta(weeks=(last_weeks_ahead or 4))
-        if start_dt <= target_dt <= end_dt:
-            return (
-                f"[dim]Rest day  ·  {target_date}[/dim]\n"
-                "  No training session is scheduled for this date.\n"
-                "  This is a planned rest day within the training horizon."
-            )
-    except ValueError:
-        pass
-
-    # Fallback 2: past date found in history → brief session summary
-    ex_id = exercise.exercise_id
-    past_sessions = [
-        s
-        for s in user_state.history
-        if s.date == target_date and s.exercise_id == ex_id
-    ]
-    if past_sessions:
-        lines = [f"[dim]Historical sessions on {target_date}:[/dim]"]
-        for s in past_sessions:
-            total_reps = sum(st.actual_reps or 0 for st in s.completed_sets)
-            rir_str = ""
-            if s.completed_sets and s.completed_sets[-1].rir_reported is not None:
-                rir_str = f"  RIR≈{s.completed_sets[-1].rir_reported}"
-            lines.append(
-                f"  {s.session_type}  ·  {total_reps} total reps"
-                f"  ·  {s.bodyweight_kg} kg BW{rir_str}"
-            )
-        return "\n".join(lines)
-
-    # Fallback 3: outside plan horizon
-    horizon = f"{last_weeks_ahead}-week " if last_weeks_ahead is not None else ""
-    return (
-        f"[yellow]No planned session found for {target_date}.[/yellow]\n"
-        f"Is this date within the {horizon}plan horizon starting {plan_start_date}?"
-    )
 
 
 def estimate_plan_completion_date(
@@ -561,8 +402,10 @@ def estimate_plan_completion_date(
     if exercise_target.weight_kg > 0:
         # Weighted goal: check both rep and weight dimensions.
         current_weight = estimate_prescription_weight(
-            history, get_exercise(exercise_id),
-            user_state.profile.bodyweight_kg, exercise_target.reps
+            history,
+            get_exercise(exercise_id),
+            user_state.profile.bodyweight_kg,
+            exercise_target.reps,
         )
         if tm >= exercise_target.reps and current_weight >= exercise_target.weight_kg:
             return None

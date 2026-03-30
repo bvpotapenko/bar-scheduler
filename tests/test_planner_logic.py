@@ -51,7 +51,9 @@ def test_training_max_formula():
     """TM = floor(0.9 × test_max), clamped to minimum 1."""
     assert training_max([make_test_session("2026-01-01", 12)]) == 10  # floor(10.8)
     assert training_max([make_test_session("2026-01-01", 10)]) == 9  # floor(9.0)
-    assert training_max([make_test_session("2026-01-01", 1)]) == 1  # floor(0.9) → clamp
+    assert (
+        training_max([make_test_session("2026-01-01", 1)]) == 1
+    )  # floor(0.9) -> clamp
 
 
 def test_strength_session_prescription():
@@ -64,9 +66,9 @@ def test_strength_session_prescription():
       reps_high = min(6, int(10*0.55)) = min(6, 5) = 5
       target    = (4+5)//2 = 4
       sets      = (4+5)//2 = 4  (no autoregulation: <10 sessions)
-      rest      = (180+300)//2 = 240  (no same-type history → base midpoint)
+      rest      = (180+300)//2 = 240  (no same-type history -> base midpoint)
       weight    = 6.5 kg  (Leff 1RM from TEST: 80*(1+12/30)=112;
-                           leff_target=112*0.9/(1+5/30)=86.4; added=6.4→6.5)
+                           leff_target=112*0.9/(1+5/30)=86.4; added=6.4->6.5)
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
@@ -96,7 +98,7 @@ def test_hypertrophy_session_prescription():
       sets      = (4+6)//2 = 5
       rest      = (120+180)//2 = 150
       weight    = 0.0 (Leff 1RM=112; leff_target for H(8 reps)=79.6 < BW_contrib=80
-                       → added = max(0, 79.6-80) = 0.0)
+                       -> added = max(0, 79.6-80) = 0.0)
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
@@ -127,7 +129,7 @@ def test_endurance_session_volume_formula():
       target_reps   = (4+6)//2 = 5
 
       Descending ladder (start=5, decrement by 1, floor at 3):
-        5, 4, 3, 3, 3, 3, 3, 3, 3, 3  → 10 sets (hits sets_max before total≥34)
+        5, 4, 3, 3, 3, 3, 3, 3, 3, 3  -> 10 sets (hits sets_max before total≥34)
         total reps = 5+4+3*8 = 33
 
       rest = (45+75)//2 = 60
@@ -149,17 +151,17 @@ def test_endurance_session_volume_formula():
 
 def test_added_weight_formula():
     """
-    _calculate_added_weight uses Leff-1RM Epley inverse (no history → conservative fallback).
+    _calculate_added_weight uses Leff-1RM Epley inverse (no history -> conservative fallback).
 
-    pull_up: bw_fraction=1.0, threshold=9, max=20 kg, TM_FACTOR=0.9, S→target_reps=5
+    pull_up: bw_fraction=1.0, threshold=9, max=20 kg, TM_FACTOR=0.9, S->target_reps=5
 
     Fallback: leff_1rm = bw * (1 + TM / (0.9 * 30)); leff_target = leff_1rm * 0.9 / (1 + 5/30)
     added = max(0, leff_target - bw), rounded to 0.5 kg, capped at 20 kg.
 
-    TM=9  (at threshold)   → 0.0
-    TM=10: leff_1rm=109.63; leff_target=84.57; added=4.57 → 4.5
-    TM=12: leff_1rm=115.56; leff_target=89.14; added=9.14 → 9.0
-    TM=21: leff_1rm=142.22; leff_target=109.71; added=29.71 → cap at 20.0
+    TM=9  (at threshold)   -> 0.0
+    TM=10: leff_1rm=109.63; leff_target=84.57; added=4.57 -> 4.5
+    TM=12: leff_1rm=115.56; leff_target=89.14; added=9.14 -> 9.0
+    TM=21: leff_1rm=142.22; leff_target=109.71; added=29.71 -> cap at 20.0
     """
     exercise = get_exercise("pull_up")
     assert _calculate_added_weight(exercise, 9, 80.0, [], "S") == 0.0
@@ -170,10 +172,10 @@ def test_added_weight_formula():
 
 def test_grip_rotation_cycles_for_s_sessions():
     """
-    S sessions rotate through pronated → neutral → supinated → pronated.
+    S sessions rotate through pronated -> neutral -> supinated -> pronated.
 
     With only a TEST session in history (counted under "TEST", not "S"),
-    the first planned S session starts at index 0 → pronated.
+    the first planned S session starts at index 0 -> pronated.
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]
@@ -199,10 +201,10 @@ def test_plateau_detected_with_stagnant_test_sessions():
     Plateau triggers when slope < 0.05 reps/week AND no new best in 21 days.
 
     History: TEST day0=12, day42=11, day63=11.
-      slope window: latest=day63, cutoff=day42 → sessions [day42(11), day63(11)]
+      slope window: latest=day63, cutoff=day42 -> sessions [day42(11), day63(11)]
         points=[(0,11),(21,11)], slope=0.0 reps/week < 0.05 ✓
       best_ever=12; recent tests (≥day42) are [11, 11]; neither ≥ 12 ✓
-    → is_plateau = True, TM = floor(0.9*11) = 9
+    -> is_plateau = True, TM = floor(0.9*11) = 9
     """
     base = datetime(2026, 1, 1)
     history = [
@@ -223,7 +225,7 @@ def test_test_session_recovery_spacing():
     Regression: after a TEST in history, the next planned session must be
     at least DAY_SPACING["TEST"] + 1 days later (i.e. ≥ 1 rest day gap).
 
-    With DAY_SPACING["TEST"]=1: TEST on 2026-01-05 → first plan session must be
+    With DAY_SPACING["TEST"]=1: TEST on 2026-01-05 -> first plan session must be
     on 2026-01-07 at earliest (gap ≥ 2).  Without the fix it would be 2026-01-06
     (gap = 1, violating the rest requirement).
     """
@@ -236,8 +238,8 @@ def test_test_session_recovery_spacing():
 
     # Schedule: first session the very next day (1-day gap — too close with spacing=1)
     schedule = [
-        (datetime(2026, 1, 6), "S"),   # 1 day after TEST — should be pushed
-        (datetime(2026, 1, 8), "H"),   # 3 days after TEST — fine
+        (datetime(2026, 1, 6), "S"),  # 1 day after TEST — should be pushed
+        (datetime(2026, 1, 8), "H"),  # 3 days after TEST — fine
         (datetime(2026, 1, 10), "E"),
     ]
 
@@ -258,9 +260,9 @@ def test_weight_progression_in_plan():
     Regression: plan Str sessions should show increasing added weight as TM grows,
     not a flat value derived solely from the initial historical 1RM.
 
-    Setup: BW=81.7, single TEST of 13 reps → TM=11, hist_leff_1rm≈117.1 kg.
-    At TM=11 the TM-derived estimate (114.9) is lower → history wins → ~8.5 kg.
-    At TM=12 the TM-derived estimate (118.0) overtakes history → weight grows.
+    Setup: BW=81.7, single TEST of 13 reps -> TM=11, hist_leff_1rm≈117.1 kg.
+    At TM=11 the TM-derived estimate (114.9) is lower -> history wins -> ~8.5 kg.
+    At TM=12 the TM-derived estimate (118.0) overtakes history -> weight grows.
     Across a 10-week plan the Str added weight must strictly increase overall.
     """
     bw = 81.7
@@ -279,14 +281,16 @@ def test_weight_progression_in_plan():
     weights = [s.sets[0].added_weight_kg for s in str_sessions if s.sets]
 
     # First session weight must match the history-based prescription (~8.5 kg)
-    assert 7.5 <= weights[0] <= 10.0, f"first Str weight {weights[0]} out of expected range"
+    assert (
+        7.5 <= weights[0] <= 10.0
+    ), f"first Str weight {weights[0]} out of expected range"
 
     # Weight must increase over the plan (last half > first half)
     first_half_max = max(weights[: len(weights) // 2])
     second_half_min = min(weights[len(weights) // 2 :])
-    assert second_half_min > first_half_max or max(weights) > weights[0], (
-        f"Str weight did not increase across plan: {weights}"
-    )
+    assert (
+        second_half_min > first_half_max or max(weights) > weights[0]
+    ), f"Str weight did not increase across plan: {weights}"
 
 
 def test_overtraining_protection_reduces_early_session_sets():
@@ -325,7 +329,7 @@ def test_deload_recommended_for_low_compliance():
     Deload triggers via compliance: compliance_ratio < 0.70.
 
     Setup: TEST 14 days ago (12 reps), S yesterday planned 4×8=32 but done 4×2=8.
-      compliance_ratio = 8/32 = 0.25 < 0.70 → should_deload() = True
+      compliance_ratio = 8/32 = 0.25 < 0.70 -> should_deload() = True
       detect_plateau = False (only 1 TEST session, requires ≥2)
     """
     today = datetime.now()
@@ -357,7 +361,7 @@ class TestExpandDualDumbbellTotals:
     """Regression tests for _expand_dual_dumbbell_totals."""
 
     def test_basic_expansion(self):
-        # [8, 10, 16] → singles + all pairs
+        # [8, 10, 16] -> singles + all pairs
         result = _expand_dual_dumbbell_totals([8.0, 10.0, 16.0])
         assert result == [8.0, 10.0, 16.0, 18.0, 20.0, 24.0, 26.0, 32.0]
 
@@ -367,7 +371,7 @@ class TestExpandDualDumbbellTotals:
         assert result == [10.0, 20.0]
 
     def test_sorted_and_deduped(self):
-        # [4, 8] → 4, 8, 12 (4+8), 16 (8+8) — 8 is both single and pair result
+        # [4, 8] -> 4, 8, 12 (4+8), 16 (8+8) — 8 is both single and pair result
         result = _expand_dual_dumbbell_totals([4.0, 8.0])
         assert result == [4.0, 8.0, 12.0, 16.0]
 
@@ -386,36 +390,45 @@ class TestBSSDualDumbbellSnap:
         )
 
     def test_snap_to_pair_total(self):
-        # available=[8, 10, 16], last TEST=22 → nearest achievable total ≤ 22 is 20 (10+10)
+        # available=[8, 10, 16], last TEST=22 -> nearest achievable total ≤ 22 is 20 (10+10)
         bss = get_exercise("bss")
         history = [self._make_bss_test_session("2026-01-01", 22.0)]
-        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        w = _calculate_added_weight(
+            bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0]
+        )
         assert w == 20.0
 
     def test_snap_exact_match(self):
-        # last TEST=16 → exact match on single DB (16) or pair (8+8)
+        # last TEST=16 -> exact match on single DB (16) or pair (8+8)
         bss = get_exercise("bss")
         history = [self._make_bss_test_session("2026-01-01", 16.0)]
-        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        w = _calculate_added_weight(
+            bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0]
+        )
         assert w == 16.0
 
     def test_snap_to_smallest_when_below(self):
-        # last TEST=6 → below all singles, returns smallest (8)
+        # last TEST=6 -> below all singles, returns smallest (8)
         bss = get_exercise("bss")
         history = [self._make_bss_test_session("2026-01-01", 6.0)]
-        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        w = _calculate_added_weight(
+            bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0]
+        )
         assert w == 8.0
 
     def test_snap_to_double_largest(self):
-        # last TEST=33 → largest achievable total ≤ 33 is 32 (16+16)
+        # last TEST=33 -> largest achievable total ≤ 33 is 32 (16+16)
         bss = get_exercise("bss")
         history = [self._make_bss_test_session("2026-01-01", 33.0)]
-        w = _calculate_added_weight(bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0])
+        w = _calculate_added_weight(
+            bss, 15, 80.0, history, "S", available_weights_kg=[8.0, 10.0, 16.0]
+        )
         assert w == 32.0
 
     def test_incline_db_press_no_expansion(self):
-        # incline_db_press has dual_dumbbell=False — available=[8, 10, 16], TEST=22 → snaps to 16 (no pairs)
+        # incline_db_press has dual_dumbbell=False — available=[8, 10, 16], TEST=22 -> snaps to 16 (no pairs)
         from bar_scheduler.core.models import SessionResult, SetResult
+
         idp = get_exercise("incline_db_press")
         session = SessionResult(
             date="2026-01-01",
@@ -425,7 +438,9 @@ class TestBSSDualDumbbellSnap:
             exercise_id="incline_db_press",
             completed_sets=[SetResult(8, 8, 180, added_weight_kg=22.0)],
         )
-        w = _calculate_added_weight(idp, 15, 80.0, [session], "S", available_weights_kg=[8.0, 10.0, 16.0])
+        w = _calculate_added_weight(
+            idp, 15, 80.0, [session], "S", available_weights_kg=[8.0, 10.0, 16.0]
+        )
         assert w == 16.0
 
 
@@ -437,11 +452,13 @@ class TestBest1rmFromLeff:
 
     def test_zero_reps_returns_none(self):
         from bar_scheduler.core.metrics import best_1rm_from_leff
+
         assert best_1rm_from_leff(80.0, 0) is None
 
     def test_over_20_reps_returns_estimate(self):
         # No upper cap — Lombardi+Epley blend used for all r > 10
         from bar_scheduler.core.metrics import best_1rm_from_leff
+
         result = best_1rm_from_leff(80.0, 25)
         assert result is not None and result > 80.0
 
@@ -451,6 +468,7 @@ class TestBest1rmFromLeff:
         # lander:  100*100 / (101.3 - 2.67123*5) = 10000 / 87.94 ≈ 113.71
         # avg ≈ 113.10
         from bar_scheduler.core.metrics import best_1rm_from_leff
+
         result = best_1rm_from_leff(100.0, 5)
         assert result == pytest.approx(113.1, abs=0.5)
 
@@ -458,6 +476,7 @@ class TestBest1rmFromLeff:
         # r=8, leff=100: avg(Brzycki, Lander, Epley)
         # epley: 100 * (1 + 8/30) ≈ 126.67
         from bar_scheduler.core.metrics import best_1rm_from_leff
+
         result = best_1rm_from_leff(100.0, 8)
         assert result is not None
         assert 115.0 < result < 135.0  # sanity range
@@ -465,6 +484,7 @@ class TestBest1rmFromLeff:
     def test_high_rep_range_lombardi_epley_blend(self):
         # r=15, leff=80
         from bar_scheduler.core.metrics import best_1rm_from_leff
+
         result = best_1rm_from_leff(80.0, 15)
         assert result is not None
         assert result > 80.0  # 1RM must exceed working load
@@ -472,12 +492,14 @@ class TestBest1rmFromLeff:
     def test_result_exceeds_working_leff(self):
         # For any valid rep count, 1RM ≥ leff
         from bar_scheduler.core.metrics import best_1rm_from_leff
+
         for reps in [1, 5, 10, 15, 20]:
             result = best_1rm_from_leff(100.0, reps)
             assert result is not None and result >= 100.0
 
     def test_high_reps_above_20_returns_estimate(self):
         from bar_scheduler.core.metrics import best_1rm_from_leff
+
         assert best_1rm_from_leff(80.0, 30) is not None
 
 
@@ -489,16 +511,27 @@ def test_overtraining_severity_no_alert_two_sessions_five_days():
     Regression: 2 sessions in 5 days at 3x/week should NOT trigger an alert.
 
     The expected span for n=2 sessions is (n-1)=1 interval = 7/3 ≈ 2.33 days.
-    Actual span = 4 days (03.25→03.29) > 2.33 → no overtraining.
+    Actual span = 4 days (03.25->03.29) > 2.33 -> no overtraining.
     Previously the formula used n*interval = 4.67 days, causing extra=1, level=1.
     """
     from bar_scheduler.core.adaptation import overtraining_severity
 
     s1 = SetResult(12, 12, 180, added_weight_kg=10.0)
     s2 = SetResult(5, 5, 180, added_weight_kg=24.0)
-    session1 = SessionResult("2026-03-25", 82.0, "standard", "TEST", "incline_db_press", completed_sets=[s1])
-    session2 = SessionResult("2026-03-29", 82.0, "standard", "S", "incline_db_press", completed_sets=[s2, s2, s2])
-    result = overtraining_severity([session1, session2], days_per_week=3, reference_date=datetime(2026, 3, 30))
+    session1 = SessionResult(
+        "2026-03-25", 82.0, "standard", "TEST", "incline_db_press", completed_sets=[s1]
+    )
+    session2 = SessionResult(
+        "2026-03-29",
+        82.0,
+        "standard",
+        "S",
+        "incline_db_press",
+        completed_sets=[s2, s2, s2],
+    )
+    result = overtraining_severity(
+        [session1, session2], days_per_week=3, reference_date=datetime(2026, 3, 30)
+    )
     assert result["level"] == 0
     assert result["description"] == "2 sessions in 5 days"
 
@@ -512,7 +545,9 @@ def test_session_max_reps_weighted_test_session():
     from bar_scheduler.core.metrics import session_max_reps
 
     s = SetResult(12, 12, 180, added_weight_kg=10.0)
-    session = SessionResult("2026-03-25", 82.0, "standard", "TEST", "incline_db_press", completed_sets=[s])
+    session = SessionResult(
+        "2026-03-25", 82.0, "standard", "TEST", "incline_db_press", completed_sets=[s]
+    )
     assert session_max_reps(session) == 12
 
 
@@ -521,12 +556,19 @@ def test_external_only_zero_bw_prescription_uses_history():
     Regression: for external_only exercises with bw_fraction=0, the weight
     prescription must use Leff 1RM from all history, not just the last TEST weight.
 
-    Str session at +24.0kg for 12 reps → Epley 1RM = 24*(1+12/30) = 33.6 kg.
-    Hpy target (8 reps): leff_target = 33.6*0.9/(1+8/30) ≈ 23.87 → rounds to 24.0 kg.
-    Previously returned 0.0 (no TEST in history → _last_test_weight_bss=0).
+    Str session at +24.0kg for 12 reps -> Epley 1RM = 24*(1+12/30) = 33.6 kg.
+    Hpy target (8 reps): leff_target = 33.6*0.9/(1+8/30) ≈ 23.87 -> rounds to 24.0 kg.
+    Previously returned 0.0 (no TEST in history -> _last_test_weight_bss=0).
     """
     exercise = get_exercise("incline_db_press")
     s = SetResult(12, 12, 180, added_weight_kg=24.0)
-    str_session = SessionResult("2026-03-29", 82.0, "standard", "S", "incline_db_press", completed_sets=[s, s, s])
+    str_session = SessionResult(
+        "2026-03-29",
+        82.0,
+        "standard",
+        "S",
+        "incline_db_press",
+        completed_sets=[s, s, s],
+    )
     added = _calculate_added_weight(exercise, 10, 82.0, [str_session], "H")
     assert added == pytest.approx(24.0, abs=0.5)

@@ -1,5 +1,5 @@
 """
-YAML → ExerciseDefinition loader.
+YAML -> ExerciseDefinition loader.
 
 Loads exercise definitions from individual YAML files in the bundled
 ``src/bar_scheduler/exercises/`` directory.  Each file (e.g. pull_up.yaml)
@@ -162,7 +162,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def _get_bundled_exercises_dir() -> Path | None:
     """Return path to the bundled exercises/ data directory, or None if not found."""
     # loader.py lives at src/bar_scheduler/core/exercises/loader.py
-    # three levels up → src/bar_scheduler/
+    # three levels up -> src/bar_scheduler/
     candidate = Path(__file__).parent.parent.parent / "exercises"
     return candidate if candidate.is_dir() else None
 
@@ -194,7 +194,7 @@ def load_exercises_from_yaml() -> dict[str, ExerciseDefinition] | None:
         result: dict[str, ExerciseDefinition] = {}
 
         # Collect all exercise stems to process
-        stems: dict[str, Path] = {}  # stem → bundled path (or absent)
+        stems: dict[str, Path] = {}  # stem -> bundled path (or absent)
         if bundled_dir is not None:
             for p in sorted(bundled_dir.glob("*.yaml")):
                 stems[p.stem] = p

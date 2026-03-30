@@ -6,8 +6,8 @@ Uses two independent methods:
   FI Method -- Pekünlü & Atalağ 2013 (PMC3827769):
     Fatigue Index characterises within-session fatigue profile.
     FI_reps = 1 − mean(R₂…Rₙ) / R₁
-    High FI → person was working close to failure.
-    Low FI  → person had reserve (RIR > 0).
+    High FI -> person was working close to failure.
+    Low FI  -> person had reserve (RIR > 0).
 
   Nuzzo Method -- Nuzzo et al. 2024 (PMC10933212):
     REPS~%1RM meta-regression bench press table inverted.
@@ -84,7 +84,7 @@ def _pcr_recovery_factor(rest_seconds: float) -> float:
 
 def _reps_to_pct_1rm(reps_to_failure: float) -> float:
     """
-    Inverse Nuzzo lookup: reps-to-failure → %1RM as a fraction (0–1).
+    Inverse Nuzzo lookup: reps-to-failure -> %1RM as a fraction (0–1).
 
     Linear interpolation between adjacent table rows (ascending reps order).
     Returns 1.0 for ≤1 rep and the lowest table value for very high reps.
@@ -179,8 +179,8 @@ def estimate_max_reps_from_session(
     # Estimate reps-to-failure for R1
     rir1 = rirs[0]
     if rir1 is None:
-        # Estimate RIR from FI: high FI → low RIR (near failure); low FI → high RIR
-        # At FI=0.30 → RIR≈1; at FI=0.05 → RIR≈3; at FI>0.35 → RIR≈0
+        # Estimate RIR from FI: high FI -> low RIR (near failure); low FI -> high RIR
+        # At FI=0.30 -> RIR≈1; at FI=0.05 -> RIR≈3; at FI>0.35 -> RIR≈0
         rir1 = max(0, round((0.35 - fi_reps) * 8))
 
     reps_to_failure = R1 + rir1

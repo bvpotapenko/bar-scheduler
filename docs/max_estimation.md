@@ -23,9 +23,9 @@ FI_reps = 1 − mean(R₂ … Rₙ) / R₁
 
 where R₁ = first-set actual reps, R₂…Rₙ = subsequent sets.
 
-- FI close to 0  → low within-session fatigue → user had reserve in R₁ (RIR > 0)
-- FI ≈ 0.3–0.4  → typical near-failure training
-- FI > 0.4      → high fatigue, very near failure from set 1
+- FI close to 0  -> low within-session fatigue -> user had reserve in R₁ (RIR > 0)
+- FI ≈ 0.3–0.4  -> typical near-failure training
+- FI > 0.4      -> high fatigue, very near failure from set 1
 
 **Estimation logic:**
 
@@ -71,7 +71,7 @@ pct_1rm  = inverse_nuzzo_lookup(reps_to_failure)   # linear interpolation
 nuzzo_est = round(reps_to_failure / pct_1rm)
 ```
 
-Example: 10 reps to failure → ~80 %1RM → estimated max = 10 / 0.80 ≈ 13 reps.
+Example: 10 reps to failure -> ~80 %1RM -> estimated max = 10 / 0.80 ≈ 13 reps.
 
 **RIR estimation when not reported:**
 If the user did not report RIR, the FI is used as a proxy:

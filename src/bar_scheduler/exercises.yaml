@@ -42,7 +42,7 @@ fitness_fatigue:
   TAU_FITNESS: 42.0             # Fitness time constant (days) -- long memory
   K_FATIGUE: 1.0                # Fatigue gain coefficient
   K_FITNESS: 0.5                # Fitness gain coefficient (slower than fatigue)
-  C_READINESS: 0.02             # Readiness→rep-adjustment scaling
+  C_READINESS: 0.02             # Readiness->rep-adjustment scaling
 
 # =============================================================================
 # TRAINING LOAD CALCULATION
@@ -62,7 +62,7 @@ training_load:
 within_session_fatigue:
   LAMBDA_DECAY: 0.08            # Decay rate per set
   Q_REST_RECOVERY: 0.3          # Recovery fraction from rest
-  TAU_REST_RECOVERY: 60.0       # Rest → recovery time constant (seconds)
+  TAU_REST_RECOVERY: 60.0       # Rest -> recovery time constant (seconds)
   DROP_OFF_THRESHOLD: 0.35      # High drop-off flag threshold (35%)
 
 # =============================================================================
@@ -127,10 +127,10 @@ plan_horizon:
 
 # =============================================================================
 # WEEKLY SCHEDULE TEMPLATES
-# 2-day: Strength → Hypertrophy
-# 3-day: Strength → Hypertrophy → Endurance
-# 4-day: Strength → Hypertrophy → Technique → Endurance
-# 5-day: Strength → Hypertrophy → Technique → Endurance → Strength
+# 2-day: Strength -> Hypertrophy
+# 3-day: Strength -> Hypertrophy -> Endurance
+# 4-day: Strength -> Hypertrophy -> Technique -> Endurance
+# 5-day: Strength -> Hypertrophy -> Technique -> Endurance -> Strength
 # Day offsets ensure minimum rest between sessions.
 # =============================================================================
 schedule:

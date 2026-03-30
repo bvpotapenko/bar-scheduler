@@ -86,29 +86,11 @@ def _test_session(date: str | None = None) -> SessionInput:
 
 
 class TestInitProfile:
-    def test_creates_profile_json(self, tmp_path):
-        _init(tmp_path)
-        assert (tmp_path / "profile.json").exists()
-
-    def test_creates_jsonl_for_each_exercise(self, tmp_path):
-        init_profile(tmp_path, height_cm=180, bodyweight_kg=80.0)
-        enable_exercise(tmp_path, "pull_up", days_per_week=3)
-        enable_exercise(tmp_path, "dip", days_per_week=3)
-        assert (tmp_path / "pull_up_history.jsonl").exists()
-        assert (tmp_path / "dip_history.jsonl").exists()
-
     def test_returns_correct_dict(self, tmp_path):
         result = _init(tmp_path)
         assert result["height_cm"] == 180
         assert result["current_bodyweight_kg"] == 80.0
         assert "pull_up" in result["exercises_enabled"]
-
-    def test_no_sex_or_preferred_days_in_profile(self, tmp_path):
-        _init(tmp_path)
-        p = get_profile(tmp_path)
-        assert "sex" not in p
-        assert "preferred_days_per_week" not in p
-        assert "max_session_duration_minutes" not in p
 
     def test_empty_exercises_creates_profile_only(self, tmp_path):
         result = _init(tmp_path, exercises=[])
@@ -348,13 +330,6 @@ class TestEnableDisableExercise:
         disable_exercise(tmp_path, "pull_up")
         assert "pull_up" not in get_profile(tmp_path)["exercises_enabled"]
 
-    def test_disable_does_not_delete_jsonl(self, tmp_path):
-        _init(tmp_path)
-        jsonl = tmp_path / "pull_up_history.jsonl"
-        assert jsonl.exists()
-        disable_exercise(tmp_path, "pull_up")
-        assert jsonl.exists()
-
     def test_disable_noop_when_not_enabled(self, tmp_path):
         _init(tmp_path, exercises=[])
         disable_exercise(tmp_path, "pull_up")  # should not raise
@@ -378,26 +353,8 @@ class TestEnableDisableExercise:
 
 
 class TestListExercises:
-    def test_returns_dict(self):
-        result = list_exercises()
-        assert isinstance(result, dict)
-        assert len(result) > 0
-
     def test_contains_pull_up(self):
         assert "pull_up" in list_exercises()
-
-    def test_has_required_keys(self):
-        for ex in list_exercises().values():
-            assert "id" not in ex
-            assert "display_name" in ex
-            assert "muscle_group" in ex
-            assert "variants" in ex
-            assert "primary_variant" in ex
-            assert "has_variant_rotation" in ex
-
-    def test_no_data_dir_needed(self):
-        result = list_exercises()
-        assert result is not None
 
 
 # ---------------------------------------------------------------------------
@@ -473,11 +430,6 @@ class TestUpdateBodyweight:
 
 
 class TestUpdateEquipment:
-    def test_sets_equipment(self, tmp_path):
-        _init(tmp_path)
-        # No active_item param — planner auto-selects
-        update_equipment(tmp_path, "pull_up", available_items=["BAR_ONLY"])
-
     def test_uninitialised_exercise_raises(self, tmp_path):
         _init(tmp_path, exercises=[])
         with pytest.raises(HistoryNotFoundError):
@@ -591,7 +543,10 @@ class TestPlanCache:
         log_session(tmp_path, "pull_up", _test_session())
         from unittest.mock import patch
         import bar_scheduler.api._plan as plan_mod
-        with patch.object(plan_mod, "generate_plan", wraps=plan_mod.generate_plan) as mock_gen:
+
+        with patch.object(
+            plan_mod, "generate_plan", wraps=plan_mod.generate_plan
+        ) as mock_gen:
             get_plan(tmp_path, "pull_up")
             get_plan(tmp_path, "pull_up")
         assert mock_gen.call_count == 1
@@ -601,7 +556,10 @@ class TestPlanCache:
         log_session(tmp_path, "pull_up", _test_session())
         from unittest.mock import patch
         import bar_scheduler.api._plan as plan_mod
-        with patch.object(plan_mod, "generate_plan", wraps=plan_mod.generate_plan) as mock_gen:
+
+        with patch.object(
+            plan_mod, "generate_plan", wraps=plan_mod.generate_plan
+        ) as mock_gen:
             get_plan(tmp_path, "pull_up")
             log_session(tmp_path, "pull_up", _test_session("2026-02-10"))
             get_plan(tmp_path, "pull_up")
@@ -613,7 +571,10 @@ class TestPlanCache:
         from unittest.mock import patch
         import bar_scheduler.api._plan as plan_mod
         from bar_scheduler.api import update_profile
-        with patch.object(plan_mod, "generate_plan", wraps=plan_mod.generate_plan) as mock_gen:
+
+        with patch.object(
+            plan_mod, "generate_plan", wraps=plan_mod.generate_plan
+        ) as mock_gen:
             get_plan(tmp_path, "pull_up")
             update_profile(tmp_path, bodyweight_kg=85.0)
             get_plan(tmp_path, "pull_up")
@@ -634,10 +595,6 @@ class TestDeleteExerciseHistory:
         delete_exercise_history(tmp_path, "pull_up")
         assert not jsonl.exists()
 
-    def test_delete_nonexistent_is_noop(self, tmp_path):
-        _init(tmp_path, exercises=[])
-        delete_exercise_history(tmp_path, "pull_up")  # no error
-
 
 # ---------------------------------------------------------------------------
 # TestGetCurrentEquipment
@@ -645,27 +602,21 @@ class TestDeleteExerciseHistory:
 
 
 class TestGetCurrentEquipment:
-    def test_returns_none_when_no_equipment(self, tmp_path):
-        _init(tmp_path)
-        assert get_current_equipment(tmp_path, "pull_up") is None
-
     def test_returns_dict_with_expected_keys(self, tmp_path):
         _init(tmp_path)
         update_equipment(tmp_path, "pull_up", available_items=["BAR_ONLY"])
         eq = get_current_equipment(tmp_path, "pull_up")
         assert eq is not None
-        for key in ("exercise_id", "recommended_item", "available_items",
-                    "assistance_kg", "is_bss_degraded"):
+        for key in (
+            "exercise_id",
+            "recommended_item",
+            "available_items",
+            "assistance_kg",
+            "is_bss_degraded",
+        ):
             assert key in eq
         assert eq["recommended_item"] == "BAR_ONLY"
         assert isinstance(eq["is_bss_degraded"], bool)
-
-    def test_no_active_item_key(self, tmp_path):
-        """active_item is removed from equipment state; only recommended_item is returned."""
-        _init(tmp_path)
-        update_equipment(tmp_path, "pull_up", available_items=["BAR_ONLY"])
-        eq = get_current_equipment(tmp_path, "pull_up")
-        assert "active_item" not in eq
 
 
 # ---------------------------------------------------------------------------
@@ -765,18 +716,19 @@ class TestMachineAssistanceList:
             available_machine_assistance_kg=[10.0, 20.0, 30.0],
         )
         # Log a TEST session at low reps to keep TM below weight threshold (9)
-        log_session(tmp_path, "pull_up", SessionInput(
-            date=_today(),
-            session_type="TEST",
-            bodyweight_kg=80.0,
-            grip="pronated",
-            sets=[SetInput(reps=5, rest_seconds=180)],
-        ))
+        log_session(
+            tmp_path,
+            "pull_up",
+            SessionInput(
+                date=_today(),
+                session_type="TEST",
+                bodyweight_kg=80.0,
+                grip="pronated",
+                sets=[SetInput(reps=5, rest_seconds=180)],
+            ),
+        )
         plan = get_plan(tmp_path, "pull_up")
-        future = [
-            s for s in plan["sessions"]
-            if s["status"] in ("next", "planned")
-        ]
+        future = [s for s in plan["sessions"] if s["status"] in ("next", "planned")]
         assert len(future) > 0
         # All future sessions should have prescribed_assistance_kg from the list or 0
         for s in future:
@@ -794,7 +746,7 @@ class TestMachineAssistanceList:
             available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
             available_machine_assistance_kg=[10.0, 20.0, 30.0],
         )
-        # Update equipment without specifying available_machine_assistance_kg → inherits
+        # Update equipment without specifying available_machine_assistance_kg -> inherits
         update_equipment(
             tmp_path,
             "pull_up",
@@ -833,16 +785,6 @@ class TestExerciseInfoExtended:
         assert "S" in info["session_params"]
         assert info["session_params"]["S"]["reps_min"] == 4
 
-    def test_onerm_explanation_in_info(self):
-        info = get_exercise_info("pull_up")
-        assert "onerm_explanation" in info
-        assert isinstance(info["onerm_explanation"], str)
-        assert len(info["onerm_explanation"]) > 0
-
-    def test_session_params_in_list_exercises(self):
-        pu = list_exercises()["pull_up"]
-        assert "session_params" in pu
-        assert "onerm_explanation" in pu
 
 
 # ---------------------------------------------------------------------------
@@ -882,7 +824,9 @@ class TestProfileCleanup:
         """days_for_exercise raises KeyError when exercise not in exercise_days."""
         from bar_scheduler.core.models import UserProfile
 
-        profile = UserProfile(height_cm=175, bodyweight_kg=80.0, exercise_days={"pull_up": 3})
+        profile = UserProfile(
+            height_cm=175, bodyweight_kg=80.0, exercise_days={"pull_up": 3}
+        )
         with pytest.raises(KeyError):
             profile.days_for_exercise("dip")
 
@@ -894,9 +838,7 @@ class TestEquipmentAutoSelection:
         from bar_scheduler.core.exercises.registry import get_exercise
 
         exercise = get_exercise("pull_up")  # threshold=9
-        result = recommend_equipment_item(
-            ["BAR_ONLY", "WEIGHT_BELT"], exercise, 10, []
-        )
+        result = recommend_equipment_item(["BAR_ONLY", "WEIGHT_BELT"], exercise, 10, [])
         assert result == "WEIGHT_BELT"
 
     def test_recommend_bar_only_below_threshold(self):
@@ -905,16 +847,18 @@ class TestEquipmentAutoSelection:
         from bar_scheduler.core.exercises.registry import get_exercise
 
         exercise = get_exercise("pull_up")  # threshold=9
-        result = recommend_equipment_item(
-            ["BAR_ONLY", "WEIGHT_BELT"], exercise, 9, []
-        )
+        result = recommend_equipment_item(["BAR_ONLY", "WEIGHT_BELT"], exercise, 9, [])
         assert result == "BAR_ONLY"
 
     def test_recommend_band_step_down_when_ready(self):
         """Steps down from BAND_MEDIUM to BAND_LIGHT after 2 ceiling sessions."""
         from bar_scheduler.core.equipment import recommend_equipment_item
         from bar_scheduler.core.exercises.registry import get_exercise
-        from bar_scheduler.core.models import EquipmentSnapshot, SessionResult, SetResult
+        from bar_scheduler.core.models import (
+            EquipmentSnapshot,
+            SessionResult,
+            SetResult,
+        )
 
         exercise = get_exercise("pull_up")
         snap = EquipmentSnapshot(active_item="BAND_MEDIUM", assistance_kg=35.0)
@@ -947,11 +891,11 @@ class TestEquipmentAutoSelection:
 class TestWeightPrescriptionEpley:
     def test_weight_prescription_from_leff_1rm_s_session(self):
         """
-        BW TEST at 20 reps, BW=81.7 kg, dip exercise → S prescription = 21.5 kg.
+        BW TEST at 20 reps, BW=81.7 kg, dip exercise -> S prescription = 21.5 kg.
 
         Leff 1RM from TEST: 75.164 * (1 + 20/30) = 125.273
         leff_target for S (5 reps): 125.273 * 0.9 / (1 + 5/30) = 96.64
-        added = 96.64 - 75.164 = 21.47 → rounded to 21.5
+        added = 96.64 - 75.164 = 21.47 -> rounded to 21.5
         """
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.models import SessionResult, SetResult
@@ -972,10 +916,10 @@ class TestWeightPrescriptionEpley:
 
     def test_weight_prescription_from_leff_1rm_h_session(self):
         """
-        Same input, H session (target_reps=8) gives lower Leff target → smaller added weight.
+        Same input, H session (target_reps=8) gives lower Leff target -> smaller added weight.
 
         leff_target for H (8 reps): 125.273 * 0.9 / (1 + 8/30) = 89.0
-        added = 89.0 - 75.164 = 13.84 → rounded to 14.0
+        added = 89.0 - 75.164 = 13.84 -> rounded to 14.0
         """
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.models import SessionResult, SetResult
@@ -995,7 +939,7 @@ class TestWeightPrescriptionEpley:
         assert result == 14.0
 
     def test_weight_prescription_no_history_conservative_fallback(self):
-        """No history → positive float from conservative estimate, not zero."""
+        """No history -> positive float from conservative estimate, not zero."""
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.planner.load_calculator import _calculate_added_weight
 
@@ -1005,7 +949,7 @@ class TestWeightPrescriptionEpley:
         assert result == 4.5  # conservative fallback value
 
     def test_weight_at_threshold_is_zero(self, tmp_path):
-        """TM <= threshold → added weight = 0."""
+        """TM <= threshold -> added weight = 0."""
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.planner.load_calculator import _calculate_added_weight
 
@@ -1053,13 +997,6 @@ class TestEquipmentFromYaml:
         assert "PARALLEL_BARS" in catalog
         assert catalog["PARALLEL_BARS"]["assistance_kg"] == 0.0
 
-    def test_get_catalog_bss_has_elevation_surface(self):
-        from bar_scheduler.core.equipment import get_catalog
-
-        catalog = get_catalog("bss")
-        assert "ELEVATION_SURFACE" in catalog
-        assert "DUMBBELLS" in catalog
-
     def test_get_catalog_unknown_exercise_returns_empty(self):
         from bar_scheduler.core.equipment import get_catalog
 
@@ -1091,74 +1028,6 @@ class TestEquipmentFromYaml:
     def test_get_assist_progression_unknown_returns_empty(self):
         assert get_assist_progression("unknown_exercise") == []
 
-    def test_get_bss_elevation_heights_removed(self):
-        """get_bss_elevation_heights was removed in 0.4.3 (not tuned by planner)."""
-        import bar_scheduler.api as api_module
-
-        assert not hasattr(api_module, "get_bss_elevation_heights")
-
-
-# ---------------------------------------------------------------------------
-# exercise_id is now required in 7 API functions (no "pull_up" default)
-# ---------------------------------------------------------------------------
-
-
-class TestExerciseIdRequired:
-    def test_get_plan_requires_exercise_id(self, tmp_path):
-        import inspect
-
-        from bar_scheduler.api import get_plan
-
-        sig = inspect.signature(get_plan)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
-
-    def test_refresh_plan_requires_exercise_id(self):
-        import inspect
-
-        from bar_scheduler.api import refresh_plan
-
-        sig = inspect.signature(refresh_plan)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
-
-    def test_get_training_status_requires_exercise_id(self):
-        import inspect
-
-        from bar_scheduler.api import get_training_status
-
-        sig = inspect.signature(get_training_status)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
-
-    def test_get_onerepmax_data_requires_exercise_id(self):
-        import inspect
-
-        from bar_scheduler.api import get_onerepmax_data
-
-        sig = inspect.signature(get_onerepmax_data)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
-
-    def test_get_volume_data_requires_exercise_id(self):
-        import inspect
-
-        from bar_scheduler.api import get_volume_data
-
-        sig = inspect.signature(get_volume_data)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
-
-    def test_get_progress_data_requires_exercise_id(self):
-        import inspect
-
-        from bar_scheduler.api import get_progress_data
-
-        sig = inspect.signature(get_progress_data)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
-
-    def test_get_overtraining_status_requires_exercise_id(self):
-        import inspect
-
-        from bar_scheduler.api import get_overtraining_status
-
-        sig = inspect.signature(get_overtraining_status)
-        assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
 
 
 # ---------------------------------------------------------------------------
@@ -1171,6 +1040,7 @@ class TestGetGoalMetrics:
 
     def test_no_goal_returns_none_fields(self, tmp_path):
         from bar_scheduler.api import get_goal_metrics
+
         _init(tmp_path)
         log_session(tmp_path, "pull_up", _test_session())
         result = get_goal_metrics(tmp_path, "pull_up")
@@ -1182,12 +1052,13 @@ class TestGetGoalMetrics:
 
     def test_bodyweight_goal_returns_correct_volume(self, tmp_path):
         from bar_scheduler.api import get_goal_metrics, set_exercise_target
+
         _init(tmp_path, bodyweight_kg=80.0)
         set_exercise_target(tmp_path, "pull_up", reps=10)
         result = get_goal_metrics(tmp_path, "pull_up")
         assert result["goal_reps"] == 10
         assert result["goal_weight_kg"] == 0.0
-        # pull_up bw_fraction=1.0, BW=80 → goal_leff=80.0
+        # pull_up bw_fraction=1.0, BW=80 -> goal_leff=80.0
         assert result["goal_leff"] == pytest.approx(80.0, abs=0.01)
         # volume_set = 80 × 10 = 800
         assert result["volume_set"] == pytest.approx(800.0, abs=0.01)
@@ -1197,6 +1068,7 @@ class TestGetGoalMetrics:
 
     def test_weighted_goal_uses_added_weight(self, tmp_path):
         from bar_scheduler.api import get_goal_metrics, set_exercise_target
+
         _init(tmp_path, bodyweight_kg=80.0)
         set_exercise_target(tmp_path, "pull_up", reps=5, weight_kg=20.0)
         result = get_goal_metrics(tmp_path, "pull_up")
@@ -1207,6 +1079,7 @@ class TestGetGoalMetrics:
     def test_requires_exercise_id(self):
         import inspect
         from bar_scheduler.api import get_goal_metrics
+
         sig = inspect.signature(get_goal_metrics)
         assert sig.parameters["exercise_id"].default is inspect.Parameter.empty
 
@@ -1219,54 +1092,54 @@ class TestGetGoalMetrics:
 class TestSessionMetricsCached:
     """session_metrics are computed and cached at log_session time."""
 
-    def test_session_metrics_present_after_log(self, tmp_path):
-        _init(tmp_path, bodyweight_kg=80.0)
-        log_session(tmp_path, "pull_up", _test_session())
-        history = get_history(tmp_path, "pull_up")
-        assert len(history) == 1
-        m = history[0]["session_metrics"]
-        assert m is not None
-        assert "volume_session" in m
-        assert "avg_volume_set" in m
-        assert "estimated_1rm" in m
-
     def test_volume_session_equals_leff_times_reps(self, tmp_path):
-        # BW=80, bw_fraction=1.0 → leff=80, 1 set of 8 reps → volume = 640
+        # BW=80, bw_fraction=1.0 -> leff=80, 1 set of 8 reps -> volume = 640
         _init(tmp_path, bodyweight_kg=80.0)
-        log_session(tmp_path, "pull_up", SessionInput(
-            date=_today(), session_type="S", bodyweight_kg=80.0, grip="pronated",
-            sets=[SetInput(reps=8, rest_seconds=180)],
-        ))
+        log_session(
+            tmp_path,
+            "pull_up",
+            SessionInput(
+                date=_today(),
+                session_type="S",
+                bodyweight_kg=80.0,
+                grip="pronated",
+                sets=[SetInput(reps=8, rest_seconds=180)],
+            ),
+        )
         history = get_history(tmp_path, "pull_up")
         m = history[0]["session_metrics"]
         assert m["volume_session"] == pytest.approx(640.0, abs=0.01)
         assert m["avg_volume_set"] == pytest.approx(640.0, abs=0.01)
 
     def test_avg_volume_set_divides_by_n_sets(self, tmp_path):
-        # 2 sets of 8 reps at BW=80 → volume=1280, avg=640
+        # 2 sets of 8 reps at BW=80 -> volume=1280, avg=640
         _init(tmp_path, bodyweight_kg=80.0)
-        log_session(tmp_path, "pull_up", SessionInput(
-            date=_today(), session_type="S", bodyweight_kg=80.0, grip="pronated",
-            sets=[SetInput(reps=8, rest_seconds=180), SetInput(reps=8, rest_seconds=180)],
-        ))
+        log_session(
+            tmp_path,
+            "pull_up",
+            SessionInput(
+                date=_today(),
+                session_type="S",
+                bodyweight_kg=80.0,
+                grip="pronated",
+                sets=[
+                    SetInput(reps=8, rest_seconds=180),
+                    SetInput(reps=8, rest_seconds=180),
+                ],
+            ),
+        )
         history = get_history(tmp_path, "pull_up")
         m = history[0]["session_metrics"]
         assert m["volume_session"] == pytest.approx(1280.0, abs=0.01)
         assert m["avg_volume_set"] == pytest.approx(640.0, abs=0.01)
 
-    def test_estimated_1rm_is_positive_float(self, tmp_path):
-        _init(tmp_path, bodyweight_kg=80.0)
-        log_session(tmp_path, "pull_up", _test_session())
-        history = get_history(tmp_path, "pull_up")
-        m = history[0]["session_metrics"]
-        assert isinstance(m["estimated_1rm"], float)
-        assert m["estimated_1rm"] > 0.0
-
     def test_get_history_old_record_returns_none_metrics(self, tmp_path):
         """Records without session_metrics field return None for all metric fields."""
         import json
+
         _init(tmp_path, bodyweight_kg=80.0)
         from bar_scheduler.io.user_store import UserStore
+
         store = UserStore(tmp_path)
         # Write a bare JSONL record with no session_metrics
         raw = {

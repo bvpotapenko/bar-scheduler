@@ -84,7 +84,7 @@ For a session, the **best** 1RM estimate across all sets is reported
 from bar_scheduler.api import get_goal_metrics
 
 prog = get_goal_metrics(data_dir, "pull_up")
-# → {
+# -> {
 #     "goal_reps": 12,              # int | None
 #     "goal_weight_kg": 0.0,        # float | None  — added weight at goal
 #     "goal_leff": 80.0,            # float | None  — L_eff at goal
@@ -106,7 +106,7 @@ includes a `session_metrics` dict:
 
 ```python
 s["session_metrics"]
-# → {
+# -> {
 #     "volume_session": 1280.0,    # float  — Σ(L_eff × reps) over all completed sets
 #     "avg_volume_set": 640.0,     # float  — volume_session / n_sets
 #     "estimated_1rm": 101.7,      # float | None  — best 1RM estimate across all sets

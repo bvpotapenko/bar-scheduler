@@ -16,9 +16,9 @@ Leff formula
   Weight belt    :  assistance_kg = 0; Leff grows via added_weight_kg as usual
 
 Band assistance values are midpoint estimates:
-  Light  (10–25 kg)  → 17 kg
-  Medium (25–45 kg)  → 35 kg
-  Heavy  (45–70 kg)  → 57 kg
+  Light  (10–25 kg)  -> 17 kg
+  Medium (25–45 kg)  -> 35 kg
+  Heavy  (45–70 kg)  -> 57 kg
 
 References
 ----------
@@ -80,7 +80,11 @@ def get_assistance_kg(
     a = catalog[item_id]["assistance_kg"]
     if a is None:
         # MACHINE_ASSISTED: use max of available list (conservative fallback)
-        return max(available_machine_assistance_kg) if available_machine_assistance_kg else 0.0
+        return (
+            max(available_machine_assistance_kg)
+            if available_machine_assistance_kg
+            else 0.0
+        )
     return float(a)
 
 
@@ -182,9 +186,15 @@ def recommend_equipment_item(
             break
 
     if last_assist is not None and last_assist in available_items:
-        if check_band_progression(recent_history, exercise.exercise_id, exercise.session_params):
+        if check_band_progression(
+            recent_history, exercise.exercise_id, exercise.session_params
+        ):
             next_item = get_next_band_step(last_assist, assist_progression)
-            if next_item is not None and next_item in available_items and next_item in catalog:
+            if (
+                next_item is not None
+                and next_item in available_items
+                and next_item in catalog
+            ):
                 return next_item
         return last_assist
 
@@ -300,9 +310,9 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
     Compute rep adjustment factor when effective load changes between equipment.
 
     Rules:
-      new/old ≥ 1.10 → reduce reps 20% (safety buffer for load increase)
-      new/old ≤ 0.90 → increase reps proportionally (maintain stimulus)
-      otherwise      → no adjustment
+      new/old ≥ 1.10 -> reduce reps 20% (safety buffer for load increase)
+      new/old ≤ 0.90 -> increase reps proportionally (maintain stimulus)
+      otherwise      -> no adjustment
 
     Args:
         old_leff: Previous effective load in kg
@@ -320,14 +330,14 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
         pct = round((ratio - 1) * 100)
         return {
             "reps_factor": 0.80,
-            "description": f"Leff increased ~{pct}% → reducing reps by 20% as safety buffer",
+            "description": f"Leff increased ~{pct}% -> reducing reps by 20% as safety buffer",
         }
     elif ratio <= 0.90:
         factor = round(1.0 / ratio, 2)
         pct = round((factor - 1) * 100)
         return {
             "reps_factor": factor,
-            "description": f"Leff decreased ~{round((1-ratio)*100)}% → increasing reps ~{pct}% to maintain stimulus",
+            "description": f"Leff decreased ~{round((1-ratio)*100)}% -> increasing reps ~{pct}% to maintain stimulus",
         }
     else:
         return {

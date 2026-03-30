@@ -1,5 +1,5 @@
 """
-YAML → typed config loader.
+YAML -> typed config loader.
 
 Loads model constants from exercises.yaml (bundled with the package) and
 optionally merges user overrides from ~/.bar-scheduler/exercises.yaml.

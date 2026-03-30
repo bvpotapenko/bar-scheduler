@@ -122,7 +122,7 @@ This document lists the scientific publications and evidence-based sources used 
 
 | Formula/Rule | Primary source(s) |
 |-------------|------------------|
-| Rest normalization factor (longer rest → better performance) | [1], [2] |
+| Rest normalization factor (longer rest -> better performance) | [1], [2] |
 | 3–4 training days per week default | [3] |
 | Fitness–fatigue impulse response (two-timescale exponential decay) | [4], [5], [7] |
 | RIR/RPE interpretation and context dependence | [8] |

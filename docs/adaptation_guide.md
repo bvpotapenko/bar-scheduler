@@ -50,7 +50,7 @@ At initialisation (`bar-scheduler init`), you provide a **baseline max** -- the
 number of strict reps you can do today.  The planner:
 
 - Sets your **Training Max (TM)** = `floor(0.9 × baseline_max)`.
-- Starts a conservative 3-week plan: Strength → Hypertrophy → Endurance.
+- Starts a conservative 3-week plan: Strength -> Hypertrophy -> Endurance.
 - Prescribes bodyweight-only sets (no added weight until TM > 9).
 - Generates a basic fitness-fatigue state with near-zero fitness and fatigue.
 
@@ -70,8 +70,8 @@ After **10 sessions**, autoregulation activates:
 
 - Sets and reps adapt to your **readiness z-score** (derived from the
   fitness-fatigue model).
-- Low readiness (z < −1) → reduced volume.
-- High readiness (z > +1) → bonus rep added to target sets.
+- Low readiness (z < −1) -> reduced volume.
+- High readiness (z > +1) -> bonus rep added to target sets.
 - **Adaptive rest** kicks in: rest intervals respond to your last session's
   RIR, drop-off ratio, and readiness z-score.
 
@@ -116,7 +116,7 @@ After 48+ sessions the model is operating at peak accuracy:
 
 Each exercise (`pull_up`, `dip`, `bss`) has its **own** adaptation timeline:
 
-- Separate history files → separate fitness-fatigue states.
+- Separate history files -> separate fitness-fatigue states.
 - Separate TEST schedules (pull-ups/dips: every 3 weeks; BSS: every 4 weeks).
 - Autoregulation activates per-exercise at 10 sessions each.
 
@@ -131,5 +131,4 @@ accuracy while your pull-up plan is in the "Weeks 6–8" phase.
 bar-scheduler help-adaptation      # This guide in the terminal
 bar-scheduler status               # Current readiness, TM, trend
 bar-scheduler plot-max --trajectory  # Projected goal completion date
-bar-scheduler explain next         # Why today's session is planned this way
 ```

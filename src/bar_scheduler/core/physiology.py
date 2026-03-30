@@ -39,9 +39,9 @@ def rir_effort_multiplier(rir: int) -> float:
 
     E_rir = clip(1 + a * (3 - rir), 0.5, 1 + a*3)
 
-    RIR < 3 → above 1.0 (harder than neutral, more fatigue)
-    RIR = 3 → 1.0 (neutral baseline)
-    RIR > 3 → below 1.0 (easier than neutral, less fatigue), floor 0.5
+    RIR < 3 -> above 1.0 (harder than neutral, more fatigue)
+    RIR = 3 -> 1.0 (neutral baseline)
+    RIR > 3 -> below 1.0 (easier than neutral, less fatigue), floor 0.5
 
     Lower RIR (closer to failure) = higher effort.
     Higher RIR (lots of reps left) = less fatigue accumulated.
@@ -101,10 +101,12 @@ def load_stress_multiplier(
     effective_bw = bodyweight_kg * bw_fraction
     total = max(0.0, effective_bw + added_load_kg - assistance_kg)
     l_rel = total / reference_bodyweight_kg
-    return l_rel ** GAMMA_LOAD
+    return l_rel**GAMMA_LOAD
 
 
-def grip_stress_multiplier(grip: str, variant_factors: dict[str, float] | None = None) -> float:
+def grip_stress_multiplier(
+    grip: str, variant_factors: dict[str, float] | None = None
+) -> float:
     """
     Get grip/variant stress multiplier.
 
@@ -293,7 +295,7 @@ def update_max_estimate(
 
     # Update variance estimate
     residual_sq = (observed_max - state.m_hat) ** 2
-    new_sigma_sq = (1 - BETA_SIGMA) * (state.sigma_m ** 2) + BETA_SIGMA * residual_sq
+    new_sigma_sq = (1 - BETA_SIGMA) * (state.sigma_m**2) + BETA_SIGMA * residual_sq
     new_sigma = math.sqrt(max(0.01, new_sigma_sq))  # Floor to avoid zero
 
     return FitnessFatigueState(
@@ -398,7 +400,11 @@ def build_fitness_fatigue_state(
 
         # Calculate training load using m_hat at this point in time
         training_load = calculate_session_training_load(
-            session, int(state.m_hat), reference_bodyweight_kg, bw_fraction, variant_factors
+            session,
+            int(state.m_hat),
+            reference_bodyweight_kg,
+            bw_fraction,
+            variant_factors,
         )
         session_loads.append((session.date, training_load))
 

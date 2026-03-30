@@ -74,14 +74,14 @@ test_protocol: |
   Test: choose a challenging dumbbell weight.
   Press to full elbow extension at top; lower until upper arms parallel to floor.
   Controlled tempo — no bouncing, no arch. Stop at the first rep you cannot complete.
-  Log weight as per-hand dumbbell weight. Example: 2 × 20 kg → log 20 kg.
+  Log weight as per-hand dumbbell weight. Example: 2 × 20 kg -> log 20 kg.
   Log as: --exercise incline_db_press --session-type TEST --sets 'N@<per_hand_kg>/180'
 test_frequency_weeks: 4
 
 onerm_includes_bodyweight: false
 onerm_explanation: >
   Incline dumbbell press 1RM is computed from the per-hand dumbbell weight only
-  (bw_fraction=0). Example: 20 kg dumbbells for 8 reps → Leff = 20 kg →
+  (bw_fraction=0). Example: 20 kg dumbbells for 8 reps -> Leff = 20 kg ->
   1RM = 20 × (1 + 8/30) ≈ 25.3 kg per hand.
   Formula: 1RM = weight_kg × (1 + reps / 30)  [Epley].
 

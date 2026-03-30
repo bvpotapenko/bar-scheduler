@@ -66,10 +66,10 @@ Session target reps used for the Epley inverse:
 Рекомендованное время отдыха адаптируется на основе последней сессии того же типа:
 
 - Базовое значение: середина диапазона `(rest_min + rest_max) / 2`
-- RIR ≤ 1 хотя бы в одном подходе → +30s
-- Drop-off > 35%: первый vs последний подход → +15s
-- Readiness z < –1.0 → +30s
-- Все подходы RIR ≥ 3 → –15s
+- RIR ≤ 1 хотя бы в одном подходе -> +30s
+- Drop-off > 35%: первый vs последний подход -> +15s
+- Readiness z < –1.0 -> +30s
+- Все подходы RIR ≥ 3 -> –15s
 - Итог ограничен диапазоном `[rest_min, rest_max]`
 
 ## Rest Normalization
@@ -149,8 +149,8 @@ E_rir(rir) = 1 + A_RIR * max(0, 3 - rir)
 ### Weekly Schedules
 
 Fixed day-offset patterns to maintain true 7-day weeks:
-- **3 days/week**: Mon(+0), Wed(+2), Fri(+4) → S, H, E
-- **4 days/week**: Mon(+0), Tue(+1), Thu(+3), Sat(+5) → S, H, T, E
+- **3 days/week**: Mon(+0), Wed(+2), Fri(+4) -> S, H, E
+- **4 days/week**: Mon(+0), Tue(+1), Thu(+3), Sat(+5) -> S, H, T, E
 
 ### Autoregulation
 
@@ -193,7 +193,7 @@ delta_per_week = DELTA_PROGRESSION_MIN + (DELTA_PROGRESSION_MAX - DELTA_PROGRESS
 Для обеспечения стабильности плана:
 
 - **Прошедшие сессии**: предписанные подходы берутся из записанных `planned_sets` (заморожены в момент логирования), а не перегенерируются каждый раз.
-- **Ротация типов сессий**: план продолжает ротацию (S→H→E или S→H→T→E) с позиции, следующей за последней записанной non-TEST сессией.
+- **Ротация типов сессий**: план продолжает ротацию (S->H->E или S->H->T->E) с позиции, следующей за последней записанной non-TEST сессией.
 - **Нумерация недель**: недели нумеруются кумулятивно от первой сессии в истории (не от начала текущего плана).
 
 ## Endurance Volume (kE)
