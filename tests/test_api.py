@@ -1324,3 +1324,16 @@ class TestLogSessionTyped:
         )
         log_session(tmp_path, "pull_up", si)
         assert get_profile(tmp_path)["current_bodyweight_kg"] == 83.0
+
+
+class TestPlanCacheCompat:
+    def test_legacy_list_cache_is_ignored(self, tmp_path):
+        """Old *_plan_cache.json files stored a raw list; load_plan_result_cache must
+        return None rather than crashing with AttributeError."""
+        import json
+        from bar_scheduler.io.user_store import UserStore
+
+        store = UserStore(tmp_path)
+        path = tmp_path / "pull_up_plan_cache.json"
+        path.write_text(json.dumps([{"date": "2025-01-01"}]))
+        assert store.load_plan_result_cache("pull_up") is None
