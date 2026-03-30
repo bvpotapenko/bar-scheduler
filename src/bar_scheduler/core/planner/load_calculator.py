@@ -134,7 +134,12 @@ def _calculate_added_weight(
     """
     Calculate added weight for a session.
 
-    For external_only exercises (BSS, incline_db_press):
+    For external_only exercises with bw_fraction=0 (e.g. incline_db_press):
+        Use Leff 1RM estimated from all historical sets via Epley, then invert
+        for the session's target reps.  This lets the prescription adapt to
+        performance from any session type, not only TEST sessions.
+
+    For external_only exercises with bw_fraction>0 (e.g. BSS):
         Carry forward the weight from the last TEST session.
 
     For bw_plus_external exercises (pull_up, dip) when TM > threshold:
@@ -160,6 +165,23 @@ def _calculate_added_weight(
         Added weight in kg (≥ 0, snapped or rounded to available increment).
     """
     if exercise.load_type == "external_only":
+        if exercise.bw_fraction == 0.0:
+            # Purely external load (e.g. incline_db_press): derive weight from
+            # the best Leff 1RM seen across all history, not just TEST sessions.
+            leff_1rm_hist = _estimate_effective_leff_1rm(history, 0.0)
+            if leff_1rm_hist:
+                target_reps = _SESSION_TARGET_REPS.get(session_type, 8)
+                leff_target = leff_1rm_hist * TM_FACTOR / (1 + target_reps / 30)
+                added = max(0.0, _apply_cap(leff_target, exercise.max_added_weight_kg))
+                if available_weights_kg:
+                    snap_list = (
+                        _expand_dual_dumbbell_totals(available_weights_kg)
+                        if exercise.dual_dumbbell
+                        else available_weights_kg
+                    )
+                    return _snap_to_available(added, snap_list)
+                return _apply_rounding(added)
+        # BSS or no history: carry forward last TEST weight
         w = _last_test_weight_bss(history, exercise)
         if available_weights_kg and w > 0:
             snap_list = (

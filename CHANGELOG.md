@@ -4,6 +4,23 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.6.1] - 2026-03-30
+
+### Fixed
+- **Training density false positive**: `overtraining_severity` incorrectly flagged 2 sessions
+  with normal spacing (e.g. 5 days apart at 3×/week). The expected-span formula used
+  `n × interval` but the span between n sessions has `n−1` intervals.
+- **`Cur.Max: 0` with weighted TEST sessions**: `session_max_reps` only counted
+  bodyweight-only sets, returning 0 for exercises where every TEST set carries added weight
+  (e.g. incline_db_press). Now falls back to all completed sets when no BW-only sets exist.
+- **Incline DB press prescription ignored non-TEST history**: For `external_only` exercises
+  with `bw_fraction=0`, the weight prescription always used the last TEST weight, ignoring
+  stronger performance logged in Strength or other sessions. The prescription now uses the
+  best Leff 1RM from all history via the same Epley path used for pull-ups and dips.
+  BSS (bw_fraction>0) is unaffected.
+
+---
+
 ## [0.6.0] - 2026-03-30
 
 ### Changed

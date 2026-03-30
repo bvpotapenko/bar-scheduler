@@ -163,13 +163,16 @@ def standardized_reps(
 
 def session_max_reps(session: SessionResult) -> int:
     """
-    Get the maximum actual reps across completed bodyweight-only sets.
+    Get the maximum actual reps across completed sets.
+
+    Prefers bodyweight-only sets; falls back to all sets when none exist
+    (e.g. external_only exercises where every set has added weight).
 
     Args:
         session: Completed session result
 
     Returns:
-        Max reps from bodyweight-only sets, or 0 if none
+        Max reps from bodyweight-only sets (or all sets if no BW-only), or 0
     """
     bw_only_sets = [
         s
@@ -177,10 +180,11 @@ def session_max_reps(session: SessionResult) -> int:
         if s.actual_reps is not None and s.added_weight_kg == 0
     ]
 
-    if not bw_only_sets:
-        return 0
+    if bw_only_sets:
+        return max(s.actual_reps for s in bw_only_sets)  # type: ignore
 
-    return max(s.actual_reps for s in bw_only_sets)  # type: ignore
+    all_sets = [s for s in session.completed_sets if s.actual_reps is not None]
+    return max((s.actual_reps for s in all_sets), default=0)  # type: ignore
 
 
 def session_total_reps(session: SessionResult) -> int:

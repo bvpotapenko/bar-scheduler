@@ -376,8 +376,9 @@ def overtraining_severity(
     dates = sorted(datetime.strptime(s.date, "%Y-%m-%d") for s in recent)
     span_days = (dates[-1] - dates[0]).days  # 0 = all on same day
 
-    # Expected time to complete n sessions at the user's planned frequency
-    expected_days = n * (7.0 / max(days_per_week, 1))
+    # Expected time to complete n sessions at the user's planned frequency.
+    # n sessions have n-1 intervals between them.
+    expected_days = (n - 1) * (7.0 / max(days_per_week, 1))
     # Actual elapsed time (calendar days between first and last session)
     actual_days = max(span_days, 1)
     extra = max(0, round(expected_days - actual_days))

@@ -479,3 +479,54 @@ class TestBest1rmFromLeff:
     def test_high_reps_above_20_returns_estimate(self):
         from bar_scheduler.core.metrics import best_1rm_from_leff
         assert best_1rm_from_leff(80.0, 30) is not None
+
+
+# ── Regression tests ──────────────────────────────────────────────────────────
+
+
+def test_overtraining_severity_no_alert_two_sessions_five_days():
+    """
+    Regression: 2 sessions in 5 days at 3x/week should NOT trigger an alert.
+
+    The expected span for n=2 sessions is (n-1)=1 interval = 7/3 ≈ 2.33 days.
+    Actual span = 4 days (03.25→03.29) > 2.33 → no overtraining.
+    Previously the formula used n*interval = 4.67 days, causing extra=1, level=1.
+    """
+    from bar_scheduler.core.adaptation import overtraining_severity
+
+    s1 = SetResult(12, 12, 180, added_weight_kg=10.0)
+    s2 = SetResult(5, 5, 180, added_weight_kg=24.0)
+    session1 = SessionResult("2026-03-25", 82.0, "standard", "TEST", "incline_db_press", completed_sets=[s1])
+    session2 = SessionResult("2026-03-29", 82.0, "standard", "S", "incline_db_press", completed_sets=[s2, s2, s2])
+    result = overtraining_severity([session1, session2], days_per_week=3, reference_date=datetime(2026, 3, 30))
+    assert result["level"] == 0
+    assert result["description"] == "2 sessions in 5 days"
+
+
+def test_session_max_reps_weighted_test_session():
+    """
+    Regression: session_max_reps should return max reps from all sets when
+    no bodyweight-only sets exist (e.g., external_only exercise TEST with added weight).
+    Previously returned 0 for any session with only weighted sets.
+    """
+    from bar_scheduler.core.metrics import session_max_reps
+
+    s = SetResult(12, 12, 180, added_weight_kg=10.0)
+    session = SessionResult("2026-03-25", 82.0, "standard", "TEST", "incline_db_press", completed_sets=[s])
+    assert session_max_reps(session) == 12
+
+
+def test_external_only_zero_bw_prescription_uses_history():
+    """
+    Regression: for external_only exercises with bw_fraction=0, the weight
+    prescription must use Leff 1RM from all history, not just the last TEST weight.
+
+    Str session at +24.0kg for 12 reps → Epley 1RM = 24*(1+12/30) = 33.6 kg.
+    Hpy target (8 reps): leff_target = 33.6*0.9/(1+8/30) ≈ 23.87 → rounds to 24.0 kg.
+    Previously returned 0.0 (no TEST in history → _last_test_weight_bss=0).
+    """
+    exercise = get_exercise("incline_db_press")
+    s = SetResult(12, 12, 180, added_weight_kg=24.0)
+    str_session = SessionResult("2026-03-29", 82.0, "standard", "S", "incline_db_press", completed_sets=[s, s, s])
+    added = _calculate_added_weight(exercise, 10, 82.0, [str_session], "H")
+    assert added == pytest.approx(24.0, abs=0.5)
