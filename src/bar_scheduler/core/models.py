@@ -96,7 +96,7 @@ class EquipmentSnapshot:
     0; the load contribution comes from SetResult.added_weight_kg instead.
     """
 
-    active_item: str                    # e.g. "BAND_MEDIUM", "BAR_ONLY"
+    active_item: str                    # e.g. "BAND_SET", "BAR_ONLY"
     assistance_kg: float                # kg of assistance subtracted from Leff
 
 
@@ -121,6 +121,10 @@ class EquipmentState:
     # Empty list = no machine assistance list configured.
     # When non-empty, the planner ceiling-snaps prescriptions to the smallest
     # available assistance ≥ the computed ideal.
+    available_band_assistance_kg: list[float] = field(default_factory=list)
+    # Discrete band resistance values the user owns (e.g. [10, 20, 30]).
+    # Same model as available_machine_assistance_kg: planner ceiling-snaps to
+    # the smallest available value ≥ the computed ideal.
 
 
 @dataclass

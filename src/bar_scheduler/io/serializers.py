@@ -292,6 +292,8 @@ def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
         d["available_machine_assistance_kg"] = list(
             state.available_machine_assistance_kg
         )
+    if state.available_band_assistance_kg:
+        d["available_band_assistance_kg"] = list(state.available_band_assistance_kg)
     return d
 
 
@@ -303,6 +305,9 @@ def dict_to_equipment_state(data: dict[str, Any]) -> EquipmentState:
         available_weights_kg=[float(w) for w in data.get("available_weights_kg", [])],
         available_machine_assistance_kg=[
             float(w) for w in data.get("available_machine_assistance_kg", [])
+        ],
+        available_band_assistance_kg=[
+            float(w) for w in data.get("available_band_assistance_kg", [])
         ],
     )
 

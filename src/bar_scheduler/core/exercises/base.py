@@ -76,14 +76,19 @@ class ExerciseDefinition:
     # Grip/variant rotation per session type (only used when has_variant_rotation=True)
     grip_cycles: dict[str, list[str]] = field(default_factory=dict)
 
-    # Equipment catalog: item_id -> {label, assistance_kg}.
-    # assistance_kg > 0 = assistive; None = user-entered (MACHINE_ASSISTED); 0 = neutral/additive.
+    # Equipment catalog: item_id -> {label, assistance_kg, requires_weight_declaration}.
+    # assistance_kg > 0 = assistive; None = user-entered (MACHINE_ASSISTED/BAND_SET); 0 = neutral/additive.
+    # requires_weight_declaration: client must prompt user for kg values before this item can be used.
     equipment: dict[str, dict] = field(default_factory=dict)
 
-    # Ordered progression from most-assistive to unassisted (e.g. [BAND_HEAVY, …, BAR_ONLY]).
+    # Ordered progression from most-assistive to unassisted (e.g. [BAND_SET, BAR_ONLY]).
     # Used for automatic step-down when the user is consistently hitting the rep ceiling.
     # Exercises without fixed-assistance options (e.g. BSS) leave this empty.
     assist_progression: list[str] = field(default_factory=list)
+
+    # Default equipment item to pre-select when the user first adds this exercise.
+    # Allows clients to present a sensible starting choice without hardcoding exercise knowledge.
+    default_item: str = ""
 
     # True for exercises where the user holds dumbbells in both hands and can combine
     # two different weights (e.g. BSS). The planner expands available_weights_kg into

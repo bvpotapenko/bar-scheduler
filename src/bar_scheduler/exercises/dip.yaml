@@ -87,26 +87,26 @@ weight_increment_fraction: 0.012
 weight_tm_threshold: 12
 max_added_weight_kg: 30.0
 
+default_item: PARALLEL_BARS
+
 # Ordered from most-assistive to unassisted (used for automatic step-down logic).
-# MACHINE_ASSISTED is not included -- its assistance level is user-entered, not fixed.
-assist_progression: [BAND_HEAVY, BAND_MEDIUM, BAND_LIGHT, PARALLEL_BARS]
+# MACHINE_ASSISTED and BAND_SET are not included -- their assistance levels are user-entered.
+assist_progression: [BAND_SET, PARALLEL_BARS]
 
 equipment:
   PARALLEL_BARS:
     label: "Parallel bars (bodyweight)"
     assistance_kg: 0.0
-  BAND_LIGHT:
-    label: "Resistance band – Light (~10–25 kg assistance)"
-    assistance_kg: 17.0
-  BAND_MEDIUM:
-    label: "Resistance band – Medium (~25–45 kg assistance)"
-    assistance_kg: 35.0
-  BAND_HEAVY:
-    label: "Resistance band – Heavy (~45–70 kg assistance)"
-    assistance_kg: 57.0
+    requires_weight_declaration: false
+  BAND_SET:
+    label: "Resistance bands (enter your available band resistances in kg)"
+    assistance_kg: null
+    requires_weight_declaration: true
   MACHINE_ASSISTED:
     label: "Assisted dip machine (direct kg offset)"
     assistance_kg: null
+    requires_weight_declaration: true
   WEIGHT_BELT:
     label: "Weight belt / vest (for added load)"
     assistance_kg: 0.0
+    requires_weight_declaration: false

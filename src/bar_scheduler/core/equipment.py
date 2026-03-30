@@ -54,6 +54,7 @@ def get_assistance_kg(
     item_id: str,
     exercise_id: str,
     available_machine_assistance_kg: list[float] | None = None,
+    available_band_assistance_kg: list[float] | None = None,
 ) -> float:
     """
     Return the assistance kg for an equipment item.
@@ -61,15 +62,16 @@ def get_assistance_kg(
     Positive value = assistive (reduces Leff).
     Zero = neutral or additive.
 
-    For MACHINE_ASSISTED items, returns the maximum value from
-    ``available_machine_assistance_kg`` as a conservative fallback (used
-    when no target Leff is known, e.g. for historical snapshots where the
-    assistance was already resolved at log time).
+    For items with ``assistance_kg: null`` (MACHINE_ASSISTED, BAND_SET),
+    returns the maximum value from the corresponding available list as a
+    conservative fallback (used when no target Leff is known, e.g. for
+    historical snapshots where the assistance was already resolved at log time).
 
     Args:
-        item_id: Equipment item identifier (e.g. "BAND_MEDIUM")
+        item_id: Equipment item identifier (e.g. "BAND_SET")
         exercise_id: Exercise identifier (e.g. "pull_up")
-        available_machine_assistance_kg: Discrete assistance levels available
+        available_machine_assistance_kg: Discrete machine assistance levels
+        available_band_assistance_kg: Discrete band resistance values
 
     Returns:
         Assistance in kg (≥ 0)
@@ -79,6 +81,8 @@ def get_assistance_kg(
         return 0.0
     a = catalog[item_id]["assistance_kg"]
     if a is None:
+        if item_id == "BAND_SET":
+            return max(available_band_assistance_kg) if available_band_assistance_kg else 0.0
         # MACHINE_ASSISTED: use max of available list (conservative fallback)
         return (
             max(available_machine_assistance_kg)
@@ -124,8 +128,8 @@ def snapshot_from_state(
     Used when logging a session to capture the equipment context.
 
     ``override_assistance_kg`` bypasses catalog lookup — pass the value computed
-    by ``calculate_machine_assistance()`` so the snapshot reflects the actual
-    prescription rather than a generic fallback.
+    by ``calculate_machine_assistance()`` / ``calculate_band_assistance()`` so the
+    snapshot reflects the actual prescription rather than a generic fallback.
     """
     if override_assistance_kg is not None:
         a_kg = override_assistance_kg
@@ -134,6 +138,7 @@ def snapshot_from_state(
             active_item,
             state.exercise_id,
             state.available_machine_assistance_kg,
+            state.available_band_assistance_kg,
         )
     return EquipmentSnapshot(
         active_item=active_item,
@@ -242,20 +247,6 @@ def get_next_band_step(item_id: str, assist_progression: list[str]) -> str | Non
         return None
     return assist_progression[next_idx]
 
-
-def machine_to_nearest_band(machine_kg: float) -> str:
-    """
-    Map a machine assistance value to the nearest band class.
-
-    Used when switching from MACHINE_ASSISTED to band assistance.
-    """
-    if machine_kg >= 45.0:
-        return "BAND_HEAVY"
-    elif machine_kg >= 25.0:
-        return "BAND_MEDIUM"
-    elif machine_kg >= 10.0:
-        return "BAND_LIGHT"
-    return "BAR_ONLY"
 
 
 def check_band_progression(

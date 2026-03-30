@@ -505,11 +505,12 @@ class TestLogSessionEquipmentAutoAttach:
     def test_auto_attaches_band_snapshot(self, tmp_path):
         _init(tmp_path)
         update_equipment(
-            tmp_path, "pull_up", available_items=["BAR_ONLY", "BAND_LIGHT"]
+            tmp_path, "pull_up", available_items=["BAR_ONLY", "BAND_SET"],
+            available_band_assistance_kg=[20.0],
         )
         result = log_session(tmp_path, "pull_up", _test_session())
         assert result["equipment_snapshot"] is not None
-        assert result["equipment_snapshot"]["active_item"] in ("BAR_ONLY", "BAND_LIGHT")
+        assert result["equipment_snapshot"]["active_item"] in ("BAR_ONLY", "BAND_SET")
 
 
 # ---------------------------------------------------------------------------
@@ -648,18 +649,18 @@ class TestEquipmentComputations:
         assert "description" in result
 
     def test_get_next_band_step(self):
-        assert get_next_band_step("BAND_HEAVY", "pull_up") == "BAND_MEDIUM"
+        assert get_next_band_step("BAND_SET", "pull_up") == "BAR_ONLY"
         assert get_next_band_step("BAR_ONLY", "pull_up") is None
 
     def test_get_assist_progression(self):
         bp = get_assist_progression("pull_up")
-        assert "BAND_HEAVY" in bp
+        assert "BAND_SET" in bp
         assert "BAR_ONLY" in bp
-        assert bp.index("BAND_HEAVY") < bp.index("BAR_ONLY")
+        assert bp.index("BAND_SET") < bp.index("BAR_ONLY")
 
-    def test_get_assistance_kg_band(self):
-        kg = get_assistance_kg("pull_up", "BAND_LIGHT")
-        assert kg > 0
+    def test_get_assistance_kg_band_set(self):
+        kg = get_assistance_kg("pull_up", "BAND_SET", available_band_assistance_kg=[20.0])
+        assert kg == 20.0
 
 
 # ---------------------------------------------------------------------------
@@ -851,7 +852,7 @@ class TestEquipmentAutoSelection:
         assert result == "BAR_ONLY"
 
     def test_recommend_band_step_down_when_ready(self):
-        """Steps down from BAND_MEDIUM to BAND_LIGHT after 2 ceiling sessions."""
+        """Steps down from BAND_SET to BAR_ONLY after 2 ceiling sessions."""
         from bar_scheduler.core.equipment import recommend_equipment_item
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.models import (
@@ -861,7 +862,7 @@ class TestEquipmentAutoSelection:
         )
 
         exercise = get_exercise("pull_up")
-        snap = EquipmentSnapshot(active_item="BAND_MEDIUM", assistance_kg=35.0)
+        snap = EquipmentSnapshot(active_item="BAND_SET", assistance_kg=20.0)
         # S session hitting reps_max=6
         s1 = SessionResult(
             date="2026-01-01",
@@ -883,9 +884,9 @@ class TestEquipmentAutoSelection:
             equipment_snapshot=snap,
         )
         result = recommend_equipment_item(
-            ["BAND_MEDIUM", "BAND_LIGHT"], exercise, 5, [s1, s2]
+            ["BAND_SET", "BAR_ONLY"], exercise, 5, [s1, s2]
         )
-        assert result == "BAND_LIGHT"
+        assert result == "BAR_ONLY"
 
 
 class TestWeightPrescriptionEpley:
@@ -973,14 +974,13 @@ class TestEquipmentFromYaml:
         assert "BAR_ONLY" in catalog
         assert catalog["BAR_ONLY"]["assistance_kg"] == 0.0
 
-    def test_get_catalog_pull_up_has_band_items(self):
+    def test_get_catalog_pull_up_has_band_set(self):
         from bar_scheduler.core.equipment import get_catalog
 
         catalog = get_catalog("pull_up")
-        assert "BAND_LIGHT" in catalog
-        assert "BAND_MEDIUM" in catalog
-        assert "BAND_HEAVY" in catalog
-        assert catalog["BAND_MEDIUM"]["assistance_kg"] == 35.0
+        assert "BAND_SET" in catalog
+        assert catalog["BAND_SET"]["assistance_kg"] is None
+        assert catalog["BAND_SET"]["requires_weight_declaration"] is True
 
     def test_get_catalog_pull_up_machine_assisted_none(self):
         """MACHINE_ASSISTED has assistance_kg=None (user-entered)."""
@@ -989,6 +989,7 @@ class TestEquipmentFromYaml:
         catalog = get_catalog("pull_up")
         assert "MACHINE_ASSISTED" in catalog
         assert catalog["MACHINE_ASSISTED"]["assistance_kg"] is None
+        assert catalog["MACHINE_ASSISTED"]["requires_weight_declaration"] is True
 
     def test_get_catalog_dip_has_parallel_bars(self):
         from bar_scheduler.core.equipment import get_catalog
@@ -1008,9 +1009,8 @@ class TestEquipmentFromYaml:
 
         ex = get_exercise("pull_up")
         ap = ex.assist_progression
-        assert ap[0] == "BAND_HEAVY"
+        assert ap[0] == "BAND_SET"
         assert ap[-1] == "BAR_ONLY"
-        assert "BAND_MEDIUM" in ap
 
     def test_assist_progression_bss_is_empty(self):
         """BSS has no assist_progression (no fixed-assistance equipment)."""
@@ -1021,13 +1021,65 @@ class TestEquipmentFromYaml:
 
     def test_get_assist_progression_api(self):
         ap = get_assist_progression("pull_up")
-        assert "BAND_HEAVY" in ap
+        assert "BAND_SET" in ap
         assert "BAR_ONLY" in ap
-        assert ap.index("BAND_HEAVY") < ap.index("BAR_ONLY")
+        assert ap.index("BAND_SET") < ap.index("BAR_ONLY")
 
     def test_get_assist_progression_unknown_returns_empty(self):
         assert get_assist_progression("unknown_exercise") == []
 
+    def test_get_equipment_catalog_shape(self):
+        """get_equipment_catalog returns default_item, assist_progression, items."""
+        from bar_scheduler.api import get_equipment_catalog
+
+        cat = get_equipment_catalog("pull_up")
+        assert cat["default_item"] == "BAR_ONLY"
+        assert cat["assist_progression"] == ["BAND_SET", "BAR_ONLY"]
+        assert "BAR_ONLY" in cat["items"]
+        assert "BAND_SET" in cat["items"]
+        assert cat["items"]["BAR_ONLY"]["requires_weight_declaration"] is False
+        assert cat["items"]["BAND_SET"]["requires_weight_declaration"] is True
+        assert cat["items"]["BAND_SET"]["assistance_kg"] is None
+
+    def test_get_equipment_catalog_unknown_returns_empty(self):
+        from bar_scheduler.api import get_equipment_catalog
+
+        cat = get_equipment_catalog("unknown_exercise")
+        assert cat == {"default_item": "", "assist_progression": [], "items": {}}
+
+    def test_get_exercise_info_has_default_item(self):
+        info = get_exercise_info("pull_up")
+        assert info["default_item"] == "BAR_ONLY"
+
+    def test_default_item_dip(self):
+        info = get_exercise_info("dip")
+        assert info["default_item"] == "PARALLEL_BARS"
+
+    def test_default_item_incline_db_press(self):
+        info = get_exercise_info("incline_db_press")
+        assert info["default_item"] == "DUMBBELLS"
+
+    def test_update_equipment_band_assistance_kg(self, tmp_path):
+        _init(tmp_path)
+        update_equipment(
+            tmp_path, "pull_up",
+            available_items=["BAND_SET", "BAR_ONLY"],
+            available_band_assistance_kg=[10.0, 20.0, 30.0],
+        )
+        eq = get_current_equipment(tmp_path, "pull_up")
+        assert eq["available_band_assistance_kg"] == [10.0, 20.0, 30.0]
+
+    def test_get_current_equipment_band_set_recommended_assistance(self, tmp_path):
+        """BAND_SET recommended_assistance_kg is computed when user has declared bands."""
+        _init(tmp_path)
+        update_equipment(
+            tmp_path, "pull_up",
+            available_items=["BAND_SET", "BAR_ONLY"],
+            available_band_assistance_kg=[10.0, 20.0, 30.0],
+        )
+        eq = get_current_equipment(tmp_path, "pull_up")
+        assert eq["recommended_item"] == "BAND_SET"
+        assert eq["recommended_assistance_kg"] >= 0.0
 
 
 # ---------------------------------------------------------------------------

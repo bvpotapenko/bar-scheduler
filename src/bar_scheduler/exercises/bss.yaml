@@ -98,21 +98,28 @@ weight_increment_fraction: 0.0
 weight_tm_threshold: 999
 max_added_weight_kg: 72.0
 
+default_item: DUMBBELLS
+
 # BSS has no fixed-assistance equipment -- assist_progression omitted (defaults to []).
 
 equipment:
   BODYWEIGHT:
     label: "Bodyweight only"
     assistance_kg: 0.0
+    requires_weight_declaration: false
   DUMBBELLS:
     label: "Dumbbells / Kettlebells"
     assistance_kg: 0.0
+    requires_weight_declaration: true
   BARBELL:
     label: "Barbell (back or front rack)"
     assistance_kg: 0.0
+    requires_weight_declaration: false
   RESISTANCE_BAND:
     label: "Resistance band (added tension at the top)"
     assistance_kg: 0.0
+    requires_weight_declaration: false
   ELEVATION_SURFACE:
     label: "Bench / chair / box for rear foot"
     assistance_kg: 0.0
+    requires_weight_declaration: false

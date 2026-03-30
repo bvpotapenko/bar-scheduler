@@ -15,6 +15,7 @@ def update_equipment(
     available_items: list[str],
     available_weights_kg: list[float] | None = None,
     available_machine_assistance_kg: list[float] | None = None,
+    available_band_assistance_kg: list[float] | None = None,
 ) -> None:
     """
     Update the equipment available for an exercise.
@@ -26,15 +27,19 @@ def update_equipment(
     ``available_weights_kg`` is an optional list of discrete dumbbell / plate
     weights (in kg) the user owns for this exercise.  When set, the planner
     floor-snaps weight prescriptions to the largest available weight ≤ the
-    computed ideal.  Pass ``[]`` to revert to continuous 0.5 kg rounding.
-    Pass ``None`` (default) to leave the value unchanged from the previous
-    equipment entry.
+    computed ideal.  Pass ``[]`` to clear.  Pass ``None`` (default) to inherit
+    from the previous entry.
 
     ``available_machine_assistance_kg`` is a list of discrete assistance levels
     the user can set on their assisted pull-up / dip machine (e.g.
     ``[10, 15, 20, 25, 30]``).  The planner ceiling-snaps the computed ideal
     assistance to the smallest available level ≥ that value.  Pass ``[]`` to
     clear.  Pass ``None`` (default) to inherit from the previous entry.
+
+    ``available_band_assistance_kg`` is a list of the user's actual band
+    resistance values in kg (e.g. ``[10, 20, 30]``).  Same ceiling-snap model
+    as ``available_machine_assistance_kg``.  Pass ``[]`` to clear.  Pass
+    ``None`` (default) to inherit from the previous entry.
 
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
@@ -43,23 +48,27 @@ def update_equipment(
     store = _require_store(data_dir, exercise_id)
     prev = store.load_current_equipment(exercise_id)
 
-    # Inherit available_weights_kg from the previous entry when not supplied
     if available_weights_kg is None:
         inherited_weights = prev.available_weights_kg if prev is not None else []
     else:
         inherited_weights = list(available_weights_kg)
 
-    # Inherit available_machine_assistance_kg from the previous entry when not supplied
     if available_machine_assistance_kg is None:
         inherited_machine = prev.available_machine_assistance_kg if prev is not None else []
     else:
         inherited_machine = list(available_machine_assistance_kg)
+
+    if available_band_assistance_kg is None:
+        inherited_band = prev.available_band_assistance_kg if prev is not None else []
+    else:
+        inherited_band = list(available_band_assistance_kg)
 
     state = EquipmentState(
         exercise_id=exercise_id,
         available_items=list(available_items),
         available_weights_kg=inherited_weights,
         available_machine_assistance_kg=inherited_machine,
+        available_band_assistance_kg=inherited_band,
     )
     store.update_equipment(state)
 
@@ -80,7 +89,7 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         get_assistance_kg as _get_assistance_kg,
         recommend_equipment_item,
     )
-    from ..core.planner.load_calculator import calculate_machine_assistance
+    from ..core.planner.load_calculator import calculate_band_assistance, calculate_machine_assistance
 
     store = _require_store(data_dir, exercise_id)
     state = store.load_current_equipment(exercise_id)
@@ -94,12 +103,17 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     recommended = recommend_equipment_item(
         state.available_items, ex, current_tm, user_state.history[-10:]
     )
-    # Compute recommended machine assistance using H-session target reps as reference
+    # Compute recommended assistance using H-session target reps as reference
+    history = [s for s in user_state.history if s.exercise_id == exercise_id]
     if recommended == "MACHINE_ASSISTED" and state.available_machine_assistance_kg:
-        history = [s for s in user_state.history if s.exercise_id == exercise_id]
         recommended_assistance_kg = calculate_machine_assistance(
             ex, current_tm, user_state.profile.bodyweight_kg, history, "H",
             available_machine_assistance_kg=state.available_machine_assistance_kg,
+        )
+    elif recommended == "BAND_SET" and state.available_band_assistance_kg:
+        recommended_assistance_kg = calculate_band_assistance(
+            ex, current_tm, user_state.profile.bodyweight_kg, history, "H",
+            available_band_assistance_kg=state.available_band_assistance_kg,
         )
     else:
         recommended_assistance_kg = 0.0
@@ -108,8 +122,11 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         "recommended_item": recommended,
         "available_items": list(state.available_items),
         "available_machine_assistance_kg": list(state.available_machine_assistance_kg),
+        "available_band_assistance_kg": list(state.available_band_assistance_kg),
         "assistance_kg": _get_assistance_kg(
-            recommended, state.exercise_id, state.available_machine_assistance_kg
+            recommended, state.exercise_id,
+            state.available_machine_assistance_kg,
+            state.available_band_assistance_kg,
         ),
         "recommended_assistance_kg": recommended_assistance_kg,
         "is_bss_degraded": "ELEVATION_SURFACE" not in state.available_items,
@@ -166,6 +183,7 @@ def get_assistance_kg(
     exercise_id: str,
     item_id: str,
     available_machine_assistance_kg: list[float] | None = None,
+    available_band_assistance_kg: list[float] | None = None,
 ) -> float:
     """
     Return the assistance in kg for an equipment item.
@@ -174,11 +192,13 @@ def get_assistance_kg(
 
     For MACHINE_ASSISTED items, pass ``available_machine_assistance_kg`` to get
     the maximum available assistance (conservative fallback).
+    For BAND_SET items, pass ``available_band_assistance_kg`` similarly.
     """
     from ..core.equipment import get_assistance_kg as _get
 
     machine_list = list(available_machine_assistance_kg) if available_machine_assistance_kg else []
-    return _get(item_id, exercise_id, machine_list)
+    band_list = list(available_band_assistance_kg) if available_band_assistance_kg else []
+    return _get(item_id, exercise_id, machine_list, band_list)
 
 
 def get_next_band_step(item_id: str, exercise_id: str) -> str | None:

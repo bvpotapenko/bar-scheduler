@@ -34,6 +34,7 @@ def list_exercises() -> dict[str, dict]:
             "onerm_includes_bodyweight": ex.onerm_includes_bodyweight,
             "session_params": {k: dataclasses.asdict(v) for k, v in ex.session_params.items()},
             "onerm_explanation": ex.onerm_explanation,
+            "default_item": ex.default_item,
         }
         for ex in EXERCISE_REGISTRY.values()
     }
@@ -60,18 +61,36 @@ def get_exercise_info(exercise_id: str) -> dict:
         "onerm_includes_bodyweight": ex.onerm_includes_bodyweight,
         "session_params": {k: dataclasses.asdict(v) for k, v in ex.session_params.items()},
         "onerm_explanation": ex.onerm_explanation,
+        "default_item": ex.default_item,
     }
 
 
-def get_equipment_catalog(exercise_id: str) -> dict[str, dict]:
+def get_equipment_catalog(exercise_id: str) -> dict:
     """
     Return the equipment catalog for an exercise.
 
-    Keys are item IDs (e.g. ``"BAR_ONLY"``, ``"BAND_LIGHT"``); values are
-    dicts with at least ``"assistance_kg"``.  Returns ``{}`` for unknown IDs.
+    Returns a dict with three keys:
+
+    - ``"default_item"`` — item ID to pre-select when the user first adds this
+      exercise (e.g. ``"BAR_ONLY"``).  Empty string if not defined.
+    - ``"assist_progression"`` — ordered list from most-assistive to unassisted
+      (e.g. ``["BAND_SET", "BAR_ONLY"]``).  Empty list if not applicable.
+    - ``"items"`` — dict keyed by item ID; each value has ``"label"``,
+      ``"assistance_kg"`` (float or null), and ``"requires_weight_declaration"``
+      (bool: True when the client must prompt the user for kg values).
+
+    Returns ``{"default_item": "", "assist_progression": [], "items": {}}`` for
+    unknown exercise IDs.
     """
-    from ..core.equipment import get_catalog
-    return get_catalog(exercise_id)
+    try:
+        ex = get_exercise(exercise_id)
+    except ValueError:
+        return {"default_item": "", "assist_progression": [], "items": {}}
+    return {
+        "default_item": ex.default_item,
+        "assist_progression": list(ex.assist_progression),
+        "items": {k: dict(v) for k, v in ex.equipment.items()},
+    }
 
 
 def set_exercise_target(

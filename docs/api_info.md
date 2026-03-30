@@ -127,12 +127,13 @@ stored in `profile.json` are never touched.
 exercises = list_exercises()
 # each dict: id, display_name, muscle_group, variants, primary_variant,
 #            has_variant_rotation, bw_fraction, onerm_includes_bodyweight,
-#            session_params, onerm_explanation
+#            session_params, onerm_explanation, default_item
 
 # Single exercise by ID (raises ValueError for unknown IDs)
 info = get_exercise_info("pull_up")
 info["session_params"]["S"]["reps_min"]   # e.g. 4
 info["onerm_explanation"]                 # str describing the 1RM formula
+info["default_item"]                      # e.g. "BAR_ONLY" -- pre-select this in equipment setup UI
 
 # Add / remove
 # days_per_week (1–5) is required — sets training frequency for this exercise
@@ -155,42 +156,52 @@ Built-in exercise IDs: `"pull_up"`, `"dip"`, `"bss"`, `"incline_db_press"`. Any 
 ## 4. Equipment: configure & query
 
 ```python
-# Discover available items for an exercise
+# Discover available items for an exercise -- use this to build the equipment setup UI
 catalog = get_equipment_catalog("pull_up")
-# -> {"BAR_ONLY": {"assistance_kg": 0}, "BAND_LIGHT": {"assistance_kg": 8},
-#    "BAND_MEDIUM": {"assistance_kg": 15}, "BAND_HEAVY": {"assistance_kg": 25},
-#    "MACHINE_ASSISTED": {"assistance_kg": 0}, "WEIGHT_BELT": {"assistance_kg": 0}}
+# -> {
+#      "default_item": "BAR_ONLY",                   # pre-select this for first-time users
+#      "assist_progression": ["BAND_SET", "BAR_ONLY"], # ordered most-assistive → unassisted
+#      "items": {
+#        "BAR_ONLY":        {"label": "...", "assistance_kg": 0.0,  "requires_weight_declaration": False},
+#        "BAND_SET":        {"label": "...", "assistance_kg": None, "requires_weight_declaration": True},
+#        "MACHINE_ASSISTED":{"label": "...", "assistance_kg": None, "requires_weight_declaration": True},
+#        "WEIGHT_BELT":     {"label": "...", "assistance_kg": 0.0,  "requires_weight_declaration": False},
+#      }
+#    }
+# requires_weight_declaration: True means the client must prompt the user for specific
+# kg values (band resistances, machine levels, dumbbell weights) before this item is usable.
 
-# Set or update equipment (closes the previous active entry, appends a new one)
+# Set or update equipment
 # No active_item — the planner auto-selects the right item each session
+# None = inherit from previous entry; [] = clear; list = set explicitly
 update_equipment(
     data_dir, "pull_up",
-    available_items=["BAR_ONLY", "BAND_MEDIUM", "WEIGHT_BELT"],
-    # elevation_height_cm=None     # required for BSS ELEVATION_SURFACE: 30 | 45 | 60
-    # valid_from=None              # ISO date; defaults to today
-    # available_weights_kg=None    # None = inherit; [] = clear; [4.0, 6.0, ...] = discrete weights
-    # available_machine_assistance_kg=None  # None = inherit; [] = clear; [10, 15, 20, ...] = machine settings
+    available_items=["BAR_ONLY", "BAND_SET", "WEIGHT_BELT"],
+)
+
+# For resistance bands — declare the user's actual band resistance values in kg.
+# The planner ceiling-snaps the computed ideal to the smallest available value ≥ ideal.
+update_equipment(
+    data_dir, "pull_up",
+    available_items=["BAND_SET", "BAR_ONLY"],
+    available_band_assistance_kg=[10.0, 20.0, 30.0],
 )
 
 # For an assisted pull-up / dip machine — configure the available assistance settings.
-# The planner ceiling-snaps the computed ideal assistance to the smallest available
-# value ≥ that ideal, and emits prescribed_assistance_kg on each planned session.
+# Same ceiling-snap model as bands.
 update_equipment(
     data_dir, "pull_up",
     available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
     available_machine_assistance_kg=[10.0, 15.0, 20.0, 25.0, 30.0],
-    # planner will automatically reduce the assistance level session-by-session
-    # as the user's training max grows — no manual updates needed
 )
 
 # For dumbbell exercises -- set available dumbbell weights the user owns.
-# Omit or pass None to inherit from the previous entry; pass [] to revert to continuous rounding.
 update_equipment(
     data_dir, "incline_db_press",
     available_items=["DUMBBELLS"],
     available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0],
     # incline_db_press: one DB per hand -> prescription = per-hand weight
-    # planner snaps to the largest available weight ≤ ideal
+    # planner floor-snaps to the largest available weight ≤ ideal
 )
 update_equipment(
     data_dir, "bss",
@@ -199,35 +210,29 @@ update_equipment(
     # bss: one or two DBs total -> prescription = total external weight
     # planner expands available weights into all achievable single + pair totals
     # e.g. [8, 10, 16] -> [8, 10, 16, 18, 20, 24, 26, 32] before snapping
-    # user decides how to split the total (one 16 kg DB or two 8 kg DBs — same to the planner)
 )
 
 # Read current equipment state (None if never configured)
 eq = get_current_equipment(data_dir, "pull_up")
 # -> {"exercise_id", "recommended_item", "available_items",
-#    "available_machine_assistance_kg", "recommended_assistance_kg",
-#    "elevation_height_cm", "assistance_kg", "is_bss_degraded"}
-# recommended_item is auto-selected from available_items based on current TM and
-# band-progression readiness (WEIGHT_BELT when TM > threshold, else best band/bar)
-# recommended_assistance_kg: float — the assistance level to set for the next session
-#   (0.0 when MACHINE_ASSISTED is not the recommended item)
+#    "available_machine_assistance_kg", "available_band_assistance_kg",
+#    "recommended_assistance_kg", "assistance_kg", "is_bss_degraded"}
+# recommended_item: auto-selected from available_items based on current TM and history
+# recommended_assistance_kg: for MACHINE_ASSISTED or BAND_SET — the level to set next session
 
 # Band/load computations (no data_dir -- pure math)
 leff = compute_leff(bw_fraction=1.0, bodyweight_kg=82.0,
                     added_weight_kg=10.0, assistance_kg=0.0)  # -> 92.0
 adj  = compute_equipment_adjustment(old_leff=72.0, new_leff=82.0)
 # -> {"reps_factor": 0.80, "description": "..."}
-kg   = get_assistance_kg("pull_up", "BAND_LIGHT")   # -> 8.0
+kg   = get_assistance_kg("pull_up", "BAND_SET", available_band_assistance_kg=[20.0])  # -> 20.0
 
-# Band progression
+# Assist step-down
 ready = check_band_progression(data_dir, "pull_up", n_sessions=2)  # bool
-next_item = get_next_band_step("BAND_MEDIUM", "pull_up")  # -> "BAND_LIGHT"
-get_assist_progression("pull_up")  # -> ["BAND_HEAVY", "BAND_MEDIUM", "BAND_LIGHT", "BAR_ONLY"]
+next_item = get_next_band_step("BAND_SET", "pull_up")  # -> "BAR_ONLY"
+get_assist_progression("pull_up")  # -> ["BAND_SET", "BAR_ONLY"]
 get_assist_progression("bss")      # -> []  (BSS has no fixed-assistance progression)
 ```
-
-Equipment history is preserved (append-only). The previous active entry gets
-`valid_until = yesterday` and the new entry starts with `valid_until = None`.
 
 ---
 
@@ -335,10 +340,10 @@ for s in plan["sessions"]:
         s["track_b"]["fi_est"]     # FI method estimate
         s["track_b"]["nuzzo_est"]  # Nuzzo method estimate
 
-    s["prescribed_assistance_kg"]  # float | None — machine assistance to set for this session
-    # Non-None only when MACHINE_ASSISTED equipment has available_machine_assistance_kg configured
-    # and the session is within the BW/assist phase (TM ≤ weight threshold).
-    # Value is always one of the entries in available_machine_assistance_kg.
+    s["prescribed_assistance_kg"]  # float | None — assistance level to set for this session
+    # Non-None when MACHINE_ASSISTED (with available_machine_assistance_kg) or BAND_SET
+    # (with available_band_assistance_kg) is the recommended item and TM ≤ weight threshold.
+    # Value is always one of the entries in the corresponding available_*_kg list.
 
     s["session_metrics"]      # dict | None — performance metrics for this session
     # For completed ("done") sessions: from cached session_metrics in history.

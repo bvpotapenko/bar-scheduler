@@ -106,6 +106,7 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
     )
     assist_progression: list[str] = list(d.pop("assist_progression", []))
     dual_dumbbell: bool = bool(d.pop("dual_dumbbell", False))
+    default_item: str = str(d.pop("default_item", ""))
 
     return ExerciseDefinition(
         exercise_id=str(d["exercise_id"]),
@@ -131,6 +132,7 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
         equipment=equipment,
         assist_progression=assist_progression,
         dual_dumbbell=dual_dumbbell,
+        default_item=default_item,
     )
 
 

@@ -4,6 +4,39 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **`default_item` per exercise** — each exercise YAML now declares a `default_item`
+  (e.g. `BAR_ONLY` for pull-up, `PARALLEL_BARS` for dip, `DUMBBELLS` for BSS/incline).
+  Exposed in `get_exercise_info()`, `list_exercises()`, and `get_equipment_catalog()`.
+  Allows clients to pre-select a sensible starting equipment without hardcoding
+  exercise knowledge.
+- **`requires_weight_declaration` flag per catalog item** — boolean field in each
+  equipment catalog entry (`true` for `BAND_SET`, `MACHINE_ASSISTED`, `DUMBBELLS`).
+  Clients read this flag to know when they must prompt the user for specific kg values
+  before the item can be used by the planner.
+- **`BAND_SET` replaces `BAND_HEAVY` / `BAND_MEDIUM` / `BAND_LIGHT`** — resistance bands
+  now use the same model as `MACHINE_ASSISTED`: the user declares their actual band
+  resistance values in kg via `update_equipment(..., available_band_assistance_kg=[...])`,
+  and the planner ceiling-snaps the computed ideal to the smallest available value ≥ ideal.
+  Eliminates the hardcoded midpoint estimates (17/35/57 kg) and the three-tier distinction.
+- `calculate_band_assistance()` in `core/planner/load_calculator.py` — mirrors
+  `calculate_machine_assistance()` for band resistance values; both share a private
+  `_calculate_variable_assistance()` helper.
+- `available_band_assistance_kg` field on `EquipmentState` and serialized to `profile.json`.
+- `get_equipment_catalog()` now returns a structured dict with `default_item`,
+  `assist_progression`, and `items` (each item includes `requires_weight_declaration`).
+  **Breaking change** from the previous flat `dict[str, dict]` return type.
+
+### Removed
+- `BAND_HEAVY`, `BAND_MEDIUM`, `BAND_LIGHT` equipment items from `pull_up.yaml` and
+  `dip.yaml` (superseded by `BAND_SET`).
+- `machine_to_nearest_band()` from `core/equipment.py` — no longer needed without
+  fixed band tiers.
+
+---
+
 ## [0.6.3] - 2026-03-30
 
 ### Added

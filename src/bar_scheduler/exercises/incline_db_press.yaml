@@ -89,7 +89,10 @@ weight_increment_fraction: 0.0
 weight_tm_threshold: 999
 max_added_weight_kg: 50.0   # per-hand maximum (50 kg dumbbell)
 
+default_item: DUMBBELLS
+
 equipment:
   DUMBBELLS:
     label: "Dumbbells (per hand)"
     assistance_kg: 0.0
+    requires_weight_declaration: true

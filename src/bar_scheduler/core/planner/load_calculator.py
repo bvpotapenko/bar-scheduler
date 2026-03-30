@@ -229,39 +229,16 @@ def _ceiling_snap_assistance(assistance_kg: float, available: list[float]) -> fl
     return min(above) if above else max(available)
 
 
-def calculate_machine_assistance(
+def _calculate_variable_assistance(
     exercise: ExerciseDefinition,
     training_max: int,
     bodyweight_kg: float,
     history: list,
     session_type: str,
-    available_machine_assistance_kg: list[float],
+    available_kg: list[float],
 ) -> float:
-    """
-    Calculate the machine assistance to prescribe for a session.
-
-    Mirrors _calculate_added_weight but for the assistive side: when the
-    target Leff is below the bodyweight contribution the user needs external
-    assistance.  The result is ceiling-snapped to the available list (smallest
-    available ≥ ideal) so the session remains achievable.
-
-    Returns 0.0 when:
-    - ``available_machine_assistance_kg`` is empty, or
-    - TM > ``exercise.weight_tm_threshold`` (user is in the weighted phase), or
-    - the computed target Leff already ≥ bw_contribution (no assistance needed).
-
-    Args:
-        exercise: Exercise definition.
-        training_max: Current training max (reps).
-        bodyweight_kg: User's current bodyweight.
-        history: Full exercise history for 1RM estimation.
-        session_type: Session type string ("S", "H", "E", "T", "TEST").
-        available_machine_assistance_kg: Discrete assistance levels the user can set.
-
-    Returns:
-        Assistance in kg (≥ 0, ceiling-snapped to available list).
-    """
-    if not available_machine_assistance_kg:
+    """Shared logic for machine and band assistance calculation."""
+    if not available_kg:
         return 0.0
 
     if training_max > exercise.weight_tm_threshold:
@@ -283,7 +260,51 @@ def calculate_machine_assistance(
     if needed <= 0.0:
         return 0.0
 
-    return _ceiling_snap_assistance(needed, available_machine_assistance_kg)
+    return _ceiling_snap_assistance(needed, available_kg)
+
+
+def calculate_machine_assistance(
+    exercise: ExerciseDefinition,
+    training_max: int,
+    bodyweight_kg: float,
+    history: list,
+    session_type: str,
+    available_machine_assistance_kg: list[float],
+) -> float:
+    """
+    Calculate the machine assistance to prescribe for a session.
+
+    The result is ceiling-snapped to the available list (smallest available ≥ ideal).
+    Returns 0.0 when the list is empty, TM is in the weighted phase, or no assistance
+    is needed.
+    """
+    return _calculate_variable_assistance(
+        exercise, training_max, bodyweight_kg, history, session_type,
+        available_machine_assistance_kg,
+    )
+
+
+def calculate_band_assistance(
+    exercise: ExerciseDefinition,
+    training_max: int,
+    bodyweight_kg: float,
+    history: list,
+    session_type: str,
+    available_band_assistance_kg: list[float],
+) -> float:
+    """
+    Calculate the band assistance to prescribe for a session.
+
+    Identical logic to ``calculate_machine_assistance`` but operates on the
+    user's declared band resistance values.  The result is ceiling-snapped to
+    the smallest available band ≥ the computed ideal.
+    Returns 0.0 when the list is empty, TM is in the weighted phase, or no
+    assistance is needed.
+    """
+    return _calculate_variable_assistance(
+        exercise, training_max, bodyweight_kg, history, session_type,
+        available_band_assistance_kg,
+    )
 
 
 def estimate_prescription_weight(
