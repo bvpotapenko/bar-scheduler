@@ -18,6 +18,11 @@ All notable changes to bar-scheduler are documented here.
   stronger performance logged in Strength or other sessions. The prescription now uses the
   best Leff 1RM from all history via the same Epley path used for pull-ups and dips.
   BSS (bw_fraction>0) is unaffected.
+- **`log_session()` did not persist bodyweight to profile**: The `bodyweight_kg` passed in
+  `SessionInput` was stored in the session record but never written back to `profile.json`.
+  Subsequent calls that read the profile (e.g. plan generation) would use the stale value.
+  Now `log_session()` updates the profile's `current_bodyweight_kg` after appending the
+  session.
 
 ---
 

@@ -283,6 +283,7 @@ result = log_session(data_dir, "pull_up", SessionInput(
     ],
 ))
 # equipment_snapshot is auto-attached from the current profile equipment.
+# bodyweight_kg is also persisted to the profile (updates current_bodyweight_kg).
 # A session with the same (date, session_type) replaces the existing entry.
 # Optional SetInput fields: added_weight_kg (default 0.0), rir_reported (default None)
 # Optional SessionInput fields: grip (default "neutral"), notes (default "")

@@ -119,6 +119,7 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
     }
 
     store.append_session(session_obj)
+    store.update_bodyweight(session_obj.bodyweight_kg)
     return session_result_to_dict(session_obj)
 
 

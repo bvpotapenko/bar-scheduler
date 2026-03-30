@@ -59,6 +59,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 4.6 | Set fields: actual_reps, target_reps, added_weight_kg, rest_seconds_before, rir_target, rir_reported | `SetResult` model |
 | 4.7 | `parse_sets_string` -- parse per-set strings and compact `N×reps/rest` notation | `parse_sets_string` |
 | 4.8 | `parse_compact_sets` -- returns `None` for non-compact input (safe auto-detect) | `parse_compact_sets` |
+| 4.9 | `log_session` persists `bodyweight_kg` to the profile (`current_bodyweight_kg`) after appending the session | automatic |
 
 ## 5. Training Plan
 
@@ -127,4 +128,4 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 ---
 
-*Last updated: 2026-03-29 (unreleased: machine_assistance_kg replaced by available_machine_assistance_kg list; planner auto-prescribes assistance per session).*
+*Last updated: 2026-03-30.*

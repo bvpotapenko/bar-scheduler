@@ -1297,3 +1297,14 @@ class TestLogSessionTyped:
         assert result["completed_sets"][1]["added_weight_kg"] == 5.0
         assert result["completed_sets"][1]["rir_reported"] == 1
         assert result["session_metrics"]["volume_session"] is not None
+
+    def test_log_session_updates_profile_bodyweight(self, tmp_path):
+        _init(tmp_path, bodyweight_kg=81.7)
+        si = SessionInput(
+            date=_today(),
+            session_type="S",
+            bodyweight_kg=83.0,
+            sets=[SetInput(reps=10, rest_seconds=0)],
+        )
+        log_session(tmp_path, "pull_up", si)
+        assert get_profile(tmp_path)["current_bodyweight_kg"] == 83.0
