@@ -111,3 +111,6 @@ site/
 # Local backlog
 backlog.md
 **/.recover/
+
+# Agents
+**/CALUDE.md
