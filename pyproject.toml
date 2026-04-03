@@ -1,6 +1,6 @@
 [project]
 name = "bar-scheduler"
-version = "0.6.3"
+version = "0.7.0"
 description = "Evidence-informed strength training planner -- Python library and planning engine"
 readme = "README.md"
 requires-python = ">=3.14"

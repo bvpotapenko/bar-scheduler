@@ -29,8 +29,6 @@ _REQUIRED_SESSION_PARAMS: frozenset[str] = frozenset(
         "reps_fraction_high",
         "reps_min",
         "reps_max",
-        "sets_min",
-        "sets_max",
         "rest_min",
         "rest_max",
         "rir_target",
@@ -66,16 +64,19 @@ def _validate_session_params(d: dict) -> SessionTypeParams:
     missing = _REQUIRED_SESSION_PARAMS - set(d)
     if missing:
         raise ValueError(f"SessionTypeParams missing fields: {sorted(missing)}")
+    raw_sbl = d.get("sets_by_level")
+    sets_by_level: list[int] | None = [int(v) for v in raw_sbl] if raw_sbl is not None else None
     return SessionTypeParams(
         reps_fraction_low=float(d["reps_fraction_low"]),
         reps_fraction_high=float(d["reps_fraction_high"]),
         reps_min=int(d["reps_min"]),
         reps_max=int(d["reps_max"]),
-        sets_min=int(d["sets_min"]),
-        sets_max=int(d["sets_max"]),
+        sets_min=int(d.get("sets_min", 1)),
+        sets_max=int(d.get("sets_max", 10)),
         rest_min=int(d["rest_min"]),
         rest_max=int(d["rest_max"]),
         rir_target=int(d["rir_target"]),
+        sets_by_level=sets_by_level,
     )
 
 
@@ -104,9 +105,19 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
     equipment: dict[str, dict] = (
         {k: dict(v) for k, v in equipment_raw.items()} if equipment_raw else {}
     )
-    assist_progression: list[str] = list(d.pop("assist_progression", []))
     dual_dumbbell: bool = bool(d.pop("dual_dumbbell", False))
     default_item: str = str(d.pop("default_item", ""))
+
+    raw_lt = d.pop("level_thresholds", None)
+    level_thresholds: list[int] | None = [int(v) for v in raw_lt] if raw_lt else None
+    if level_thresholds is not None and not all(
+        level_thresholds[i] < level_thresholds[i + 1]
+        for i in range(len(level_thresholds) - 1)
+    ):
+        raise ValueError("level_thresholds must be strictly ascending")
+
+    raw_curve = d.pop("set_fatigue_curve", None)
+    set_fatigue_curve: list[float] = [float(v) for v in raw_curve] if raw_curve else [1.0]
 
     return ExerciseDefinition(
         exercise_id=str(d["exercise_id"]),
@@ -130,9 +141,10 @@ def exercise_from_dict(d: dict) -> ExerciseDefinition:
         has_variant_rotation=has_variant_rotation,
         grip_cycles=grip_cycles,
         equipment=equipment,
-        assist_progression=assist_progression,
         dual_dumbbell=dual_dumbbell,
         default_item=default_item,
+        level_thresholds=level_thresholds,
+        set_fatigue_curve=set_fatigue_curve,
     )
 
 

@@ -5,7 +5,7 @@ Each exercise has a catalog of equipment options that affect the effective load
 (Leff) applied to the working muscles.  The planner uses Leff -- not raw
 bodyweight -- as the common unit for progression tracking across equipment changes.
 
-Equipment data (catalogs, assist_progression) lives in per-exercise YAML files
+Equipment data (catalogs) lives in per-exercise YAML files
 (src/bar_scheduler/exercises/<id>.yaml) and is loaded via the exercise registry.
 Use get_catalog(exercise_id) or get_exercise(exercise_id).equipment directly.
 
@@ -150,29 +150,25 @@ def recommend_equipment_item(
     available_items: list[str],
     exercise: ExerciseDefinition,
     current_tm: int,
-    recent_history: list,  # list[SessionResult]
 ) -> str:
     """
     Auto-select the most appropriate equipment item for the next session.
 
     Selection priority:
     1. WEIGHT_BELT — when TM is above the weight threshold and user has one.
-    2. Current assist level from history — step down if check_band_progression passes.
-    3. Initial selection — MACHINE_ASSISTED first, then follow assist_progression
-       from most-assistive onward.
-    4. Fallback — first item in the exercise catalog that the user has.
+    2. Assisted items — MACHINE_ASSISTED, then BAND_SET (same ceiling-snap model,
+       no automatic step-down; user updates available_items to graduate).
+    3. Fallback — first item in the exercise catalog that the user has.
 
     Args:
         available_items: Items the user owns (from EquipmentState).
         exercise: ExerciseDefinition for the current exercise.
         current_tm: Current training max (reps).
-        recent_history: Recent sessions used for assist-progression check.
 
     Returns:
-        Item ID string (e.g. "WEIGHT_BELT", "BAND_MEDIUM", "BAR_ONLY").
+        Item ID string (e.g. "WEIGHT_BELT", "BAND_SET", "BAR_ONLY").
     """
     catalog = get_catalog(exercise.exercise_id)
-    assist_progression = exercise.assist_progression
 
     # 1. Weighted phase: use WEIGHT_BELT when TM has crossed the weight threshold
     if (
@@ -182,39 +178,17 @@ def recommend_equipment_item(
     ):
         return "WEIGHT_BELT"
 
-    # 2. Assist progression: find last item used and check if ready to step down
-    last_assist: str | None = None
-    for session in reversed(recent_history):
-        snap = getattr(session, "equipment_snapshot", None)
-        if snap and snap.active_item in assist_progression:
-            last_assist = snap.active_item
-            break
-
-    if last_assist is not None and last_assist in available_items:
-        if check_band_progression(
-            recent_history, exercise.exercise_id, exercise.session_params
-        ):
-            next_item = get_next_band_step(last_assist, assist_progression)
-            if (
-                next_item is not None
-                and next_item in available_items
-                and next_item in catalog
-            ):
-                return next_item
-        return last_assist
-
-    # 3. Initial selection: MACHINE_ASSISTED first, then most-assistive in progression
-    candidates = ["MACHINE_ASSISTED"] + list(assist_progression)
-    for candidate in candidates:
+    # 2. Assisted items: MACHINE_ASSISTED and BAND_SET use the same model
+    for candidate in ("MACHINE_ASSISTED", "BAND_SET"):
         if candidate in available_items and candidate in catalog:
             return candidate
 
-    # 4. Fallback: first item in the exercise catalog that the user has
+    # 3. Fallback: first item in the exercise catalog that the user has
     for item in catalog:
         if item in available_items:
             return item
 
-    return list(assist_progression)[-1] if assist_progression else "BAR_ONLY"
+    return "BAR_ONLY"
 
 
 def bss_is_degraded(state: EquipmentState) -> bool:
@@ -225,75 +199,6 @@ def bss_is_degraded(state: EquipmentState) -> bool:
     cannot be elevated and the exercise becomes a standard split squat.
     """
     return "ELEVATION_SURFACE" not in state.available_items
-
-
-def get_next_band_step(item_id: str, assist_progression: list[str]) -> str | None:
-    """
-    Return the next-less-assistive item in the progression, or None if already at the end.
-
-    Args:
-        item_id: Current equipment item ID.
-        assist_progression: Ordered list from most-assistive to unassisted
-                            (from ExerciseDefinition.assist_progression).
-
-    Returns:
-        Next item ID, or None if item_id is already the last step (unassisted).
-    """
-    if item_id not in assist_progression:
-        return None
-    idx = assist_progression.index(item_id)
-    next_idx = idx + 1
-    if next_idx >= len(assist_progression):
-        return None
-    return assist_progression[next_idx]
-
-
-
-def check_band_progression(
-    history: list,  # list[SessionResult] -- avoid circular import
-    exercise_id: str,
-    session_params: dict,  # exercise.session_params
-    n_sessions: int = 2,
-) -> bool:
-    """
-    Return True if the last n_sessions suggest the user is ready to step down
-    one assist level (i.e. they are consistently hitting the reps_max ceiling).
-
-    Criterion: last n non-TEST sessions of the exercise each have at least one
-    set where actual_reps >= reps_max for that session type.
-
-    Args:
-        history: Full training history (any exercise mix)
-        exercise_id: Exercise to check
-        session_params: exercise.session_params dict
-        n_sessions: How many consecutive sessions must hit the ceiling
-
-    Returns:
-        True if assist step-down is recommended
-    """
-    non_test = [
-        s for s in history if s.session_type != "TEST" and s.exercise_id == exercise_id
-    ]
-    if len(non_test) < n_sessions:
-        return False
-
-    recent = non_test[-n_sessions:]
-    for session in recent:
-        stype = session.session_type
-        if stype not in session_params:
-            continue
-        reps_max = session_params[stype].reps_max
-        max_actual = max(
-            (
-                s.actual_reps
-                for s in session.completed_sets
-                if s.actual_reps is not None
-            ),
-            default=0,
-        )
-        if max_actual < reps_max:
-            return False
-    return True
 
 
 def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:

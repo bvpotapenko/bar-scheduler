@@ -20,27 +20,31 @@ grip_cycles:
   E: [pronated]
   TEST: [pronated]
 
+# Levels based on Strength Level database (4.8M+ lifts)
+level_thresholds: [4, 13, 24]    # level 0 if ≤4, 1 if ≤13, 2 if ≤24, 3 if >24
+
+# Per-set rep decay at ~RIR 2, 2-3 min rest (PMC11057609)
+set_fatigue_curve: [1.0, 0.85, 0.75, 0.68, 0.63]
+
 session_params:
   S:
     reps_fraction_low: 0.35
     reps_fraction_high: 0.55
     reps_min: 4
     reps_max: 6
-    sets_min: 4
-    sets_max: 5
     rest_min: 180
     rest_max: 300
     rir_target: 2
+    sets_by_level: [1, 2, 3, 4]
   H:
     reps_fraction_low: 0.60
     reps_fraction_high: 0.85
     reps_min: 6
     reps_max: 12
-    sets_min: 4
-    sets_max: 6
     rest_min: 120
     rest_max: 180
     rir_target: 2
+    sets_by_level: [2, 3, 4, 5]
   E:
     reps_fraction_low: 0.40
     reps_fraction_high: 0.60
@@ -56,11 +60,10 @@ session_params:
     reps_fraction_high: 0.40
     reps_min: 2
     reps_max: 4
-    sets_min: 4
-    sets_max: 8
     rest_min: 60
     rest_max: 120
     rir_target: 5
+    sets_by_level: [3, 4, 5, 6]
   TEST:
     reps_fraction_low: 1.0
     reps_fraction_high: 1.0
@@ -94,10 +97,6 @@ weight_tm_threshold: 9
 max_added_weight_kg: 20.0
 
 default_item: BAR_ONLY
-
-# Ordered from most-assistive to unassisted (used for automatic step-down logic).
-# MACHINE_ASSISTED and BAND_SET are not included -- their assistance levels are user-entered.
-assist_progression: [BAND_SET, BAR_ONLY]
 
 equipment:
   BAR_ONLY:

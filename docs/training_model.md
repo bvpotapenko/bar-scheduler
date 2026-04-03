@@ -37,11 +37,12 @@ TM = floor(0.9 * latest_test_max)
 
 ```
 Step 1. Estimate Leff 1RM from history:
-        1RM_Leff = max over all sets: Leff × (1 + actual_reps / 30)
+        1RM_Leff = max over all sets: Leff × (1 + min(actual_reps, 12) / 30)
         where Leff = BW × bw_fraction + added_weight_kg − assistance_kg
+        ⚠ Epley is capped at 12 reps — unreliable above this range.
 
 Step 2. If no history (conservative fallback):
-        1RM_Leff = BW × bw_fraction × (1 + TM / (TM_FACTOR × 30))
+        1RM_Leff = BW × bw_fraction × (1 + min(TM, TM_FACTOR × 12) / (TM_FACTOR × 30))
 
 Step 3. Invert Epley for session's target reps:
         leff_target = 1RM_Leff × TM_FACTOR / (1 + target_reps / 30)
@@ -136,14 +137,55 @@ E_rir(rir) = 1 + A_RIR * max(0, 3 - rir)
 
 Подходы ближе к failure (ниже RIR) вносят больший вклад в training load.
 
+## Level-Based Adaptive Set Counts
+
+Set counts for S, H, and T sessions adapt to the user's current level, derived from their
+latest test max against per-exercise thresholds (Strength Level database, 4.8M+ lifts).
+
+```python
+level = first index i where test_max <= level_thresholds[i], else len(level_thresholds)
+base_sets = sets_by_level[level]   # e.g. pull-up H: [2, 3, 4, 5] for levels 0–3
+```
+
+| Exercise | level_thresholds | Levels (0=novice → 3=advanced) |
+|----------|-----------------|-------------------------------|
+| Pull-up  | [4, 13, 24]     | ≤4, ≤13, ≤24, >24 reps        |
+| Dip      | [7, 19, 33]     | ≤7, ≤19, ≤33, >33 reps        |
+| BSS      | [5, 12, 20]     | ≤5, ≤12, ≤20, >20 reps/leg    |
+| IDP      | [4, 9, 14]      | ≤4, ≤9, ≤14, >14 reps         |
+
+Without `level_thresholds` or a first test session: falls back to the middle level.
+
+**Research**: Schoenfeld & Krieger (2017) *JSCR* dose-response; Prilepin chart (1974);
+PubMed 40249908 (single-set for beginners); Strength Level database (2024).
+
+## Intra-Session Rep Decay
+
+Each set's `target_reps` is multiplied by the exercise's `set_fatigue_curve[i]`:
+
+```
+set_reps[i] = max(1, round(adj_reps * curve[i]))
+```
+
+Curve factors start at 1.0 (set 1 at full reps) and decay for later sets.
+If the session has more sets than curve entries, the last factor is reused.
+E sessions (volume ladder) and TEST sessions (always 1 set) are unaffected.
+
+**Research**: PMC11057609 — empirical set-to-set rep decay at ~RIR 2, moderate rest.
+
+| Exercise | set_fatigue_curve |
+|----------|------------------|
+| Pull-up, Dip, IDP | [1.0, 0.85, 0.75, 0.68, 0.63] |
+| BSS             | [1.0, 0.90, 0.82, 0.76, 0.72] |
+
 ## Session Types
 
-| Type | Описание | Reps fraction of TM | Rest | Sets |
-|------|----------|---------------------|------|------|
-| S | Strength (сила) | 0.35–0.55 × TM (4–6 abs) | 180–300s | 4–5 |
-| H | Hypertrophy (гипертрофия) | 0.60–0.85 × TM (6–12 abs) | 120–180s | 4–6 |
-| E | Endurance/Density (выносливость) | 0.40–0.60 × TM (3–8 abs) | 45–75s | 6–10 |
-| T | Technique (техника) | 0.20–0.40 × TM (2–4 abs) | 60–120s | 4–8 |
+| Type | Описание | Reps fraction of TM | Rest | Sets (pull-up, level 1) |
+|------|----------|---------------------|------|------------------------|
+| S | Strength (сила) | 0.35–0.55 × TM | 180–300s | 2 |
+| H | Hypertrophy (гипертрофия) | 0.60–0.85 × TM | 120–180s | 3 |
+| E | Endurance/Density (выносливость) | 0.40–0.60 × TM | 45–75s | 6–10 (volume ladder) |
+| T | Technique (техника) | 0.20–0.40 × TM | 60–120s | 4 |
 | TEST | Max test | -- | 180–300s | 1 |
 
 ### Weekly Schedules

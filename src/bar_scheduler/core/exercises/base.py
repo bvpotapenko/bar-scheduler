@@ -22,6 +22,9 @@ class SessionTypeParams:
     rest_min: int  # Rest in seconds
     rest_max: int
     rir_target: int  # Reps-in-reserve target
+    # Level-based set count. Index = level (0=lowest). None = midpoint fallback.
+    # Levels defined by ExerciseDefinition.level_thresholds.
+    sets_by_level: list[int] | None = None
 
 
 @dataclass(frozen=True)
@@ -81,11 +84,6 @@ class ExerciseDefinition:
     # requires_weight_declaration: client must prompt user for kg values before this item can be used.
     equipment: dict[str, dict] = field(default_factory=dict)
 
-    # Ordered progression from most-assistive to unassisted (e.g. [BAND_SET, BAR_ONLY]).
-    # Used for automatic step-down when the user is consistently hitting the rep ceiling.
-    # Exercises without fixed-assistance options (e.g. BSS) leave this empty.
-    assist_progression: list[str] = field(default_factory=list)
-
     # Default equipment item to pre-select when the user first adds this exercise.
     # Allows clients to present a sensible starting choice without hardcoding exercise knowledge.
     default_item: str = ""
@@ -94,3 +92,17 @@ class ExerciseDefinition:
     # two different weights (e.g. BSS). The planner expands available_weights_kg into
     # all achievable single + pair totals before snapping the prescription.
     dual_dumbbell: bool = False
+
+    # Level classification thresholds (test_max reps, strictly ascending list).
+    # len(level_thresholds) = N defines N+1 levels (0 to N).
+    # _classify_level returns the first index i where test_max <= threshold, else N.
+    # Example: [4, 13, 24] → level 0 if ≤4, level 1 if ≤13, level 2 if ≤24, else 3.
+    # Per Strength Level database (4.8M+ lifts): pull-up [4,13,24], dip [7,19,33].
+    level_thresholds: list[int] | None = None
+
+    # Per-set rep decay multipliers (empirical fatigue curve at ~RIR 2).
+    # set_fatigue_curve[0] = 1.0 (set 1 at full adj_reps).
+    # set_fatigue_curve[i] = fraction of set-1 reps for set (i+1).
+    # If session has more sets than curve length, the last factor is reused.
+    # Research: PMC11057609 (compound exercise fatigue at moderate rest).
+    set_fatigue_curve: list[float] = field(default_factory=lambda: [1.0])

@@ -69,26 +69,22 @@ def get_equipment_catalog(exercise_id: str) -> dict:
     """
     Return the equipment catalog for an exercise.
 
-    Returns a dict with three keys:
+    Returns a dict with two keys:
 
     - ``"default_item"`` — item ID to pre-select when the user first adds this
       exercise (e.g. ``"BAR_ONLY"``).  Empty string if not defined.
-    - ``"assist_progression"`` — ordered list from most-assistive to unassisted
-      (e.g. ``["BAND_SET", "BAR_ONLY"]``).  Empty list if not applicable.
     - ``"items"`` — dict keyed by item ID; each value has ``"label"``,
       ``"assistance_kg"`` (float or null), and ``"requires_weight_declaration"``
       (bool: True when the client must prompt the user for kg values).
 
-    Returns ``{"default_item": "", "assist_progression": [], "items": {}}`` for
-    unknown exercise IDs.
+    Returns ``{"default_item": "", "items": {}}`` for unknown exercise IDs.
     """
     try:
         ex = get_exercise(exercise_id)
     except ValueError:
-        return {"default_item": "", "assist_progression": [], "items": {}}
+        return {"default_item": "", "items": {}}
     return {
         "default_item": ex.default_item,
-        "assist_progression": list(ex.assist_progression),
         "items": {k: dict(v) for k, v in ex.equipment.items()},
     }
 

@@ -296,6 +296,7 @@ def apply_autoregulation(
     base_sets: int,
     base_reps: int,
     ff_state: FitnessFatigueState,
+    sets_min: int = 1,
 ) -> tuple[int, int]:
     """
     Apply autoregulation adjustments to planned volume.
@@ -309,6 +310,7 @@ def apply_autoregulation(
         base_sets: Base number of sets
         base_reps: Base reps per set
         ff_state: Current fitness-fatigue state
+        sets_min: Minimum sets floor (from session params)
 
     Returns:
         Tuple of (adjusted_sets, adjusted_reps)
@@ -317,7 +319,7 @@ def apply_autoregulation(
 
     if z < READINESS_Z_LOW:
         # Reduce sets, keep reps
-        adjusted_sets = max(3, int(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
+        adjusted_sets = max(sets_min, int(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
         return (adjusted_sets, base_reps)
 
     if z > READINESS_Z_HIGH:

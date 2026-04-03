@@ -28,6 +28,10 @@ _SESSION_TARGET_REPS: dict[str, int] = {
     "TEST": 1,
 }
 
+# Epley formula is reliable only up to ~12 reps; beyond that it overestimates 1RM.
+# Cap actual_reps at this value before applying 1RM = Leff × (1 + reps/30).
+_MAX_EPLEY_REPS: int = 12
+
 
 def _apply_rounding(raw: float) -> float:
     """Round to nearest 0.5 kg."""
@@ -120,7 +124,7 @@ def _estimate_effective_leff_1rm(history: list, bw_fraction: float) -> float | N
                 - assistance
             )
             if leff > 0:
-                candidates.append(leff * (1 + s.actual_reps / 30))
+                candidates.append(leff * (1 + min(s.actual_reps, _MAX_EPLEY_REPS) / 30))
     return max(candidates) if candidates else None
 
 
@@ -200,7 +204,8 @@ def _calculate_added_weight(
     leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
     # TM-derived estimate grows with TM, driving plan weight progression.
     # training_max ≈ TM_FACTOR × test_max_reps, so test_max ≈ TM / TM_FACTOR.
-    leff_1rm_tm = bw_contrib * (1 + training_max / (TM_FACTOR * 30))
+    # Cap at _MAX_EPLEY_REPS to avoid overestimation from high-rep TM values.
+    leff_1rm_tm = bw_contrib * (1 + min(training_max, TM_FACTOR * _MAX_EPLEY_REPS) / (TM_FACTOR * 30))
 
     if leff_1rm_hist is None or leff_1rm_hist <= bw_contrib:
         leff_1rm = leff_1rm_tm
@@ -246,7 +251,7 @@ def _calculate_variable_assistance(
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
     leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
-    leff_1rm_tm = bw_contrib * (1 + training_max / (TM_FACTOR * 30))
+    leff_1rm_tm = bw_contrib * (1 + min(training_max, TM_FACTOR * _MAX_EPLEY_REPS) / (TM_FACTOR * 30))
 
     if leff_1rm_hist is None or leff_1rm_hist <= 0:
         leff_1rm = leff_1rm_tm

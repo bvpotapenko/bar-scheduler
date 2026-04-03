@@ -62,7 +62,7 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
                 ustate.history, ustate.profile.bodyweight_kg
             ).training_max
             active_item = recommend_equipment_item(
-                eq_state.available_items, ex, current_tm, ustate.history[-10:]
+                eq_state.available_items, ex, current_tm
             )
             # Compute the prescribed assistance level for variable-assistance items.
             override_assistance: float | None = None

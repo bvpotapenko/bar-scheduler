@@ -12,15 +12,26 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from bar_scheduler.core.adaptation import get_training_status
+from bar_scheduler.core.adaptation import apply_autoregulation, get_training_status
 from bar_scheduler.core.exercises.registry import get_exercise
 from bar_scheduler.core.metrics import training_max
-from bar_scheduler.core.models import SessionResult, SetResult, UserProfile, UserState
+from bar_scheduler.core.models import (
+    FitnessFatigueState,
+    SessionResult,
+    SetResult,
+    UserProfile,
+    UserState,
+)
+from bar_scheduler.core.planner.grip_selector import _init_grip_counts, _next_grip
 from bar_scheduler.core.planner.load_calculator import (
     _calculate_added_weight,
     _expand_dual_dumbbell_totals,
 )
 from bar_scheduler.core.planner.plan_engine import generate_plan
+from bar_scheduler.core.planner.set_prescriptor import (
+    _classify_level,
+    calculate_set_prescription,
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -44,6 +55,19 @@ def make_user_state(
     return UserState(profile=profile, history=history)
 
 
+def make_session(
+    date: str,
+    session_type: str,
+    grip: str,
+    exercise_id: str = "pull_up",
+    reps: int = 7,
+    bw: float = 80.0,
+) -> SessionResult:
+    """Minimal session with specified type and grip."""
+    s = SetResult(reps, reps, 150)
+    return SessionResult(date, bw, grip, session_type, exercise_id, completed_sets=[s])
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 
@@ -58,17 +82,24 @@ def test_training_max_formula():
 
 def test_strength_session_prescription():
     """
-    First S session at TM=10, BW=80, one TEST of 12 reps in history.
+    First S session at TM=10, BW=80, test_max=12 in history.
+
+    Level classification: _classify_level(12, [4,13,24]) → level 1
+    S sets_by_level[1] = 2 sets.
 
     Expected (pull_up S params: low=0.35, high=0.55, reps_min=4, reps_max=6,
-              sets_min=4, sets_max=5, rest_min=180, rest_max=300):
+              rest_min=180, rest_max=300):
       reps_low  = max(4, int(10*0.35)) = max(4, 3) = 4
       reps_high = min(6, int(10*0.55)) = min(6, 5) = 5
       target    = (4+5)//2 = 4
-      sets      = (4+5)//2 = 4  (no autoregulation: <10 sessions)
+      sets      = sets_by_level[1] = 2  (level-based, no autoregulation: <10 sessions)
       rest      = (180+300)//2 = 240  (no same-type history -> base midpoint)
       weight    = 6.5 kg  (Leff 1RM from TEST: 80*(1+12/30)=112;
                            leff_target=112*0.9/(1+5/30)=86.4; added=6.4->6.5)
+
+    Rep decay (set_fatigue_curve=[1.0, 0.85, ...]):
+      set1 = round(4*1.00) = 4
+      set2 = round(4*0.85) = 3
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
@@ -80,25 +111,34 @@ def test_strength_session_prescription():
     assert s_sessions, "plan must contain S sessions"
     first_s = s_sessions[0]
 
-    assert len(first_s.sets) == 4
-    assert all(s.target_reps == 4 for s in first_s.sets)
+    assert len(first_s.sets) == 2
+    assert first_s.sets[0].target_reps == 4
+    assert first_s.sets[1].target_reps == 3
     assert all(s.added_weight_kg == 6.5 for s in first_s.sets)
     assert all(s.rest_seconds_before == 240 for s in first_s.sets)
 
 
 def test_hypertrophy_session_prescription():
     """
-    First H session at TM=10, one TEST of 12 reps in history.
+    First H session at TM=10, test_max=12 in history.
+
+    Level classification: _classify_level(12, [4,13,24]) → level 1
+    H sets_by_level[1] = 3 sets.
 
     Expected (pull_up H params: low=0.60, high=0.85, reps_min=6, reps_max=12,
-              sets_min=4, sets_max=6, rest_min=120, rest_max=180):
+              rest_min=120, rest_max=180):
       reps_low  = max(6, int(10*0.60)) = 6
       reps_high = min(12, int(10*0.85)) = 8
       target    = (6+8)//2 = 7
-      sets      = (4+6)//2 = 5
+      sets      = sets_by_level[1] = 3  (level-based, no autoregulation: <10 sessions)
       rest      = (120+180)//2 = 150
       weight    = 0.0 (Leff 1RM=112; leff_target for H(8 reps)=79.6 < BW_contrib=80
                        -> added = max(0, 79.6-80) = 0.0)
+
+    Rep decay (set_fatigue_curve=[1.0, 0.85, 0.75, ...]):
+      set1 = round(7*1.00) = 7
+      set2 = round(7*0.85) = 6
+      set3 = round(7*0.75) = 5
     """
     exercise = get_exercise("pull_up")
     history = [make_test_session("2026-01-01", 12)]  # TM = 10
@@ -110,8 +150,10 @@ def test_hypertrophy_session_prescription():
     assert h_sessions
     first_h = h_sessions[0]
 
-    assert len(first_h.sets) == 5
-    assert all(s.target_reps == 7 for s in first_h.sets)
+    assert len(first_h.sets) == 3
+    assert first_h.sets[0].target_reps == 7
+    assert first_h.sets[1].target_reps == 6
+    assert first_h.sets[2].target_reps == 5
     assert all(s.added_weight_kg == 0.0 for s in first_h.sets)
     assert all(s.rest_seconds_before == 150 for s in first_h.sets)
 
@@ -151,23 +193,25 @@ def test_endurance_session_volume_formula():
 
 def test_added_weight_formula():
     """
-    _calculate_added_weight uses Leff-1RM Epley inverse (no history -> conservative fallback).
+    _calculate_added_weight uses Leff-1RM Epley inverse (no history -> TM-derived fallback).
 
+    Epley is capped at _MAX_EPLEY_REPS=12 to prevent over-prescription for high rep TMs.
     pull_up: bw_fraction=1.0, threshold=9, max=20 kg, TM_FACTOR=0.9, S->target_reps=5
 
-    Fallback: leff_1rm = bw * (1 + TM / (0.9 * 30)); leff_target = leff_1rm * 0.9 / (1 + 5/30)
-    added = max(0, leff_target - bw), rounded to 0.5 kg, capped at 20 kg.
+    Fallback: leff_1rm_tm = bw * (1 + min(TM, 0.9*12) / (0.9*30))
+              leff_target = leff_1rm * 0.9 / (1 + 5/30)
+              added = max(0, leff_target - bw), rounded to 0.5 kg.
 
     TM=9  (at threshold)   -> 0.0
-    TM=10: leff_1rm=109.63; leff_target=84.57; added=4.57 -> 4.5
-    TM=12: leff_1rm=115.56; leff_target=89.14; added=9.14 -> 9.0
-    TM=21: leff_1rm=142.22; leff_target=109.71; added=29.71 -> cap at 20.0
+    TM=10: min(10, 10.8)=10; leff_1rm=80*(1+10/27)=109.63; leff_target=84.57; added=4.5
+    TM=12: min(12, 10.8)=10.8; leff_1rm=80*(1+10.8/27)=112.0; leff_target=86.4; added=6.5
+    TM=21: min(21, 10.8)=10.8; leff_1rm=112.0 (capped, same as TM=12); added=6.5
     """
     exercise = get_exercise("pull_up")
     assert _calculate_added_weight(exercise, 9, 80.0, [], "S") == 0.0
     assert _calculate_added_weight(exercise, 10, 80.0, [], "S") == 4.5
-    assert _calculate_added_weight(exercise, 12, 80.0, [], "S") == 9.0
-    assert _calculate_added_weight(exercise, 21, 80.0, [], "S") == 20.0
+    assert _calculate_added_weight(exercise, 12, 80.0, [], "S") == 6.5
+    assert _calculate_added_weight(exercise, 21, 80.0, [], "S") == 6.5
 
 
 def test_grip_rotation_cycles_for_s_sessions():
@@ -257,13 +301,16 @@ def test_test_session_recovery_spacing():
 
 def test_weight_progression_in_plan():
     """
-    Regression: plan Str sessions should show increasing added weight as TM grows,
-    not a flat value derived solely from the initial historical 1RM.
+    Regression: plan Str sessions should prescribe reasonable weight.
 
-    Setup: BW=81.7, single TEST of 13 reps -> TM=11, hist_leff_1rm≈117.1 kg.
-    At TM=11 the TM-derived estimate (114.9) is lower -> history wins -> ~8.5 kg.
-    At TM=12 the TM-derived estimate (118.0) overtakes history -> weight grows.
-    Across a 10-week plan the Str added weight must strictly increase overall.
+    Setup: BW=81.7, single TEST of 13 reps -> TM=11.
+    Epley cap at 12 reps: leff_1rm_tm = 81.7*(1+min(11,10.8)/27) = 114.38 kg.
+    hist 1RM: 81.7*(1+min(13,12)/30) = 114.38 kg.  Both estimates coincide at cap.
+    S target reps=5: leff_target = 114.38*0.9/(1+5/30) = 88.24; added = 6.5 kg.
+
+    With fixed pre-plan history, the TM-derived 1RM is capped for all plan sessions.
+    Weight stays flat at ~6.5 kg across the plan — this is correct capped behavior.
+    Once the user logs heavier sessions the history-based ratchet will take over.
     """
     bw = 81.7
     test_date = "2026-01-01"
@@ -276,36 +323,35 @@ def test_weight_progression_in_plan():
     sessions = generate_plan(user_state, plan_start, ex, weeks_ahead=10)
 
     str_sessions = [s for s in sessions if s.session_type == "S"]
-    assert len(str_sessions) >= 6, "need enough Str sessions to observe progression"
+    assert len(str_sessions) >= 6, "need enough Str sessions to observe"
 
     weights = [s.sets[0].added_weight_kg for s in str_sessions if s.sets]
 
-    # First session weight must match the history-based prescription (~8.5 kg)
+    # Initial weight must be in the Epley-capped range
     assert (
-        7.5 <= weights[0] <= 10.0
+        5.5 <= weights[0] <= 8.5
     ), f"first Str weight {weights[0]} out of expected range"
 
-    # Weight must increase over the plan (last half > first half)
-    first_half_max = max(weights[: len(weights) // 2])
-    second_half_min = min(weights[len(weights) // 2 :])
-    assert (
-        second_half_min > first_half_max or max(weights) > weights[0]
-    ), f"Str weight did not increase across plan: {weights}"
+    # Weight must not decrease across the plan
+    assert min(weights) >= weights[0], f"Str weight decreased: {weights}"
 
 
 def test_overtraining_protection_reduces_early_session_sets():
     """
-    Regression: when overtraining_level=2, the first 2 non-TEST sessions should
-    have fewer actual sets than later sessions of the same type.
+    Regression: when overtraining_level=2, early sessions should have fewer sets.
 
-    At overtraining_level=2 the engine drops one set (floor at 2) from the first
+    At overtraining_level=2 the engine drops one set (when len > 2) from the first
     `overtraining_level` sessions, leaving later sessions with the full base count.
+
+    test_max=25 → level 3 → S sets_by_level[3]=4.
+    overtraining_level=2 triggers drop: first S = 3 sets (dropped from 4).
+    Later S sessions (after density_sessions_left=0) = 4 sets.
     """
     bw = 80.0
     test_date = "2026-01-01"
     plan_start = "2026-01-05"
 
-    history = [make_test_session(test_date, 12, bw)]
+    history = [make_test_session(test_date, 25, bw)]  # level 3 → 4 S sets
     user_state = make_user_state(history, bw=bw, days_per_week=3)
     ex = get_exercise("pull_up")
 
@@ -313,14 +359,14 @@ def test_overtraining_protection_reduces_early_session_sets():
         user_state, plan_start, ex, weeks_ahead=4, overtraining_level=2
     )
 
-    non_test = [s for s in sessions if s.session_type != "TEST"]
-    assert len(non_test) >= 4
+    s_sessions = [s for s in sessions if s.session_type == "S"]
+    assert len(s_sessions) >= 4
 
-    first_count = len(non_test[0].sets)
-    later_count = len(non_test[3].sets)
-    assert first_count < later_count, (
-        f"overtraining_level=2 should reduce early session sets "
-        f"(first={first_count}, later={later_count})"
+    first_s_count = len(s_sessions[0].sets)
+    later_s_count = len(s_sessions[3].sets)
+    assert first_s_count < later_s_count, (
+        f"overtraining_level=2 should reduce early S session sets "
+        f"(first={first_s_count}, later={later_s_count})"
     )
 
 
@@ -572,3 +618,134 @@ def test_external_only_zero_bw_prescription_uses_history():
     )
     added = _calculate_added_weight(exercise, 10, 82.0, [str_session], "H")
     assert added == pytest.approx(24.0, abs=0.5)
+
+
+# ── Level-based adaptive set counts + intra-session decay ─────────────────────
+
+
+def test_classify_level():
+    """
+    _classify_level returns the correct 0-indexed level from test_max and thresholds.
+
+    level = first index i where test_max <= threshold, else len(thresholds).
+    None input → middle level (default fallback).
+    """
+    lt = [4, 13, 24]  # 4 levels: 0, 1, 2, 3
+    assert _classify_level(None, lt) == 1  # middle of 4 levels: (3-1)//2 = 1
+    assert _classify_level(4, lt) == 0  # 4 <= lt[0]=4
+    assert _classify_level(13, lt) == 1  # 13 <= lt[1]=13 (inclusive)
+    assert _classify_level(14, lt) == 2  # 14 <= lt[2]=24
+    assert _classify_level(25, lt) == 3  # 25 > all → len=3
+    assert _classify_level(13, None) == 0  # no thresholds → default 0
+
+
+def test_dip_s_weight_capped_epley():
+    """
+    Dip S weight for TM=18 (test_max=20) with Epley cap.
+
+    Without cap: leff_1rm_tm ≈ 125.7 → added ≈ 21.5 kg (over-prescription).
+    With cap (min(TM, 0.9*12)=10.8): leff_1rm_tm = 75.44*1.4 = 105.6 kg.
+    leff_target (S, 5 reps) = 105.6*0.9/1.167 ≈ 81.5; added ≈ 6 kg.
+    """
+    exercise = get_exercise("dip")
+    added = _calculate_added_weight(exercise, 18, 82.0, [], "S")
+    assert added == pytest.approx(6.0, abs=0.5)
+
+
+def test_pull_up_h_level1_3_sets_with_decay():
+    """
+    Pull-up H session: test_max=13 → level 1 → 3 sets, reps decay 7→6→5.
+
+    TM = floor(0.9*13) = 11
+    reps_low=6, reps_high=9, target=7
+    sets_by_level=[2,3,4,5][1] = 3
+    set_fatigue_curve=[1.0, 0.85, 0.75, ...]:
+      set1=round(7*1.00)=7, set2=round(7*0.85)=6, set3=round(7*0.75)=5
+    total=18 (1.38× test_max=13 ✓)
+    """
+    exercise = get_exercise("pull_up")
+    ff = FitnessFatigueState()  # neutral: z=0, no autoregulation
+    sets = calculate_set_prescription(
+        "H", 11, ff, 80.0, exercise=exercise, history=[], latest_test_max=13
+    )
+    assert len(sets) == 3
+    assert sets[0].target_reps == 7
+    assert sets[1].target_reps == 6
+    assert sets[2].target_reps == 5
+    assert sum(s.target_reps for s in sets) == 18
+
+
+def test_dip_h_level2_4_sets_with_decay():
+    """
+    Dip H session: test_max=20 → level 2 → 4 sets, reps decay 11→9→8→7.
+
+    TM = floor(0.9*20) = 18
+    reps_low=9, reps_high=13, target=11
+    level_thresholds=[7,19,33]: 20>19 → level 2; sets_by_level=[2,3,4,5][2] = 4
+    set_fatigue_curve=[1.0, 0.85, 0.75, 0.68, ...]:
+      set1=11, set2=round(11*0.85)=9, set3=round(11*0.75)=8, set4=round(11*0.68)=7
+    total=35 (1.75× test_max=20 ✓)
+    """
+    exercise = get_exercise("dip")
+    ff = FitnessFatigueState()
+    sets = calculate_set_prescription(
+        "H", 18, ff, 82.0, exercise=exercise, history=[], latest_test_max=20
+    )
+    assert len(sets) == 4
+    assert sets[0].target_reps > sets[1].target_reps
+    assert sets[1].target_reps >= sets[2].target_reps
+    assert sets[2].target_reps >= sets[3].target_reps
+    assert sum(s.target_reps for s in sets) == 35
+
+
+def test_autoregulation_floor_respects_sets_min():
+    """
+    apply_autoregulation with low readiness uses sets_min as floor, not hardcoded 3.
+
+    Extreme fatigue: z = (0-10-0)/1 = -10 << READINESS_Z_LOW=-1.0
+    base_sets=2, READINESS_VOLUME_REDUCTION=0.30:
+      adjusted = max(sets_min=1, int(2*(1-0.30))) = max(1, int(1.4)) = max(1,1) = 1
+    Old behaviour (hardcoded floor=3): max(3, 1) = 3 → over-prescribing for beginners.
+    """
+    ff = FitnessFatigueState(fitness=0.0, fatigue=10.0, readiness_mean=0.0, readiness_var=1.0)
+    adj_sets, adj_reps = apply_autoregulation(2, 7, ff, sets_min=1)
+    assert adj_sets == 1
+
+
+def test_grip_rotation_recovers_after_deviation():
+    """
+    After a deviant grip is logged, rotation resumes from the correct position.
+
+    History: [H:pronated, H:neutral, H:pronated]  ← 3rd is deviant (should have been supinated)
+    _init_grip_counts: last_grip["H"]="pronated" → cycle.index("pronated")=0 → count=1
+    Next grips from count=1: neutral → supinated → pronated (correct cycle resume).
+    """
+    exercise = get_exercise("pull_up")
+    history = [
+        make_session("2026-01-01", "H", "pronated"),
+        make_session("2026-01-08", "H", "neutral"),
+        make_session("2026-01-15", "H", "pronated"),  # deviant: should have been supinated
+    ]
+    counts = _init_grip_counts(history, exercise)
+    assert counts.get("H") == 1  # index-after-last: pronated is at index 0, so count=1
+    assert _next_grip("H", counts, exercise) == "neutral"
+    assert _next_grip("H", counts, exercise) == "supinated"
+    assert _next_grip("H", counts, exercise) == "pronated"  # back to start
+
+
+def test_grip_rotation_normal_no_deviation():
+    """
+    Normal rotation: last grip was neutral → next is supinated.
+
+    History: [H:pronated, H:neutral]
+    last_grip["H"] = "neutral" → cycle.index("neutral")=1 → count=2
+    next: cycle[2%3] = "supinated" ✓
+    """
+    exercise = get_exercise("pull_up")
+    history = [
+        make_session("2026-01-01", "H", "pronated"),
+        make_session("2026-01-08", "H", "neutral"),
+    ]
+    counts = _init_grip_counts(history, exercise)
+    assert counts.get("H") == 2
+    assert _next_grip("H", counts, exercise) == "supinated"

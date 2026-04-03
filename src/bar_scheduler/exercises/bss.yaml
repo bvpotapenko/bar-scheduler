@@ -21,27 +21,31 @@ grip_cycles:
   E: [standard]
   TEST: [standard]
 
+# Levels based on max reps per leg at test weight
+level_thresholds: [5, 12, 20]    # level 0 if ≤5, 1 if ≤12, 2 if ≤20, 3 if >20
+
+# Per-set rep decay (lower-body; less systemic fatigue than upper-body)
+set_fatigue_curve: [1.0, 0.90, 0.82, 0.76, 0.72]
+
 session_params:
   S:
     reps_fraction_low: 0.50
     reps_fraction_high: 0.70
     reps_min: 4
     reps_max: 8
-    sets_min: 3
-    sets_max: 4
     rest_min: 150
     rest_max: 240
     rir_target: 2
+    sets_by_level: [1, 2, 3, 4]
   H:
     reps_fraction_low: 0.60
     reps_fraction_high: 0.80
     reps_min: 8
     reps_max: 15
-    sets_min: 3
-    sets_max: 5
     rest_min: 90
     rest_max: 150
     rir_target: 2
+    sets_by_level: [2, 3, 4, 5]
   E:
     reps_fraction_low: 0.40
     reps_fraction_high: 0.60
@@ -57,11 +61,10 @@ session_params:
     reps_fraction_high: 0.50
     reps_min: 5
     reps_max: 10
-    sets_min: 2
-    sets_max: 4
     rest_min: 60
     rest_max: 120
     rir_target: 4
+    sets_by_level: [2, 3, 4, 4]
   TEST:
     reps_fraction_low: 1.0
     reps_fraction_high: 1.0
@@ -99,8 +102,6 @@ weight_tm_threshold: 999
 max_added_weight_kg: 72.0
 
 default_item: DUMBBELLS
-
-# BSS has no fixed-assistance equipment -- assist_progression omitted (defaults to []).
 
 equipment:
   BODYWEIGHT:

@@ -100,9 +100,7 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     current_tm = _get_training_status(
         user_state.history, user_state.profile.bodyweight_kg
     ).training_max
-    recommended = recommend_equipment_item(
-        state.available_items, ex, current_tm, user_state.history[-10:]
-    )
+    recommended = recommend_equipment_item(state.available_items, ex, current_tm)
     # Compute recommended assistance using H-session target reps as reference
     history = [s for s in user_state.history if s.exercise_id == exercise_id]
     if recommended == "MACHINE_ASSISTED" and state.available_machine_assistance_kg:
@@ -131,25 +129,6 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         "recommended_assistance_kg": recommended_assistance_kg,
         "is_bss_degraded": "ELEVATION_SURFACE" not in state.available_items,
     }
-
-
-def check_band_progression(
-    data_dir: Path, exercise_id: str, n_sessions: int = 2
-) -> bool:
-    """
-    Return ``True`` if the last ``n_sessions`` suggest the user is ready to
-    step down one band class (consistently hitting the reps_max ceiling).
-
-    Returns ``False`` if there is not enough history.
-    Raises ``ProfileNotFoundError`` if the profile has not been initialised.
-    Raises ``HistoryNotFoundError`` if the exercise has not been initialised.
-    """
-    from ..core.equipment import check_band_progression as _check
-
-    store = _require_store(data_dir, exercise_id)
-    history = store.load_history(exercise_id)
-    ex = get_exercise(exercise_id)
-    return _check(history, exercise_id, ex.session_params, n_sessions)
 
 
 def compute_leff(
@@ -201,34 +180,3 @@ def get_assistance_kg(
     return _get(item_id, exercise_id, machine_list, band_list)
 
 
-def get_next_band_step(item_id: str, exercise_id: str) -> str | None:
-    """
-    Return the next-less-assistive item ID for the given exercise, or ``None``
-    if ``item_id`` is already the last step in the progression.
-
-    The progression order is defined per exercise in its YAML file
-    (``assist_progression`` field).
-    """
-    from ..core.equipment import get_next_band_step as _get
-    from ..core.exercises.registry import get_exercise
-
-    try:
-        ap = get_exercise(exercise_id).assist_progression
-    except ValueError:
-        ap = []
-    return _get(item_id, ap)
-
-
-def get_assist_progression(exercise_id: str) -> list[str]:
-    """
-    Return the ordered assist-progression list for the given exercise
-    (most-assistive to unassisted).
-
-    Empty list if the exercise has no assistive equipment progression.
-    """
-    from ..core.exercises.registry import get_exercise
-
-    try:
-        return list(get_exercise(exercise_id).assist_progression)
-    except ValueError:
-        return []

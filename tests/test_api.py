@@ -12,19 +12,16 @@ from bar_scheduler.api import (
     HistoryNotFoundError,
     ProfileAlreadyExistsError,
     ProfileNotFoundError,
-    check_band_progression,
     compute_equipment_adjustment,
     compute_leff,
     delete_exercise_history,
     disable_exercise,
     enable_exercise,
     get_assistance_kg,
-    get_assist_progression,
     get_current_equipment,
     get_data_dir,
     get_exercise_info,
     get_history,
-    get_next_band_step,
     get_overtraining_status,
     get_plan,
     get_plan_weeks,
@@ -621,17 +618,6 @@ class TestGetCurrentEquipment:
 
 
 # ---------------------------------------------------------------------------
-# TestCheckBandProgression
-# ---------------------------------------------------------------------------
-
-
-class TestCheckBandProgression:
-    def test_returns_false_with_no_history(self, tmp_path):
-        _init(tmp_path)
-        assert check_band_progression(tmp_path, "pull_up") is False
-
-
-# ---------------------------------------------------------------------------
 # TestEquipmentComputations
 # ---------------------------------------------------------------------------
 
@@ -647,16 +633,6 @@ class TestEquipmentComputations:
         result = compute_equipment_adjustment(70.0, 80.0)
         assert result["reps_factor"] == 0.80
         assert "description" in result
-
-    def test_get_next_band_step(self):
-        assert get_next_band_step("BAND_SET", "pull_up") == "BAR_ONLY"
-        assert get_next_band_step("BAR_ONLY", "pull_up") is None
-
-    def test_get_assist_progression(self):
-        bp = get_assist_progression("pull_up")
-        assert "BAND_SET" in bp
-        assert "BAR_ONLY" in bp
-        assert bp.index("BAND_SET") < bp.index("BAR_ONLY")
 
     def test_get_assistance_kg_band_set(self):
         kg = get_assistance_kg("pull_up", "BAND_SET", available_band_assistance_kg=[20.0])
@@ -839,7 +815,7 @@ class TestEquipmentAutoSelection:
         from bar_scheduler.core.exercises.registry import get_exercise
 
         exercise = get_exercise("pull_up")  # threshold=9
-        result = recommend_equipment_item(["BAR_ONLY", "WEIGHT_BELT"], exercise, 10, [])
+        result = recommend_equipment_item(["BAR_ONLY", "WEIGHT_BELT"], exercise, 10)
         assert result == "WEIGHT_BELT"
 
     def test_recommend_bar_only_below_threshold(self):
@@ -848,55 +824,20 @@ class TestEquipmentAutoSelection:
         from bar_scheduler.core.exercises.registry import get_exercise
 
         exercise = get_exercise("pull_up")  # threshold=9
-        result = recommend_equipment_item(["BAR_ONLY", "WEIGHT_BELT"], exercise, 9, [])
-        assert result == "BAR_ONLY"
-
-    def test_recommend_band_step_down_when_ready(self):
-        """Steps down from BAND_SET to BAR_ONLY after 2 ceiling sessions."""
-        from bar_scheduler.core.equipment import recommend_equipment_item
-        from bar_scheduler.core.exercises.registry import get_exercise
-        from bar_scheduler.core.models import (
-            EquipmentSnapshot,
-            SessionResult,
-            SetResult,
-        )
-
-        exercise = get_exercise("pull_up")
-        snap = EquipmentSnapshot(active_item="BAND_SET", assistance_kg=20.0)
-        # S session hitting reps_max=6
-        s1 = SessionResult(
-            date="2026-01-01",
-            bodyweight_kg=80.0,
-            grip="pronated",
-            session_type="S",
-            exercise_id="pull_up",
-            completed_sets=[SetResult(6, 6, 180)],
-            equipment_snapshot=snap,
-        )
-        # H session hitting reps_max=12
-        s2 = SessionResult(
-            date="2026-01-08",
-            bodyweight_kg=80.0,
-            grip="pronated",
-            session_type="H",
-            exercise_id="pull_up",
-            completed_sets=[SetResult(12, 12, 150)],
-            equipment_snapshot=snap,
-        )
-        result = recommend_equipment_item(
-            ["BAND_SET", "BAR_ONLY"], exercise, 5, [s1, s2]
-        )
+        result = recommend_equipment_item(["BAR_ONLY", "WEIGHT_BELT"], exercise, 9)
         assert result == "BAR_ONLY"
 
 
 class TestWeightPrescriptionEpley:
     def test_weight_prescription_from_leff_1rm_s_session(self):
         """
-        BW TEST at 20 reps, BW=81.7 kg, dip exercise -> S prescription = 21.5 kg.
+        BW TEST at 20 reps, BW=81.7 kg, dip exercise -> S prescription = 6.0 kg.
 
-        Leff 1RM from TEST: 75.164 * (1 + 20/30) = 125.273
-        leff_target for S (5 reps): 125.273 * 0.9 / (1 + 5/30) = 96.64
-        added = 96.64 - 75.164 = 21.47 -> rounded to 21.5
+        Epley is capped at 12 reps: leff_hist = 75.164 * (1 + 12/30) = 105.23
+        leff_1rm_tm also capped: 75.164 * (1 + 10.8/27) = 105.23
+        leff_target for S (5 reps): 105.23 * 0.9 / (1 + 5/30) = 81.17
+        added = 81.17 - 75.164 = 6.01 -> rounded to 6.0
+        (Old uncapped formula gave 21.5 kg — causing test failure for 20-rep users)
         """
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.models import SessionResult, SetResult
@@ -913,14 +854,15 @@ class TestWeightPrescriptionEpley:
             completed_sets=[SetResult(20, 20, 180)],
         )
         result = _calculate_added_weight(exercise, 18, bw, [test_session], "S")
-        assert result == 21.5
+        assert result == 6.0
 
     def test_weight_prescription_from_leff_1rm_h_session(self):
         """
-        Same input, H session (target_reps=8) gives lower Leff target -> smaller added weight.
+        Same input, H session (target_reps=8) gives lower Leff target -> 0.0 (below BW).
 
-        leff_target for H (8 reps): 125.273 * 0.9 / (1 + 8/30) = 89.0
-        added = 89.0 - 75.164 = 13.84 -> rounded to 14.0
+        leff_1rm (capped) = 105.23
+        leff_target for H (8 reps): 105.23 * 0.9 / (1 + 8/30) = 74.77
+        added = max(0, 74.77 - 75.164) = 0.0  (target < BW contrib -> bodyweight only)
         """
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.models import SessionResult, SetResult
@@ -937,7 +879,7 @@ class TestWeightPrescriptionEpley:
             completed_sets=[SetResult(20, 20, 180)],
         )
         result = _calculate_added_weight(exercise, 18, bw, [test_session], "H")
-        assert result == 14.0
+        assert result == 0.0
 
     def test_weight_prescription_no_history_conservative_fallback(self):
         """No history -> positive float from conservative estimate, not zero."""
@@ -1003,38 +945,12 @@ class TestEquipmentFromYaml:
 
         assert get_catalog("unknown_exercise") == {}
 
-    def test_assist_progression_pull_up_from_yaml(self):
-        """assist_progression is loaded from YAML, not a hardcoded Python constant."""
-        from bar_scheduler.core.exercises.registry import get_exercise
-
-        ex = get_exercise("pull_up")
-        ap = ex.assist_progression
-        assert ap[0] == "BAND_SET"
-        assert ap[-1] == "BAR_ONLY"
-
-    def test_assist_progression_bss_is_empty(self):
-        """BSS has no assist_progression (no fixed-assistance equipment)."""
-        from bar_scheduler.core.exercises.registry import get_exercise
-
-        ex = get_exercise("bss")
-        assert ex.assist_progression == []
-
-    def test_get_assist_progression_api(self):
-        ap = get_assist_progression("pull_up")
-        assert "BAND_SET" in ap
-        assert "BAR_ONLY" in ap
-        assert ap.index("BAND_SET") < ap.index("BAR_ONLY")
-
-    def test_get_assist_progression_unknown_returns_empty(self):
-        assert get_assist_progression("unknown_exercise") == []
-
     def test_get_equipment_catalog_shape(self):
-        """get_equipment_catalog returns default_item, assist_progression, items."""
+        """get_equipment_catalog returns default_item and items."""
         from bar_scheduler.api import get_equipment_catalog
 
         cat = get_equipment_catalog("pull_up")
         assert cat["default_item"] == "BAR_ONLY"
-        assert cat["assist_progression"] == ["BAND_SET", "BAR_ONLY"]
         assert "BAR_ONLY" in cat["items"]
         assert "BAND_SET" in cat["items"]
         assert cat["items"]["BAR_ONLY"]["requires_weight_declaration"] is False
@@ -1045,7 +961,7 @@ class TestEquipmentFromYaml:
         from bar_scheduler.api import get_equipment_catalog
 
         cat = get_equipment_catalog("unknown_exercise")
-        assert cat == {"default_item": "", "assist_progression": [], "items": {}}
+        assert cat == {"default_item": "", "items": {}}
 
     def test_get_exercise_info_has_default_item(self):
         info = get_exercise_info("pull_up")

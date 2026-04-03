@@ -68,12 +68,9 @@ from ._analysis import (
 from ._equipment import (
     update_equipment,
     get_current_equipment,
-    check_band_progression,
     compute_leff,
     compute_equipment_adjustment,
     get_assistance_kg,
-    get_next_band_step,
-    get_assist_progression,
 )
 
 # Utils
@@ -130,12 +127,9 @@ __all__ = [
     # Equipment
     "update_equipment",
     "get_current_equipment",
-    "check_band_progression",
     "compute_leff",
     "compute_equipment_adjustment",
     "get_assistance_kg",
-    "get_next_band_step",
-    "get_assist_progression",
     # Utils
     "get_data_dir",
     "training_max_from_baseline",

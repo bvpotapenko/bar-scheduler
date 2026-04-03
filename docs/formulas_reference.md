@@ -362,7 +362,7 @@ else:              sets = sets  (no change)
 ```
 z = readiness_z_score()
 
-if z < READINESS_Z_LOW:    sets = max(3, floor(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
+if z < READINESS_Z_LOW:    sets = max(sets_min, floor(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
                            reps = base_reps  (unchanged)
 elif z > READINESS_Z_HIGH: sets = base_sets
                            reps = base_reps + 1
@@ -374,8 +374,7 @@ else:                      (sets, reps) = (base_sets, base_reps)
 | `READINESS_Z_HIGH` | 1.0 | Above this z -> add 1 rep |
 | `READINESS_VOLUME_REDUCTION` | 0.30 | How much to cut when readiness is low |
 | `MIN_SESSIONS_FOR_AUTOREG` | 10 | Autoregulation is only applied when history has ≥ 10 sessions; fewer sessions -> base prescription used unchanged |
-
-Minimum 3 sets even at extreme low readiness.
+| `sets_min` | from exercise YAML (`SessionTypeParams.sets_min`) | Floor for reduced-volume prescriptions; defaults to 1 when omitted in YAML |
 
 ---
 
@@ -401,11 +400,14 @@ When TM exceeds `weight_tm_threshold`, external load is added via Leff-1RM Epley
 
 ```
 # From history:
-1RM_Leff = max over all recorded sets: Leff × (1 + actual_reps / 30)
+1RM_Leff = max over all recorded sets: Leff × (1 + min(actual_reps, _MAX_EPLEY_REPS) / 30)
            where Leff = BW × bw_fraction + added_weight_kg − assistance_kg
 
 # Conservative fallback (no history):
-1RM_Leff = BW × bw_fraction × (1 + TM / (TM_FACTOR × 30))
+1RM_Leff = BW × bw_fraction × (1 + min(TM, TM_FACTOR × _MAX_EPLEY_REPS) / (TM_FACTOR × 30))
+
+# Epley cap constant:
+_MAX_EPLEY_REPS = 12   # Epley is reliable only up to ~12 reps; higher reps overestimate 1RM
 
 # Session prescription:
 leff_target = 1RM_Leff × TM_FACTOR / (1 + target_reps / 30)
@@ -488,3 +490,78 @@ if days_since_last_test >= test_frequency_weeks * 7:
 | `test_frequency_weeks` | set per exercise | Longer -> less frequent mandatory retesting |
 
 The auto-TEST is inserted before the next regular session slot. After a TEST is logged, the next auto-TEST window resets from that date.
+
+---
+
+## 28. Level Classification (`set_prescriptor.py`)
+
+**_classify_level**
+
+Converts a user's latest TEST max-reps into a discrete training level (0 = novice, N = advanced):
+
+```
+level = first index i where test_max <= level_thresholds[i]
+        else len(level_thresholds)  (highest level)
+
+fallback (no test_max or no thresholds): middle level = max(0, (N-1) // 2)
+```
+
+Level thresholds by exercise (from Strength Level database, 4.8M+ lifts):
+
+| Exercise | Thresholds | Level 0 | Level 1 | Level 2 | Level 3 |
+|----------|-----------|---------|---------|---------|---------|
+| Pull-Up | `[4, 13, 24]` | ≤ 4 reps | 5–13 | 14–24 | ≥ 25 |
+| Dip | `[7, 19, 33]` | ≤ 7 reps | 8–19 | 20–33 | ≥ 34 |
+| BSS | `[5, 12, 20]` | ≤ 5 reps | 6–12 | 13–20 | ≥ 21 |
+| Incline DB Press | `[4, 9, 14]` | ≤ 4 reps | 5–9 | 10–14 | ≥ 15 |
+
+**Set count lookup**
+
+`sets_by_level: list[int]` in each `SessionTypeParams` maps level index → prescribed set count:
+
+```
+base_sets = sets_by_level[min(level, len(sets_by_level) - 1)]
+```
+
+Example (pull-up H session): `sets_by_level = [2, 3, 4, 5]`
+
+| Level | Sets |
+|-------|------|
+| 0 (≤4 reps) | 2 |
+| 1 (5–13) | 3 |
+| 2 (14–24) | 4 |
+| 3 (≥25) | 5 |
+
+---
+
+## 29. Intra-Session Rep Decay (`set_prescriptor.py`)
+
+**set_fatigue_curve**
+
+Each exercise defines a per-set rep multiplier in `ExerciseDefinition.set_fatigue_curve`. The curve models empirical rep drop-off within a session (~15–30% from set 1 to set 2 at moderate rest; PMC11057609).
+
+```
+target_reps[i] = max(1, round(adj_reps × curve[i]))
+                 where curve[i] = set_fatigue_curve[i]  if i < len(curve)
+                                  else curve[-1]         (last factor reused)
+```
+
+Default curves by exercise:
+
+| Exercise | Curve | Notes |
+|----------|-------|-------|
+| Pull-Up | `[1.0, 0.85, 0.75, 0.68, 0.63]` | Upper-body pulling; systemic fatigue |
+| Dip | `[1.0, 0.85, 0.75, 0.68, 0.63]` | Upper-body pushing; same profile |
+| BSS | `[1.0, 0.90, 0.82, 0.76, 0.72]` | Lower-body; less systemic fatigue |
+| Incline DB Press | `[1.0, 0.85, 0.75, 0.68, 0.63]` | Same as pull/dip |
+
+E sessions use their own descending rep ladder and are **not** affected by `set_fatigue_curve`. TEST sessions are always 1 set.
+
+**Example** — Pull-up H, level 1 (3 sets), adj_reps = 7:
+
+| Set | Factor | target_reps |
+|-----|--------|-------------|
+| 1 | 1.00 | 7 |
+| 2 | 0.85 | 6 |
+| 3 | 0.75 | 5 |
+| **Total** | | **18** (1.38× test_max=13) |

@@ -8,6 +8,30 @@ from .load_calculator import _calculate_added_weight
 from .rest_advisor import calculate_adaptive_rest
 
 
+def _classify_level(
+    latest_test_max: int | None,
+    level_thresholds: list[int] | None,
+) -> int:
+    """
+    Return level index (0-indexed int) from latest test max and exercise thresholds.
+
+    Algorithm: levels are 0..N where N = len(level_thresholds).
+    Returns the first index i where test_max <= level_thresholds[i], else N (highest level).
+    Returns the middle level when either arg is None (fallback for exercises without data).
+
+    Per Strength Level database (4.8M+ lifts):
+      pull-up thresholds: [4, 13, 24]  → 4 levels (0–3)
+      dip thresholds:     [7, 19, 33]  → 4 levels (0–3)
+    """
+    if latest_test_max is None or not level_thresholds:
+        n = len(level_thresholds) if level_thresholds else 2
+        return max(0, (n - 1) // 2)
+    for i, threshold in enumerate(level_thresholds):
+        if latest_test_max <= threshold:
+            return i
+    return len(level_thresholds)  # highest level
+
+
 def _calculate_rep_targets(
     training_max: int,
     params: SessionTypeParams,
@@ -65,17 +89,21 @@ def _build_strength_sets(
     rest: int,
     added_weight: float,
     params: SessionTypeParams,
+    exercise: ExerciseDefinition,
 ) -> list[PlannedSet]:
-    """Build uniform sets for a Strength session (with added weight)."""
-    return [
-        PlannedSet(
-            target_reps=adj_reps,
+    """Build sets for a Strength session with per-set rep decay."""
+    curve = exercise.set_fatigue_curve
+    sets = []
+    for i in range(adj_sets):
+        factor = curve[i] if i < len(curve) else curve[-1]
+        reps = max(1, round(adj_reps * factor))
+        sets.append(PlannedSet(
+            target_reps=reps,
             rest_seconds_before=rest,
             added_weight_kg=added_weight,
             rir_target=params.rir_target,
-        )
-        for _ in range(adj_sets)
-    ]
+        ))
+    return sets
 
 
 def _build_standard_sets(
@@ -83,18 +111,22 @@ def _build_standard_sets(
     adj_reps: int,
     rest: int,
     params: SessionTypeParams,
+    exercise: ExerciseDefinition,
     added_weight: float = 0.0,
 ) -> list[PlannedSet]:
-    """Build uniform sets for H, T, and TEST sessions."""
-    return [
-        PlannedSet(
-            target_reps=adj_reps,
+    """Build sets for H, T, and TEST sessions with per-set rep decay."""
+    curve = exercise.set_fatigue_curve
+    sets = []
+    for i in range(adj_sets):
+        factor = curve[i] if i < len(curve) else curve[-1]
+        reps = max(1, round(adj_reps * factor))
+        sets.append(PlannedSet(
+            target_reps=reps,
             rest_seconds_before=rest,
             added_weight_kg=added_weight,
             rir_target=params.rir_target,
-        )
-        for _ in range(adj_sets)
-    ]
+        ))
+    return sets
 
 
 def calculate_set_prescription(
@@ -107,6 +139,7 @@ def calculate_set_prescription(
     history_sessions: int = 0,
     recent_same_type: list[SessionResult] | None = None,
     available_weights_kg: list[float] | None = None,
+    latest_test_max: int | None = None,
 ) -> list[PlannedSet]:
     """
     Calculate set prescription for a session.
@@ -125,6 +158,7 @@ def calculate_set_prescription(
         history_sessions: Number of sessions in history (for autoregulation gating)
         recent_same_type: Recent sessions of the same type (for adaptive rest)
         available_weights_kg: Discrete weights the user owns; empty = continuous rounding.
+        latest_test_max: Most recent test max reps (for level classification).
 
     Returns:
         List of PlannedSet
@@ -133,13 +167,20 @@ def calculate_set_prescription(
 
     reps_low, reps_high, target_reps = _calculate_rep_targets(training_max, params)
 
-    # Calculate number of sets (middle of range)
-    base_sets = (params.sets_min + params.sets_max) // 2
+    # Level-based set count when exercise defines thresholds and session has sets_by_level
+    if params.sets_by_level is not None and exercise.level_thresholds is not None:
+        level = _classify_level(latest_test_max, exercise.level_thresholds)
+        idx = min(level, len(params.sets_by_level) - 1)
+        base_sets = params.sets_by_level[idx]
+    else:
+        base_sets = (params.sets_min + params.sets_max) // 2
 
     # Apply autoregulation only when we have enough history to properly
     # calibrate the fitness-fatigue model
     if history_sessions >= MIN_SESSIONS_FOR_AUTOREG:
-        adj_sets, adj_reps = apply_autoregulation(base_sets, target_reps, ff_state)
+        adj_sets, adj_reps = apply_autoregulation(
+            base_sets, target_reps, ff_state, sets_min=params.sets_min
+        )
     else:
         adj_sets, adj_reps = base_sets, target_reps
 
@@ -156,7 +197,7 @@ def calculate_set_prescription(
         return _build_endurance_sets(training_max, params, rest, target_reps, added_weight)
 
     if session_type == "S":
-        return _build_strength_sets(adj_sets, adj_reps, rest, added_weight, params)
+        return _build_strength_sets(adj_sets, adj_reps, rest, added_weight, params, exercise)
 
     # H, T, TEST
-    return _build_standard_sets(adj_sets, adj_reps, rest, params, added_weight)
+    return _build_standard_sets(adj_sets, adj_reps, rest, params, exercise, added_weight)

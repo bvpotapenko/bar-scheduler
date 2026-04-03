@@ -39,13 +39,10 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 3.4 | Effective load (Leff) computed from bodyweight fraction + added weight − assistance | `compute_leff` |
 | 3.5 | Equipment snapshot attached to each logged session at log time | automatic |
 | 3.6 | Current equipment state as a dict (exercise_id, recommended_item, available_items, available_machine_assistance_kg, recommended_assistance_kg, assistance_kg, is_bss_degraded); recommended_item auto-selected from available_items by planner | `get_current_equipment` |
-| 3.7 | Band progression readiness check (n consecutive sessions on current band) | `check_band_progression` |
-| 3.8 | Equipment adjustment factor when switching bands (reps_factor, description) | `compute_equipment_adjustment` |
-| 3.9 | Assistance kg for any item | `get_assistance_kg` |
-| 3.10 | Next item in assist progression for an exercise | `get_next_band_step(item_id, exercise_id)` |
-| 3.11 | Full assist progression list for an exercise (YAML-driven, per-exercise) | `get_assist_progression(exercise_id)` |
-| 3.12 | Per-exercise discrete weight set stored in profile (`available_weights_kg`); planner floor-snaps prescriptions to largest available weight ≤ ideal — no fractional or unavailable weights prescribed | `update_equipment(…, available_weights_kg=[…])` |
-| 3.13 | Per-exercise discrete machine assistance list (`available_machine_assistance_kg`); planner ceiling-snaps ideal assistance to smallest available ≥ ideal; prescribed level shown per session in `get_plan()["sessions"][]["prescribed_assistance_kg"]`; user configures once and the planner automatically reduces assistance as TM grows | `update_equipment(…, available_machine_assistance_kg=[…])` |
+| 3.7 | Equipment adjustment factor when switching bands (reps_factor, description) | `compute_equipment_adjustment` |
+| 3.8 | Assistance kg for any item | `get_assistance_kg` |
+| 3.9 | Per-exercise discrete weight set stored in profile (`available_weights_kg`); planner floor-snaps prescriptions to largest available weight ≤ ideal — no fractional or unavailable weights prescribed | `update_equipment(…, available_weights_kg=[…])` |
+| 3.10 | Per-exercise discrete machine assistance list (`available_machine_assistance_kg`); planner ceiling-snaps ideal assistance to smallest available ≥ ideal; prescribed level shown per session in `get_plan()["sessions"][]["prescribed_assistance_kg"]`; user configures once and the planner automatically reduces assistance as TM grows | `update_equipment(…, available_machine_assistance_kg=[…])` |
 
 ## 4. Training Log (Session Logging)
 
@@ -73,10 +70,12 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 5.6 | Weekly TM progression -- nonlinear curve, slows near target | automatic |
 | 5.7 | Autoregulation: sets/reps adjusted by readiness z-score (active after ≥10 sessions) | automatic |
 | 5.8 | Adaptive rest: midpoint adjusted ±30/15 s based on RIR, set drop-off, readiness, and rest-adherence signal | automatic |
-| 5.9 | Added weight for all weighted session types (S, H, E, T) -- Leff-1RM Epley inverse, 0.5 kg increments; weight starts when TM > exercise threshold | automatic |
+| 5.9 | Added weight for all weighted session types (S, H, E, T) -- Leff-1RM Epley inverse capped at 12 reps, 0.5 kg increments; weight starts when TM > exercise threshold | automatic |
 | 5.10 | Endurance volume scales with TM via kE multiplier | automatic |
 | 5.11 | TEST session auto-insertion at configured intervals per exercise | automatic |
-| 5.12 | Grip rotation across sessions (pronated -> neutral -> supinated for pull-ups; fixed for dip) | automatic |
+| 5.12 | Grip rotation across sessions (pronated -> neutral -> supinated for pull-ups; fixed for dip); resumes from correct position after any deviant grip | automatic |
+| 5.23 | Level-based adaptive set counts -- user level classified from latest test max against per-exercise `level_thresholds`; `sets_by_level` maps level (0–3) to set count for S/H/T sessions | automatic |
+| 5.24 | Intra-session rep decay -- each set's target reps is multiplied by a per-exercise `set_fatigue_curve` factor (e.g. 100%→85%→75%→68%→63%), modelling empirical rep drop-off; E and TEST sessions unaffected | automatic |
 | 5.13 | Deload detection: plateau + low readiness, underperformance, or low compliance | automatic |
 | 5.14 | Plan change diff vs. last cached plan | `get_plan` -> `plan_changes` |
 | 5.15 | Plan start date anchored per-exercise in profile; `refresh_plan` resets anchor to today | `refresh_plan` |
@@ -118,4 +117,4 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 ---
 
-*Last updated: 2026-03-30.*
+*Last updated: 2026-04-03.*

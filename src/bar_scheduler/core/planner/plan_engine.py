@@ -287,6 +287,7 @@ def _plan_core(
             history_sessions=len(effective_init),
             recent_same_type=recent_same_type,
             available_weights_kg=available_weights_kg,
+            latest_test_max=status.latest_test_max,
         )
 
         # Overtraining protection: adjust the first density_sessions_left sessions

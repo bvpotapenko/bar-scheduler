@@ -165,6 +165,52 @@ For `test_max = 15`: ceiling ≈ 120–150. Nobody trains there — it would tak
 
 ---
 
+## Why do later sets in my session have fewer reps than set 1?
+
+This is intentional. The planner applies a **per-set rep decay curve** (`set_fatigue_curve`) based on empirical data showing that rep performance drops roughly 15–30% from set 1 to set 2, then continues to decline with each additional set (PMC11057609). Rather than prescribing a uniform rep target that you'll fail to hit on the last set, the plan models the expected decay:
+
+| Set | Pull-up factor | Example (7 reps on set 1) |
+|-----|---------------|--------------------------|
+| 1 | 1.00 | 7 reps |
+| 2 | 0.85 | 6 reps |
+| 3 | 0.75 | 5 reps |
+| 4 | 0.68 | 5 reps |
+| 5 | 0.63 | 4 reps |
+
+Set 1 is your benchmark for the session. If you hit set 1 reps comfortably, the later sets should also feel manageable. If set 2 is already a grind, take more rest or reduce load.
+
+The decay curves differ by exercise: lower-body exercises (BSS) decay more slowly than upper-body pulling/pushing movements.
+
+E (endurance) sessions have their own descending rep ladder and are not affected by this curve. TEST sessions are always 1 set.
+
+---
+
+## How does the planner decide how many sets to prescribe?
+
+Sets are determined by your **training level**, derived from your latest TEST session max-reps. Level thresholds are calibrated from the Strength Level database (4.8M+ lifts):
+
+| Exercise | Levels | Thresholds |
+|----------|--------|------------|
+| Pull-Up | 0–3 | ≤4 / 5–13 / 14–24 / ≥25 reps |
+| Dip | 0–3 | ≤7 / 8–19 / 20–33 / ≥34 reps |
+| BSS | 0–3 | ≤5 / 6–12 / 13–20 / ≥21 reps/leg |
+| Incline DB Press | 0–3 | ≤4 / 5–9 / 10–14 / ≥15 reps |
+
+Each session type has a `sets_by_level` table. Example for pull-up H (hypertrophy) sessions:
+
+| Your level | H sets prescribed |
+|-----------|-------------------|
+| 0 (novice, ≤4 reps) | 2 |
+| 1 (beginner, 5–13 reps) | 3 |
+| 2 (intermediate, 14–24 reps) | 4 |
+| 3 (advanced, ≥25 reps) | 5 |
+
+Before your first TEST session, the planner defaults to the middle level (1). After your first TEST, the level is recalculated from your result and sets adjust from the next session onward.
+
+If your readiness is very low (fitness-fatigue z-score < −1.0) and autoregulation is active (≥10 sessions logged), the planner may reduce sets by up to 30% but will never go below `sets_min` (1 set by default).
+
+---
+
 ## What is the fitness-fatigue model?
 
 The planner tracks two exponential signals to estimate readiness:

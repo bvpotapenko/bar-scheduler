@@ -9,18 +9,32 @@ def _init_grip_counts(
     exercise: ExerciseDefinition,
 ) -> dict[str, int]:
     """
-    Count past sessions of each type from history for grip rotation.
+    Determine grip rotation position from history.
 
-    Only counts sessions for the specified exercise so that a dip plan
-    doesn't inherit pull-up grip rotation counts.
+    Finds the last recorded grip per session type and returns the position
+    immediately after it in the cycle.  This is position-aware: if a deviant
+    grip was logged the rotation resumes from the correct next position rather
+    than restarting from the beginning.
+
     Returns empty dict when the exercise has no variant rotation.
     """
     if not exercise.has_variant_rotation:
         return {}
-    counts: dict[str, int] = {}
+    last_grip_by_type: dict[str, str] = {}
     for s in history:
         if s.exercise_id == exercise.exercise_id:
-            counts[s.session_type] = counts.get(s.session_type, 0) + 1
+            last_grip_by_type[s.session_type] = s.grip
+    counts: dict[str, int] = {}
+    for session_type, last_grip in last_grip_by_type.items():
+        cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
+        try:
+            counts[session_type] = cycle.index(last_grip) + 1
+        except ValueError:
+            # Logged grip not in cycle (deviant entry); fall back to total count
+            counts[session_type] = sum(
+                1 for s in history
+                if s.exercise_id == exercise.exercise_id and s.session_type == session_type
+            )
     return counts
 
 

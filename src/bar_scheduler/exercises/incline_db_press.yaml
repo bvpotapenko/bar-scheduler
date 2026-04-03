@@ -12,27 +12,31 @@ variant_factors:
   standard: 1.00
 has_variant_rotation: false
 
+# Levels based on max reps at chosen test weight
+level_thresholds: [4, 9, 14]    # level 0 if ≤4, 1 if ≤9, 2 if ≤14, 3 if >14
+
+# Per-set rep decay at ~RIR 2, 2-3 min rest (PMC11057609)
+set_fatigue_curve: [1.0, 0.85, 0.75, 0.68, 0.63]
+
 session_params:
   S:
     reps_fraction_low: 0.35
     reps_fraction_high: 0.55
     reps_min: 3
     reps_max: 6
-    sets_min: 3
-    sets_max: 5
     rest_min: 180
     rest_max: 300
     rir_target: 2
+    sets_by_level: [1, 2, 3, 3]
   H:
     reps_fraction_low: 0.55
     reps_fraction_high: 0.80
     reps_min: 6
     reps_max: 15
-    sets_min: 3
-    sets_max: 5
     rest_min: 90
     rest_max: 150
     rir_target: 2
+    sets_by_level: [2, 3, 4, 5]
   E:
     reps_fraction_low: 0.40
     reps_fraction_high: 0.60
@@ -48,11 +52,10 @@ session_params:
     reps_fraction_high: 0.45
     reps_min: 4
     reps_max: 8
-    sets_min: 3
-    sets_max: 5
     rest_min: 90
     rest_max: 150
     rir_target: 4
+    sets_by_level: [2, 3, 4, 4]
   TEST:
     reps_fraction_low: 1.00
     reps_fraction_high: 1.00

@@ -31,9 +31,8 @@ from bar_scheduler.api import (
     # Performance metrics (volume, 1RM)
     get_goal_metrics,
     # Equipment helpers
-    get_current_equipment, check_band_progression,
+    get_current_equipment,
     compute_leff, compute_equipment_adjustment, get_assistance_kg,
-    get_next_band_step, get_assist_progression,
     # Utilities
     get_data_dir, training_max_from_baseline,
     # Input parsers
@@ -160,7 +159,6 @@ Built-in exercise IDs: `"pull_up"`, `"dip"`, `"bss"`, `"incline_db_press"`. Any 
 catalog = get_equipment_catalog("pull_up")
 # -> {
 #      "default_item": "BAR_ONLY",                   # pre-select this for first-time users
-#      "assist_progression": ["BAND_SET", "BAR_ONLY"], # ordered most-assistive → unassisted
 #      "items": {
 #        "BAR_ONLY":        {"label": "...", "assistance_kg": 0.0,  "requires_weight_declaration": False},
 #        "BAND_SET":        {"label": "...", "assistance_kg": None, "requires_weight_declaration": True},
@@ -227,11 +225,6 @@ adj  = compute_equipment_adjustment(old_leff=72.0, new_leff=82.0)
 # -> {"reps_factor": 0.80, "description": "..."}
 kg   = get_assistance_kg("pull_up", "BAND_SET", available_band_assistance_kg=[20.0])  # -> 20.0
 
-# Assist step-down
-ready = check_band_progression(data_dir, "pull_up", n_sessions=2)  # bool
-next_item = get_next_band_step("BAND_SET", "pull_up")  # -> "BAR_ONLY"
-get_assist_progression("pull_up")  # -> ["BAND_SET", "BAR_ONLY"]
-get_assist_progression("bss")      # -> []  (BSS has no fixed-assistance progression)
 ```
 
 ---

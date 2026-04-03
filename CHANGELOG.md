@@ -4,7 +4,51 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
-## [Unreleased]
+## [0.7.0] - 2026-04-03
+
+### Added
+- **Level-based adaptive set counts** — `ExerciseDefinition` gains `level_thresholds: list[int]`
+  (e.g. `[4, 13, 24]` for pull-up, based on Strength Level database) and each S/H/T session
+  block gains `sets_by_level: list[int]` (indexed 0=novice→3=advanced). The planner classifies
+  the user's level from their latest test max and prescribes the corresponding set count
+  directly. Replaces the fixed midpoint `(sets_min + sets_max) // 2` which always produced
+  the same value regardless of user progress.
+- **Intra-session rep decay** — `ExerciseDefinition` gains `set_fatigue_curve: list[float]`
+  (e.g. `[1.0, 0.85, 0.75, 0.68, 0.63]`). Each set's `target_reps` is multiplied by the
+  curve factor for its position, modelling empirical ~15–30% rep drop-off per set at moderate
+  rest (PMC11057609). Set 1 receives full reps; subsequent sets descend. E sessions (volume
+  ladder) and TEST sessions are unaffected.
+- **`_classify_level(latest_test_max, level_thresholds) -> int`** in `set_prescriptor.py` —
+  returns 0-indexed level (0=lowest) using the first threshold the test max is ≤.
+  Falls back to middle level when either argument is `None`.
+- All 4 exercise YAMLs updated with `level_thresholds` and `set_fatigue_curve`. S/H/T blocks
+  now use `sets_by_level` and omit `sets_min`/`sets_max` (now optional, defaulting to 1/10).
+
+### Fixed
+- **Epley 1RM over-prescription for high-rep users** — `_estimate_effective_leff_1rm` and
+  the TM-derived `leff_1rm_tm` formula both now cap reps at `_MAX_EPLEY_REPS = 12` before
+  applying `1 + reps/30`. Epley's formula is unreliable above ~12 reps. A dip user with
+  test_max=20 was previously prescribed +21.5 kg (impossible); now correctly ~+6 kg.
+- **Grip rotation resumes correctly after deviant grip** — `_init_grip_counts` now records
+  the last logged grip per session type and uses `cycle.index(last_grip) + 1` as the rotation
+  position. Previously it counted total sessions, causing rotation to restart from the same
+  grip after any deviation (e.g. pronated → neutral → pronated-deviant → pronated again).
+- **Autoregulation set floor no longer hardcoded at 3** — `apply_autoregulation` accepts
+  `sets_min: int = 1` and uses it as the floor when reducing sets for low readiness. The
+  old `max(3, ...)` over-prescribed for beginners whose level-based set count was 1–2.
+
+### Removed
+- **`assist_progression` field removed from exercise YAML and `ExerciseDefinition`** —
+  resistance bands (`BAND_SET`) are now treated identically to `MACHINE_ASSISTED`: the
+  user declares available resistance values and the planner ceiling-snaps each session.
+  No automatic step-down from bands to unassisted. To graduate, the user removes
+  `BAND_SET` from `available_items`.
+- **`check_band_progression(data_dir, exercise_id)` removed** — no replacement;
+  automatic band step-down logic has been deleted.
+- **`get_next_band_step(item_id, exercise_id)` removed** — no replacement.
+- **`get_assist_progression(exercise_id)` removed** — no replacement.
+- **`get_equipment_catalog()` no longer returns `"assist_progression"`** — return shape
+  is now `{"default_item": str, "items": dict}`.
 
 ### Added
 - **`default_item` per exercise** — each exercise YAML now declares a `default_item`
