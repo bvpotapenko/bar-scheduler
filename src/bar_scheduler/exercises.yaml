@@ -105,7 +105,7 @@ plateau:
 # meaningful. Gated at MIN_SESSIONS_FOR_AUTOREG.
 # =============================================================================
 autoregulation:
-  MIN_SESSIONS_FOR_AUTOREG: 10  # Minimum sessions before autoregulation activates
+  MIN_SESSIONS_FOR_AUTOREG: 3   # Minimum sessions before autoregulation activates
 
 # =============================================================================
 # READINESS GATING
@@ -113,8 +113,8 @@ autoregulation:
 # When > READINESS_Z_HIGH the plan may add a rep to target sets.
 # =============================================================================
 readiness:
-  READINESS_Z_LOW: -1.0         # Volume-reduction threshold
-  READINESS_Z_HIGH: 1.0         # Progression-bonus threshold
+  READINESS_Z_LOW: -0.5         # Volume-reduction threshold (was -1.0; lowered to catch moderate fatigue)
+  READINESS_Z_HIGH: 0.5         # Progression-bonus threshold (was 1.0; lowered to reward moderate peaks)
   READINESS_VOLUME_REDUCTION: 0.30   # Volume cut when readiness is low (30%)
 
 # =============================================================================

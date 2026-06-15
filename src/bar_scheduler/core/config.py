@@ -209,23 +209,3 @@ def estimate_weeks_to_target(current_max: int, target: int = TARGET_MAX_REPS) ->
         weeks += 1
 
     return min(weeks, MAX_PLAN_WEEKS * 4)
-
-
-def endurance_volume_multiplier(training_max: int) -> float:
-    """
-    Scaling factor for endurance session total-rep target.
-
-    kE grows linearly from 3.0 (TM=5) to 5.0 (TM=30):
-
-        kE = 3.0 + 2.0 * clip((TM - 5) / 25, 0, 1)
-
-    Total reps target = kE(TM) * TM
-
-    Args:
-        training_max: Current training max reps
-
-    Returns:
-        Volume multiplier (3.0 to 5.0)
-    """
-    fraction = min(1.0, max(0.0, (training_max - 5) / 25))
-    return 3.0 + 2.0 * fraction

@@ -27,19 +27,22 @@ Rest is prescribed per-session-type from a range defined in the exercise YAML (e
 - **High readiness**: rest decreases toward `rest_min`.
 - **No history**: the midpoint `(rest_min + rest_max) // 2` is used.
 
-Rest adaptation activates only after ≥ 10 sessions are logged (`MIN_SESSIONS_FOR_AUTOREG`).
+Rest adaptation activates only after ≥ 3 sessions are logged (`MIN_SESSIONS_FOR_AUTOREG`).
 
 ---
 
 ## How does weight prescription work?
 
-The planner uses the Epley 1RM inverse formula to determine how much external weight to add per session:
+The planner uses a rep-range-aware 1RM estimate to determine how much external weight to add per session:
 
-1. **Estimate Leff 1RM** from all historical sets: `1RM_Leff = Leff × (1 + reps / 30)` where `Leff = BW × bw_fraction + added − assistance`.
+1. **Estimate Leff 1RM** from all historical sets using `best_1rm_from_leff(Leff, reps)`:
+   - r ≤ 5: avg(Brzycki, Lander) — accurate in the strength range
+   - r ≤ 10: avg(Brzycki, Lander, Epley)
+   - r > 10: avg(Lombardi, Epley) — better than plain Epley at high rep counts
 2. **Invert for the session's target reps**: `Leff_target = 1RM_Leff × TM_FACTOR / (1 + target_reps / 30)`.
 3. **Derive added weight**: `added = max(0, Leff_target − BW × bw_fraction)`, rounded to 0.5 kg, capped at the exercise maximum.
 
-Session target reps: S -> 5, H -> 8, E -> 12, T -> 6 (corresponding to ~85/78/67/83 % of 1RM).
+Session target reps: S → 5, H → 8, E → 12, T → 6 (corresponding to ~85/78/67/83% of 1RM).
 
 No weight is prescribed when `TM ≤ weight_tm_threshold` (the bodyweight-only phase).
 
@@ -87,6 +90,26 @@ The value is configurable in `exercises.yaml` under `schedule.DAY_SPACING.TEST`.
 ## How often does the planner insert TEST sessions?
 
 TEST sessions are inserted every `test_frequency_weeks` weeks (defined per exercise in its YAML file). They replace a regular training slot on the scheduled day. The TEST slot counts progress from the last TEST date, not from plan start.
+
+---
+
+## What target does the planner show for a TEST session?
+
+The prescribed target reps for a TEST session is `round(TM / TM_FACTOR) + 1`, which equals approximately your last test result plus one rep. This anchors the goal above your previous performance rather than at 90% of it (which was the old behavior and caused athletes to stop at the displayed number instead of going to true failure).
+
+The `rir_target = 0` on a TEST set signals maximum effort — no reps left in the tank. The target is a goal, not a hard stop.
+
+---
+
+## How is an Endurance (E) session structured?
+
+E sessions use a **descending rep ladder**: the first set targets `target_reps`, each subsequent set drops by 1 rep, and all sets floor at `reps_min`. The number of sets is determined by your athlete level using the same `sets_by_level` mechanism as S, H, and T sessions.
+
+Example: pull-up E session at level 1 (test_max 5–13), TM=10:
+- Sets prescribed: 7 (from `sets_by_level = [6, 7, 8, 10]`, level 1 → 7 sets)
+- target_reps = 5, ladder: 5, 4, 3, 3, 3, 3, 3 → 24 total reps
+
+Volume increases as you advance through levels (more sets), and within each level as TM grows (ladder starts higher). Rest is short (45–75 s for pull-ups) to sustain the metabolic demand.
 
 ---
 
@@ -207,7 +230,7 @@ Each session type has a `sets_by_level` table. Example for pull-up H (hypertroph
 
 Before your first TEST session, the planner defaults to the middle level (1). After your first TEST, the level is recalculated from your result and sets adjust from the next session onward.
 
-If your readiness is very low (fitness-fatigue z-score < −1.0) and autoregulation is active (≥10 sessions logged), the planner may reduce sets by up to 30% but will never go below `sets_min` (1 set by default).
+If your readiness is very low (fitness-fatigue z-score < −0.5) and autoregulation is active (≥3 sessions logged), the planner may reduce sets by up to 30% but will never go below `sets_min` (1 set by default).
 
 ---
 

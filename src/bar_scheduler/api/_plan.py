@@ -1,7 +1,6 @@
 """Planning functions for the bar-scheduler API."""
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 from ..core.adaptation import get_training_status as _get_training_status
@@ -93,44 +92,6 @@ def get_plan(
             for e in timeline
         ],
         "overtraining": ot_severity,
-    }
-
-
-def refresh_plan(data_dir: Path, exercise_id: str) -> dict:
-    """
-    Reset the plan anchor to today.
-
-    Use after a break when unlogged sessions have piled up in the past.
-    Returns a dict with ``plan_start_date`` and ``next_session``
-    (or ``None`` if no sessions are generated).
-    """
-    exercise = get_exercise(exercise_id)
-    store = _require_store(data_dir, exercise_id)
-    user_state = store.load_user_state(exercise_id)
-
-    today = datetime.now().strftime("%Y-%m-%d")
-    store.set_plan_start_date(exercise_id, today)
-
-    eq_state = store.load_current_equipment(exercise_id)
-    available_weights_kg = eq_state.available_weights_kg if eq_state is not None else []
-
-    plans = generate_plan(
-        user_state, today, exercise, weeks_ahead=2,
-        available_weights_kg=available_weights_kg or None,
-    )
-    next_session = next((p for p in plans if p.date >= today), None)
-
-    return {
-        "plan_start_date": today,
-        "next_session": (
-            {
-                "date": next_session.date,
-                "session_type": next_session.session_type,
-                "grip": next_session.grip,
-            }
-            if next_session
-            else None
-        ),
     }
 
 

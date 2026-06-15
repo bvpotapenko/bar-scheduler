@@ -1,7 +1,7 @@
 """Set and rep prescription for each session type."""
 
 from ..adaptation import apply_autoregulation
-from ..config import MIN_SESSIONS_FOR_AUTOREG, endurance_volume_multiplier
+from ..config import MIN_SESSIONS_FOR_AUTOREG, TM_FACTOR
 from ..exercises.base import ExerciseDefinition, SessionTypeParams
 from ..models import PlannedSet, SessionResult, SessionType
 from .load_calculator import _calculate_added_weight
@@ -50,24 +50,17 @@ def _calculate_rep_targets(
 
 
 def _build_endurance_sets(
-    training_max: int,
+    num_sets: int,
     params: SessionTypeParams,
     rest: int,
     target_reps: int,
     added_weight: float = 0.0,
 ) -> list[PlannedSet]:
-    """
-    Build the descending-ladder set list for an Endurance session.
-
-    Total volume target = kE(TM) × TM; reps decrease by 1 each set
-    (floored at reps_min) until accumulated ≥ target or sets_max reached.
-    """
-    total_target = int(endurance_volume_multiplier(training_max) * training_max)
+    """Build the descending-ladder set list for an Endurance session."""
     current_reps = target_reps
-    accumulated = 0
     sets: list[PlannedSet] = []
 
-    while accumulated < total_target and len(sets) < params.sets_max:
+    while len(sets) < num_sets:
         actual_reps = max(params.reps_min, current_reps)
         sets.append(
             PlannedSet(
@@ -77,7 +70,6 @@ def _build_endurance_sets(
                 rir_target=params.rir_target,
             )
         )
-        accumulated += actual_reps
         current_reps = max(params.reps_min, current_reps - 1)
 
     return sets
@@ -167,6 +159,12 @@ def calculate_set_prescription(
 
     reps_low, reps_high, target_reps = _calculate_rep_targets(training_max, params)
 
+    # TEST sessions: target is to beat the previous result by 1 rep, not to stop at TM.
+    # TM = floor(0.9 × last_test), so round(TM / TM_FACTOR) ≈ last_test.
+    # Adding 1 anchors the athlete above their last result; rir_target=0 signals max effort.
+    if session_type == "TEST":
+        target_reps = round(training_max / TM_FACTOR) + 1
+
     # Level-based set count when exercise defines thresholds and session has sets_by_level
     if params.sets_by_level is not None and exercise.level_thresholds is not None:
         level = _classify_level(latest_test_max, exercise.level_thresholds)
@@ -194,7 +192,7 @@ def calculate_set_prescription(
     )
 
     if session_type == "E":
-        return _build_endurance_sets(training_max, params, rest, target_reps, added_weight)
+        return _build_endurance_sets(adj_sets, params, rest, target_reps, added_weight)
 
     if session_type == "S":
         return _build_strength_sets(adj_sets, adj_reps, rest, added_weight, params, exercise)

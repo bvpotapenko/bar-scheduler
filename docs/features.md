@@ -68,17 +68,16 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 5.4 | Session rotation: S (1-day); S->H (2-day); S->H->E (3-day); S->H->T->E (4-day); S->H->T->E->S (5-day) | automatic |
 | 5.5 | Training max (TM) = floor(0.9 × latest TEST max) | automatic |
 | 5.6 | Weekly TM progression -- nonlinear curve, slows near target | automatic |
-| 5.7 | Autoregulation: sets/reps adjusted by readiness z-score (active after ≥10 sessions) | automatic |
+| 5.7 | Autoregulation: sets/reps adjusted by readiness z-score (active after ≥3 sessions); thresholds ±0.5 z | automatic |
 | 5.8 | Adaptive rest: midpoint adjusted ±30/15 s based on RIR, set drop-off, readiness, and rest-adherence signal | automatic |
-| 5.9 | Added weight for all weighted session types (S, H, E, T) -- Leff-1RM Epley inverse capped at 12 reps, 0.5 kg increments; weight starts when TM > exercise threshold | automatic |
-| 5.10 | Endurance volume scales with TM via kE multiplier | automatic |
-| 5.11 | TEST session auto-insertion at configured intervals per exercise | automatic |
+| 5.9 | Added weight for all weighted session types (S, H, E, T) -- rep-range-aware Leff-1RM estimate (`best_1rm_from_leff`), 0.5 kg increments; weight starts when TM > exercise threshold | automatic |
+| 5.10 | Endurance (E) volume scales with athlete level via `sets_by_level`; descending rep ladder applied per session | automatic |
+| 5.11 | TEST session auto-insertion at configured intervals per exercise; target reps = round(TM/TM_FACTOR)+1 (beat last result) | automatic |
 | 5.12 | Grip rotation across sessions (pronated -> neutral -> supinated for pull-ups; fixed for dip); resumes from correct position after any deviant grip | automatic |
-| 5.23 | Level-based adaptive set counts -- user level classified from latest test max against per-exercise `level_thresholds`; `sets_by_level` maps level (0–3) to set count for S/H/T sessions | automatic |
-| 5.24 | Intra-session rep decay -- each set's target reps is multiplied by a per-exercise `set_fatigue_curve` factor (e.g. 100%→85%→75%→68%→63%), modelling empirical rep drop-off; E and TEST sessions unaffected | automatic |
+| 5.23 | Level-based adaptive set counts -- user level classified from latest test max against per-exercise `level_thresholds`; `sets_by_level` maps level (0–3) to set count for S/H/T/E sessions | automatic |
+| 5.24 | Intra-session rep decay -- each set's target reps is multiplied by a per-exercise `set_fatigue_curve` factor (e.g. 100%→85%→75%→68%→63%), modelling empirical rep drop-off; TEST sessions unaffected | automatic |
 | 5.13 | Deload detection: plateau + low readiness, underperformance, or low compliance | automatic |
 | 5.14 | Plan change diff vs. last cached plan | `get_plan` -> `plan_changes` |
-| 5.15 | Plan start date anchored per-exercise in profile; `refresh_plan` resets anchor to today | `refresh_plan` |
 | 5.16 | Cumulative week numbering anchored to first session in history | automatic |
 | 5.17 | Overtraining detection -- graduated warning (levels 0–3); volume/rest/rep reduction; plan start shifted forward at level ≥2 | `get_plan` -> `overtraining`; `get_overtraining_status` |
 | 5.18 | RIR feedback: RIR ≥4 sessions accumulate less fatigue (sub-neutral multiplier) | automatic |
@@ -117,4 +116,4 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 ---
 
-*Last updated: 2026-04-03.*
+*Last updated: 2026-06-09.*

@@ -47,15 +47,16 @@ session_params:
     rest_min: 45
     rest_max: 90
     rir_target: 3
+    sets_by_level: [3, 4, 4, 5]
   T:
-    reps_fraction_low: 0.25
-    reps_fraction_high: 0.45
-    reps_min: 4
-    reps_max: 8
+    reps_fraction_low: 0.45
+    reps_fraction_high: 0.65
+    reps_min: 5
+    reps_max: 12
     rest_min: 90
     rest_max: 150
-    rir_target: 4
-    sets_by_level: [2, 3, 4, 4]
+    rir_target: 2
+    sets_by_level: [2, 3, 3, 4]
   TEST:
     reps_fraction_low: 1.00
     reps_fraction_high: 1.00

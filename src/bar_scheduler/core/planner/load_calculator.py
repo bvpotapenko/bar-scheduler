@@ -18,6 +18,7 @@ Session target reps (used for Epley inverse):
 
 from ..config import TM_FACTOR
 from ..exercises.base import ExerciseDefinition
+from ..metrics import best_1rm_from_leff
 
 # Target reps per session type — used to invert the Epley formula
 _SESSION_TARGET_REPS: dict[str, int] = {
@@ -27,10 +28,6 @@ _SESSION_TARGET_REPS: dict[str, int] = {
     "T": 6,
     "TEST": 1,
 }
-
-# Epley formula is reliable only up to ~12 reps; beyond that it overestimates 1RM.
-# Cap actual_reps at this value before applying 1RM = Leff × (1 + reps/30).
-_MAX_EPLEY_REPS: int = 12
 
 
 def _apply_rounding(raw: float) -> float:
@@ -97,9 +94,11 @@ def _last_test_weight_bss(history: list, exercise: ExerciseDefinition) -> float:
 
 def _estimate_effective_leff_1rm(history: list, bw_fraction: float) -> float | None:
     """
-    Estimate Leff 1RM from all available historical sessions using Epley.
+    Estimate Leff 1RM from all available historical sessions.
 
-    1RM_Leff = Leff × (1 + reps / 30)
+    Uses a rep-range-aware formula blend (Brzycki/Lander for low reps,
+    Lombardi/Epley for high reps) so the estimate does not plateau for
+    athletes with high bodyweight rep capacity (TM > 12).
 
     Considers every recorded set across all session types — weighted sets
     naturally yield a more accurate 1RM than bodyweight-only sets because the
@@ -124,7 +123,9 @@ def _estimate_effective_leff_1rm(history: list, bw_fraction: float) -> float | N
                 - assistance
             )
             if leff > 0:
-                candidates.append(leff * (1 + min(s.actual_reps, _MAX_EPLEY_REPS) / 30))
+                estimate = best_1rm_from_leff(leff, s.actual_reps)
+                if estimate is not None:
+                    candidates.append(estimate)
     return max(candidates) if candidates else None
 
 
@@ -202,10 +203,9 @@ def _calculate_added_weight(
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
     leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
-    # TM-derived estimate grows with TM, driving plan weight progression.
-    # training_max ≈ TM_FACTOR × test_max_reps, so test_max ≈ TM / TM_FACTOR.
-    # Cap at _MAX_EPLEY_REPS to avoid overestimation from high-rep TM values.
-    leff_1rm_tm = bw_contrib * (1 + min(training_max, TM_FACTOR * _MAX_EPLEY_REPS) / (TM_FACTOR * 30))
+    # TM-derived fallback: estimate 1RM from bodyweight-only reps equal to TM.
+    # Uses rep-range-aware blend so the estimate grows correctly beyond TM=12.
+    leff_1rm_tm = best_1rm_from_leff(bw_contrib, training_max) or bw_contrib
 
     if leff_1rm_hist is None or leff_1rm_hist <= bw_contrib:
         leff_1rm = leff_1rm_tm
@@ -251,7 +251,7 @@ def _calculate_variable_assistance(
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
     leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
-    leff_1rm_tm = bw_contrib * (1 + min(training_max, TM_FACTOR * _MAX_EPLEY_REPS) / (TM_FACTOR * 30))
+    leff_1rm_tm = best_1rm_from_leff(bw_contrib, training_max) or bw_contrib
 
     if leff_1rm_hist is None or leff_1rm_hist <= 0:
         leff_1rm = leff_1rm_tm

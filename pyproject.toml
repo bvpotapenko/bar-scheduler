@@ -1,6 +1,6 @@
 [project]
 name = "bar-scheduler"
-version = "0.7.0"
+version = "0.7.1"
 description = "Evidence-informed strength training planner -- Python library and planning engine"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -36,3 +36,11 @@ addopts = "-v"
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.9",
+    "time-machine>=2.10",
+]

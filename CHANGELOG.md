@@ -4,6 +4,56 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [0.7.1] - 2026-06-09
+
+### Removed
+- **`refresh_plan()` removed** — this function reset `plan_start_date` to today, permanently
+  erasing prescription history for all sessions between the old and new anchor. There was no
+  recovery path. The timeline showed a gap; planned-but-unlogged sessions became unrecoverable.
+  The use case ("I want to skip ahead") doesn't require this: the plan already shows missed
+  sessions as-is, and the user can simply train the next upcoming session. `set_plan_start_date`
+  is retained for test fixtures and internal tooling.
+
+### Fixed
+- **1RM estimation now uses a rep-range-aware formula throughout the planner** — the
+  TM-derived fallback and history-based estimate in `_estimate_effective_leff_1rm()` both now
+  call `best_1rm_from_leff()` (Brzycki+Lander blend ≤5 reps, +Epley ≤10, Lombardi+Epley
+  above). Previously, both paths applied a plain Epley formula capped at 12 reps. At TM > 12
+  (intermediate to advanced bodyweight athletes), the cap froze the estimated 1RM, producing
+  identical weight prescriptions regardless of actual strength — e.g., the same +6 kg for
+  pull-ups whether your TM was 12 or 25.
+- **TEST session target now shows beat-last-result intent** — the prescribed target reps for
+  a TEST session is now `round(TM / TM_FACTOR) + 1`, which corresponds to one rep above the
+  athlete's last test result. Previously the target was `TM` (90% of last test max), which
+  caused many athletes to stop at the displayed number rather than achieving a true max effort,
+  systematically suppressing TM over successive cycles.
+- **4-day schedule: S→H gap increased from 24h to 48h** — day offsets changed from
+  `[0, 1, 3, 5]` (Mon/Tue/Thu/Sat) to `[0, 2, 4, 5]` (Mon/Wed/Fri/Sat). The 24-hour gap
+  between Strength and Hypertrophy sessions did not provide sufficient recovery for heavy
+  pulling or pushing. The `DAY_SPACING["S"] = 1` constant in `exercises.yaml` was not
+  enforced by `schedule_builder.py` (it is only read by `test_session_inserter.py`); the fix
+  corrects the hardcoded day offsets directly.
+- **Technique (T) session intensity corrected** — T sessions were prescribed at 20–40% of TM
+  with RIR target 4–5, which for any athlete above TM=10 produced sets at RIR 10–15 (no
+  stimulus). Rep fractions updated to 0.45–0.65 (pull-up / dip) and 0.55–0.75 (BSS), RIR
+  target lowered to 2 across all four exercises. Sets reduced by 1 per level compared to H
+  sessions (T is quality work, not volume work).
+- **Endurance (E) session volume formula removed** — the `kE(TM) × TM` formula targeted 84–150
+  total reps for TM 20–30, but `sets_max=10` and `reps_max=8` caps made the target structurally
+  unreachable: maximum achievable volume was ~45 reps regardless of TM. Every E session above
+  TM=12 was identical (10 sets, all capped). The broken formula has been replaced with
+  `sets_by_level` (same mechanism as S/H/T sessions): novice→advanced maps to
+  `[6,7,8,10]` (pull-up), `[5,6,7,8]` (dip), `[3,4,5,5]` (BSS), `[3,4,4,5]` (incline DB
+  press). Volume now grows as the athlete advances, with the descending rep ladder preserved.
+  `endurance_volume_multiplier()` removed from `config.py`.
+- **Autoregulation gates lowered** — `MIN_SESSIONS_FOR_AUTOREG` reduced from 10 to 3 (was
+  gating on 6–10 weeks for 3-day practitioners, leaving new users on a fully open-loop plan
+  too long). Readiness z-score thresholds narrowed: `READINESS_Z_LOW` from −1.0 to −0.5 and
+  `READINESS_Z_HIGH` from 1.0 to 0.5, so moderate fatigue and moderate freshness both now
+  influence prescription rather than only extremes.
+
+---
+
 ## [0.7.0] - 2026-04-03
 
 ### Added

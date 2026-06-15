@@ -831,13 +831,12 @@ class TestEquipmentAutoSelection:
 class TestWeightPrescriptionEpley:
     def test_weight_prescription_from_leff_1rm_s_session(self):
         """
-        BW TEST at 20 reps, BW=81.7 kg, dip exercise -> S prescription = 6.0 kg.
+        BW TEST at 20 reps, BW=81.7 kg, dip exercise -> S prescription = 12.5 kg.
 
-        Epley is capped at 12 reps: leff_hist = 75.164 * (1 + 12/30) = 105.23
-        leff_1rm_tm also capped: 75.164 * (1 + 10.8/27) = 105.23
-        leff_target for S (5 reps): 105.23 * 0.9 / (1 + 5/30) = 81.17
-        added = 81.17 - 75.164 = 6.01 -> rounded to 6.0
-        (Old uncapped formula gave 21.5 kg — causing test failure for 20-rep users)
+        bw_contrib = 0.92 * 81.7 = 75.164 kg.
+        Leff 1RM from TEST: best_1rm_from_leff(75.164, 20) = (Lombardi+Epley)/2 ≈ 113.4 kg.
+        leff_target for S (5 reps): 113.4 * 0.9 / (1 + 5/30) = 87.4
+        added = 87.4 - 75.164 = 12.24 -> rounded to 12.5
         """
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.models import SessionResult, SetResult
@@ -854,15 +853,15 @@ class TestWeightPrescriptionEpley:
             completed_sets=[SetResult(20, 20, 180)],
         )
         result = _calculate_added_weight(exercise, 18, bw, [test_session], "S")
-        assert result == 6.0
+        assert result == 12.5
 
     def test_weight_prescription_from_leff_1rm_h_session(self):
         """
-        Same input, H session (target_reps=8) gives lower Leff target -> 0.0 (below BW).
+        Same input, H session (target_reps=8) gives lower Leff target -> 5.5 kg.
 
-        leff_1rm (capped) = 105.23
-        leff_target for H (8 reps): 105.23 * 0.9 / (1 + 8/30) = 74.77
-        added = max(0, 74.77 - 75.164) = 0.0  (target < BW contrib -> bodyweight only)
+        leff_1rm ≈ 113.4 kg.
+        leff_target for H (8 reps): 113.4 * 0.9 / (1 + 8/30) = 80.6
+        added = 80.6 - 75.164 = 5.43 -> 5.5 kg.
         """
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.models import SessionResult, SetResult
@@ -879,17 +878,17 @@ class TestWeightPrescriptionEpley:
             completed_sets=[SetResult(20, 20, 180)],
         )
         result = _calculate_added_weight(exercise, 18, bw, [test_session], "H")
-        assert result == 0.0
+        assert result == 5.5
 
     def test_weight_prescription_no_history_conservative_fallback(self):
-        """No history -> positive float from conservative estimate, not zero."""
+        """No history -> positive float from TM-derived estimate, not zero."""
         from bar_scheduler.core.exercises.registry import get_exercise
         from bar_scheduler.core.planner.load_calculator import _calculate_added_weight
 
         exercise = get_exercise("pull_up")
         result = _calculate_added_weight(exercise, 10, 80.0, [], "S")
         assert result > 0.0
-        assert result == 4.5  # conservative fallback value
+        assert result == 2.5  # TM-derived fallback: best_1rm_from_leff(80, 10) ≈ 106.9
 
     def test_weight_at_threshold_is_zero(self, tmp_path):
         """TM <= threshold -> added weight = 0."""
