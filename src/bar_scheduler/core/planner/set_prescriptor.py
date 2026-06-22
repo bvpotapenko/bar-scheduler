@@ -162,8 +162,12 @@ def calculate_set_prescription(
     # TEST sessions: target is to beat the previous result by 1 rep, not to stop at TM.
     # TM = floor(0.9 × last_test), so round(TM / TM_FACTOR) ≈ last_test.
     # Adding 1 anchors the athlete above their last result; rir_target=0 signals max effort.
+    # When there is no prior test, use params.reps_max ("do your absolute max").
     if session_type == "TEST":
-        target_reps = round(training_max / TM_FACTOR) + 1
+        if latest_test_max is None:
+            target_reps = params.reps_max
+        else:
+            target_reps = round(training_max / TM_FACTOR) + 1
 
     # Level-based set count when exercise defines thresholds and session has sets_by_level
     if params.sets_by_level is not None and exercise.level_thresholds is not None:

@@ -749,3 +749,36 @@ def test_grip_rotation_normal_no_deviation():
     counts = _init_grip_counts(history, exercise)
     assert counts.get("H") == 2
     assert _next_grip("H", counts, exercise) == "supinated"
+
+
+def test_test_session_no_prior_test_targets_reps_max():
+    """
+    TEST session with no prior test history uses params.reps_max as target.
+
+    When TM=1 (no test history), round(1/0.9)+1 = 2 — nonsensical for a first test.
+    The planner should instead use params.reps_max (50 for pull_up) to signal
+    "do your absolute maximum".
+    """
+    exercise = get_exercise("pull_up")
+    ff = FitnessFatigueState()
+    sets = calculate_set_prescription(
+        "TEST", 1, ff, 80.0, exercise=exercise, history=[], latest_test_max=None
+    )
+    assert len(sets) == 1
+    assert sets[0].target_reps == 50
+
+
+def test_test_session_with_prior_test_targets_one_above():
+    """
+    TEST session with prior test history targets last_test + 1 rep.
+
+    last_test_max=10 → TM = floor(0.9×10) = 9
+    target = round(9 / 0.9) + 1 = 10 + 1 = 11
+    """
+    exercise = get_exercise("pull_up")
+    ff = FitnessFatigueState()
+    sets = calculate_set_prescription(
+        "TEST", 9, ff, 80.0, exercise=exercise, history=[], latest_test_max=10
+    )
+    assert len(sets) == 1
+    assert sets[0].target_reps == 11
