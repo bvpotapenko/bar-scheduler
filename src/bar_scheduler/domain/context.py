@@ -80,6 +80,15 @@ class ProgressionGoal:
 
 
 @dataclass(frozen=True)
+class AthleteContext:
+    """Normalization context for fatigue/load math (reference BW, bw share, variants)."""
+
+    reference_bodyweight_kg: float
+    bw_fraction: float = 1.0
+    variant_factors: dict[str, float] | None = None
+
+
+@dataclass(frozen=True)
 class PrescriptionContext:
     """Everything a policy needs to prescribe load/sets for one session slot."""
 
