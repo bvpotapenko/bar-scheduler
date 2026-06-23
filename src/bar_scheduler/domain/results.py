@@ -1,8 +1,17 @@
 """Typed computation results (replace ad-hoc dicts/tuples)."""
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from bar_scheduler.domain.models import FitnessFatigueState, TrainingStatus
+
+
+class ParsedSet(NamedTuple):
+    """One parsed set. Tuple-compatible: ``(reps, added_weight_kg, rest_seconds)``."""
+
+    reps: int
+    added_weight_kg: float
+    rest_seconds: int
 
 
 @dataclass(frozen=True)
