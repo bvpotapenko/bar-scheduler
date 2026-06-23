@@ -5,12 +5,14 @@ This is pure computation -- no Rich, no Typer. The result is a list of
 TimelineEntry objects suitable for display by any client (CLI, Telegram, web).
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
-from bar_scheduler.core.max_estimator import estimate_max_reps_from_session
+from bar_scheduler.core.policies.max_estimation import MaxEstimator
 from bar_scheduler.domain.models import SessionPlan, SessionResult
+
+_MAX_ESTIMATOR = MaxEstimator()
 
 TimelineStatus = Literal["done", "missed", "next", "planned", "extra"]
 
@@ -83,11 +85,12 @@ def _compute_track_b(matched: SessionResult | None) -> dict | None:
     ]
     if len(valid_sets) < 2:
         return None
-    return estimate_max_reps_from_session(
+    estimate = _MAX_ESTIMATOR.estimate(
         [cs.actual_reps for cs in valid_sets],  # type: ignore[misc]
         [cs.rest_seconds_before for cs in valid_sets],
         [cs.rir_reported for cs in valid_sets],
     )
+    return asdict(estimate) if estimate is not None else None
 
 
 def _assign_next_status(entries: list[TimelineEntry], today: str) -> None:
