@@ -1,13 +1,14 @@
 """Exercise management functions for the bar-scheduler API."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from ..core.exercises.registry import get_exercise
-from ..io.user_store import UserStore
-from ..io.serializers import exercise_target_to_dict
-from ._common import _require_profile_store
+from bar_scheduler.core.exercises.registry import get_exercise
+from bar_scheduler.io.user_store import UserStore
+from bar_scheduler.io.serializers import exercise_target_to_dict
+from bar_scheduler.api._common import _require_profile_store
 
 
 def list_exercises() -> dict[str, dict]:
@@ -19,7 +20,7 @@ def list_exercises() -> dict[str, dict]:
     ``has_variant_rotation``, ``bw_fraction``, ``onerm_includes_bodyweight``,
     ``session_params``, ``onerm_explanation``.
     """
-    from ..core.exercises.registry import EXERCISE_REGISTRY
+    from bar_scheduler.core.exercises.registry import all_exercises
 
     import dataclasses
 
@@ -32,11 +33,14 @@ def list_exercises() -> dict[str, dict]:
             "has_variant_rotation": ex.has_variant_rotation,
             "bw_fraction": ex.bw_fraction,
             "onerm_includes_bodyweight": ex.onerm_includes_bodyweight,
-            "session_params": {k: dataclasses.asdict(v) for k, v in ex.session_params.items()},
+            "session_params": {
+                stype: dataclasses.asdict(sparams)
+                for stype, sparams in ex.session_params.items()
+            },
             "onerm_explanation": ex.onerm_explanation,
             "default_item": ex.default_item,
         }
-        for ex in EXERCISE_REGISTRY.values()
+        for ex in all_exercises()
     }
 
 
@@ -59,7 +63,10 @@ def get_exercise_info(exercise_id: str) -> dict:
         "has_variant_rotation": ex.has_variant_rotation,
         "bw_fraction": ex.bw_fraction,
         "onerm_includes_bodyweight": ex.onerm_includes_bodyweight,
-        "session_params": {k: dataclasses.asdict(v) for k, v in ex.session_params.items()},
+        "session_params": {
+            stype: dataclasses.asdict(sparams)
+            for stype, sparams in ex.session_params.items()
+        },
         "onerm_explanation": ex.onerm_explanation,
         "default_item": ex.default_item,
     }
@@ -85,7 +92,7 @@ def get_equipment_catalog(exercise_id: str) -> dict:
         return {"default_item": "", "items": {}}
     return {
         "default_item": ex.default_item,
-        "items": {k: dict(v) for k, v in ex.equipment.items()},
+        "items": {item_id: dict(item_cfg) for item_id, item_cfg in ex.equipment.items()},
     }
 
 
@@ -102,23 +109,21 @@ def set_exercise_target(
     ``weight_kg`` is additional load on top of bodyweight (0 = bodyweight-only goal).
     Raises ``ValueError`` for unknown ``exercise_id`` or invalid values.
     """
-    from ..core.models import ExerciseTarget
+    from bar_scheduler.core.models import ExerciseTarget
 
     get_exercise(exercise_id)
-    target = ExerciseTarget(
-        reps=reps, weight_kg=weight_kg
-    )  # validates reps > 0, weight >= 0
+    target = ExerciseTarget(reps=reps, weight_kg=weight_kg)  # validates reps > 0, weight >= 0
 
     store = _require_profile_store(data_dir)
-    with open(store.profile_path) as f:
-        data = json.load(f)
+    with open(store.profile_path) as fp:
+        raw = json.load(fp)
 
-    if "exercise_targets" not in data:
-        data["exercise_targets"] = {}
-    data["exercise_targets"][exercise_id] = exercise_target_to_dict(target)
+    if "exercise_targets" not in raw:
+        raw["exercise_targets"] = {}
+    raw["exercise_targets"][exercise_id] = exercise_target_to_dict(target)
 
-    with open(store.profile_path, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(store.profile_path, "w") as fp:
+        json.dump(raw, fp, indent=2)
 
 
 def set_exercise_days(
@@ -137,15 +142,15 @@ def set_exercise_days(
         raise ValueError(f"days_per_week must be 1–5, got {days_per_week}")
 
     store = _require_profile_store(data_dir)
-    with open(store.profile_path) as f:
-        data = json.load(f)
+    with open(store.profile_path) as fp:
+        raw = json.load(fp)
 
-    if "exercise_days" not in data:
-        data["exercise_days"] = {}
-    data["exercise_days"][exercise_id] = days_per_week
+    if "exercise_days" not in raw:
+        raw["exercise_days"] = {}
+    raw["exercise_days"][exercise_id] = days_per_week
 
-    with open(store.profile_path, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(store.profile_path, "w") as fp:
+        json.dump(raw, fp, indent=2)
 
 
 def enable_exercise(data_dir: Path, exercise_id: str, *, days_per_week: int) -> None:
@@ -162,24 +167,22 @@ def enable_exercise(data_dir: Path, exercise_id: str, *, days_per_week: int) -> 
 
     store = _require_profile_store(data_dir)
 
-    with open(store.profile_path) as f:
-        data = json.load(f)
+    with open(store.profile_path) as fp:
+        raw = json.load(fp)
 
-    enabled = list(data.get("exercises_enabled", []))
+    enabled = list(raw.get("exercises_enabled", []))
     if exercise_id not in enabled:
         enabled.append(exercise_id)
-        data["exercises_enabled"] = enabled
+        raw["exercises_enabled"] = enabled
 
-    if "exercise_days" not in data:
-        data["exercise_days"] = {}
-    data["exercise_days"][exercise_id] = days_per_week
+    if "exercise_days" not in raw:
+        raw["exercise_days"] = {}
+    raw["exercise_days"][exercise_id] = days_per_week
 
-    with open(store.profile_path, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(store.profile_path, "w") as fp:
+        json.dump(raw, fp, indent=2)
 
-    UserStore(data_dir).init_exercise(
-        exercise_id
-    )  # create JSONL if missing (idempotent)
+    UserStore(data_dir).init_exercise(exercise_id)  # create JSONL if missing (idempotent)
 
 
 def disable_exercise(data_dir: Path, exercise_id: str) -> None:
@@ -192,15 +195,15 @@ def disable_exercise(data_dir: Path, exercise_id: str) -> None:
     """
     store = _require_profile_store(data_dir)
 
-    with open(store.profile_path) as f:
-        data = json.load(f)
+    with open(store.profile_path) as fp:
+        raw = json.load(fp)
 
-    enabled = list(data.get("exercises_enabled", []))
+    enabled = list(raw.get("exercises_enabled", []))
     if exercise_id in enabled:
         enabled.remove(exercise_id)
-        data["exercises_enabled"] = enabled
-        with open(store.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+        raw["exercises_enabled"] = enabled
+        with open(store.profile_path, "w") as fp:
+            json.dump(raw, fp, indent=2)
 
 
 def delete_exercise_history(data_dir: Path, exercise_id: str) -> None:

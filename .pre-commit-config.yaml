@@ -1,0 +1,24 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.3.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: requirements-txt-fixer
+
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: bash -c "ruff check && ruff format"
+        language: system
+
+      - id: lint
+        name: lint
+        entry: bash -c "flake8 ."
+        language: system

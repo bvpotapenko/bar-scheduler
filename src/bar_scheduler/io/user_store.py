@@ -8,8 +8,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from ..core.models import EquipmentState, SessionResult, UserProfile, UserState
-from .serializers import (
+from bar_scheduler.core.models import EquipmentState, SessionResult, UserProfile, UserState
+from bar_scheduler.io.serializers import (
     ValidationError,
     dict_to_equipment_state,
     dict_to_session_result,
@@ -63,9 +63,9 @@ class UserStore:
             return None
 
         try:
-            with open(self.profile_path, "r") as f:
-                data = json.load(f)
-            return dict_to_user_profile(data)
+            with open(self.profile_path, "r") as fp:
+                raw = json.load(fp)
+            return dict_to_user_profile(raw)
         except (json.JSONDecodeError, ValidationError, KeyError):
             return None
 
@@ -79,9 +79,9 @@ class UserStore:
         if not self.profile_path.exists():
             return None
         try:
-            with open(self.profile_path, "r") as f:
-                data = json.load(f)
-            return data.get("plan_start_dates", {}).get(exercise_id)
+            with open(self.profile_path, "r") as fp:
+                raw = json.load(fp)
+            return raw.get("plan_start_dates", {}).get(exercise_id)
         except (json.JSONDecodeError, KeyError):
             return None
 
@@ -98,23 +98,23 @@ class UserStore:
         """
         if not self.profile_path.exists():
             return
-        with open(self.profile_path, "r") as f:
-            data = json.load(f)
-        if "plan_start_dates" not in data:
-            data["plan_start_dates"] = {}
-        data["plan_start_dates"][exercise_id] = date
-        with open(self.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+        with open(self.profile_path, "r") as fp:
+            raw = json.load(fp)
+        if "plan_start_dates" not in raw:
+            raw["plan_start_dates"] = {}
+        raw["plan_start_dates"][exercise_id] = date
+        with open(self.profile_path, "w") as fp:
+            json.dump(raw, fp, indent=2)
 
     def get_plan_weeks(self) -> int | None:
         """Return the last user-specified plan horizon in weeks, or None if never set."""
         if not self.profile_path.exists():
             return None
         try:
-            with open(self.profile_path) as f:
-                data = json.load(f)
-            v = data.get("plan_weeks")
-            return int(v) if v is not None else None
+            with open(self.profile_path) as fp:
+                raw = json.load(fp)
+            weeks = raw.get("plan_weeks")
+            return None if weeks is None else int(weeks)
         except (json.JSONDecodeError, ValueError):
             return None
 
@@ -122,11 +122,11 @@ class UserStore:
         """Persist the user-chosen plan horizon so subsequent plain 'plan' runs reuse it."""
         if not self.profile_path.exists():
             return
-        with open(self.profile_path) as f:
-            data = json.load(f)
-        data["plan_weeks"] = weeks
-        with open(self.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+        with open(self.profile_path) as fp:
+            raw = json.load(fp)
+        raw["plan_weeks"] = weeks
+        with open(self.profile_path, "w") as fp:
+            json.dump(raw, fp, indent=2)
 
     def save_profile(self, profile: UserProfile) -> None:
         """
@@ -137,10 +137,10 @@ class UserStore:
         """
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        data = user_profile_to_dict(profile)
+        raw = user_profile_to_dict(profile)
 
-        with open(self.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+        with open(self.profile_path, "w") as fp:
+            json.dump(raw, fp, indent=2)
 
     def update_bodyweight(self, bodyweight_kg: float) -> None:
         """
@@ -150,32 +150,28 @@ class UserStore:
             bodyweight_kg: New bodyweight in kg
         """
         if not self.profile_path.exists():
-            raise FileNotFoundError(
-                f"Profile not found: {self.profile_path}. Run 'init' first."
-            )
+            raise FileNotFoundError(f"Profile not found: {self.profile_path}. Run 'init' first.")
 
-        with open(self.profile_path, "r") as f:
-            data = json.load(f)
+        with open(self.profile_path, "r") as fp:
+            raw = json.load(fp)
 
-        data["current_bodyweight_kg"] = bodyweight_kg
+        raw["current_bodyweight_kg"] = bodyweight_kg
 
-        with open(self.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+        with open(self.profile_path, "w") as fp:
+            json.dump(raw, fp, indent=2)
 
     def update_language(self, lang: str) -> None:
         """Update the display language in profile.json."""
         if not self.profile_path.exists():
-            raise FileNotFoundError(
-                f"Profile not found: {self.profile_path}. Run 'init' first."
-            )
-        with open(self.profile_path) as f:
-            data = json.load(f)
+            raise FileNotFoundError(f"Profile not found: {self.profile_path}. Run 'init' first.")
+        with open(self.profile_path) as fp:
+            raw = json.load(fp)
         if lang == "en":
-            data.pop("language", None)
+            raw.pop("language", None)
         else:
-            data["language"] = lang
-        with open(self.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+            raw["language"] = lang
+        with open(self.profile_path, "w") as fp:
+            json.dump(raw, fp, indent=2)
 
     def load_history(self, exercise_id: str) -> list[SessionResult]:
         """
@@ -189,35 +185,31 @@ class UserStore:
         """
         path = self.history_path(exercise_id)
         if not path.exists():
-            raise FileNotFoundError(
-                f"History file not found: {path}. Run 'init' first."
-            )
+            raise FileNotFoundError(f"History file not found: {path}. Run 'init' first.")
 
         sessions: list[SessionResult] = []
 
-        with open(path, "r") as f:
-            for line_num, line in enumerate(f, 1):
+        with open(path, "r") as fp:
+            for line_num, line in enumerate(fp, 1):
                 line = line.strip()
                 if not line:
                     continue
 
                 try:
-                    data = json.loads(line)
+                    raw = json.loads(line)
 
                     # Skip profile records (legacy support)
-                    if data.get("type") == "profile":
+                    if raw.get("type") == "profile":
                         continue
 
-                    session = dict_to_session_result(data)
+                    session = dict_to_session_result(raw)
                     sessions.append(session)
 
-                except (json.JSONDecodeError, ValidationError) as e:
-                    raise ValidationError(
-                        f"Error parsing line {line_num} in {path}: {e}"
-                    ) from e
+                except (json.JSONDecodeError, ValidationError) as exc:
+                    raise ValidationError(f"Error parsing line {line_num} in {path}: {exc}") from exc
 
         # Sort by date
-        sessions.sort(key=lambda s: s.date)
+        sessions.sort(key=lambda sess: sess.date)
 
         return sessions
 
@@ -234,9 +226,7 @@ class UserStore:
         """
         profile = self.load_profile()
         if profile is None:
-            raise FileNotFoundError(
-                f"Profile not found: {self.profile_path}. Run 'init' first."
-            )
+            raise FileNotFoundError(f"Profile not found: {self.profile_path}. Run 'init' first.")
 
         history = self.load_history(exercise_id)
 
@@ -257,9 +247,7 @@ class UserStore:
         """
         path = self.history_path(session.exercise_id)
         if not path.exists():
-            raise FileNotFoundError(
-                f"History file not found: {path}. Run 'init' first."
-            )
+            raise FileNotFoundError(f"History file not found: {path}. Run 'init' first.")
 
         # Load existing sessions
         sessions = self.load_history(session.exercise_id)
@@ -268,15 +256,15 @@ class UserStore:
         session_date = datetime.strptime(session.date, "%Y-%m-%d")
         insert_idx = len(sessions)
 
-        for i, existing in enumerate(sessions):
+        for slot_idx, existing in enumerate(sessions):
             existing_date = datetime.strptime(existing.date, "%Y-%m-%d")
             if session_date < existing_date:
-                insert_idx = i
+                insert_idx = slot_idx
                 break
             elif session_date == existing_date:
                 # Same date: replace existing session of same type, or insert after
                 if existing.session_type == session.session_type:
-                    sessions[i] = session
+                    sessions[slot_idx] = session
                     insert_idx = -1  # Signal that we replaced
                     break
 
@@ -294,9 +282,9 @@ class UserStore:
             exercise_id: Exercise identifier
             sessions: Sessions to write
         """
-        with open(self.history_path(exercise_id), "w") as f:
+        with open(self.history_path(exercise_id), "w") as fp:
             for session in sessions:
-                f.write(session_to_json_line(session) + "\n")
+                fp.write(f"{session_to_json_line(session)}\n")
 
     def get_latest_session(self, exercise_id: str) -> SessionResult | None:
         """
@@ -325,7 +313,7 @@ class UserStore:
         sessions = self.load_history(exercise_id)
         target = datetime.strptime(date, "%Y-%m-%d")
 
-        return [s for s in sessions if datetime.strptime(s.date, "%Y-%m-%d") > target]
+        return [sess for sess in sessions if datetime.strptime(sess.date, "%Y-%m-%d") > target]
 
     def delete_session_at(self, exercise_id: str, index: int) -> None:
         """
@@ -340,18 +328,17 @@ class UserStore:
         """
         sessions = self.load_history(exercise_id)
         if index < 0 or index >= len(sessions):
-            raise IndexError(
-                f"Session index {index} out of range (0–{len(sessions) - 1})"
-            )
-        del sessions[index]
+            max_idx = len(sessions) - 1
+            raise IndexError(f"Session index {index} out of range (0–{max_idx})")
+        sessions.pop(index)
         self._write_sessions(exercise_id, sessions)
 
     def _input_files_mtime(self, exercise_id: str) -> float:
         """Max mtime of profile.json and history JSONL (the two plan inputs)."""
         mtimes = [
-            p.stat().st_mtime
-            for p in (self.profile_path, self.history_path(exercise_id))
-            if p.exists()
+            fpath.stat().st_mtime
+            for fpath in (self.profile_path, self.history_path(exercise_id))
+            if fpath.exists()
         ]
         return max(mtimes) if mtimes else 0.0
 
@@ -361,9 +348,9 @@ class UserStore:
         if not path.exists():
             return None
         try:
-            with open(path) as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else None
+            with open(path) as fp:
+                raw = json.load(fp)
+            return raw if isinstance(raw, dict) else None
         except (json.JSONDecodeError, OSError):
             return None
 
@@ -372,8 +359,8 @@ class UserStore:
         import time
 
         path = self.data_dir / f"{exercise_id}_plan_cache.json"
-        with open(path, "w") as f:
-            json.dump({"generated_at": time.time(), "plans": plans}, f)
+        with open(path, "w") as fp:
+            json.dump({"generated_at": time.time(), "plans": plans}, fp)
 
     # ------------------------------------------------------------------
     # Equipment profile persistence
@@ -389,12 +376,12 @@ class UserStore:
         if not self.profile_path.exists():
             return None
         try:
-            with open(self.profile_path) as f:
-                data = json.load(f)
-            raw = data.get("equipment", {}).get(exercise_id)
-            if raw is None:
+            with open(self.profile_path) as fp:
+                raw = json.load(fp)
+            equipment_dict = raw.get("equipment", {}).get(exercise_id)
+            if equipment_dict is None:
                 return None
-            return dict_to_equipment_state(raw)
+            return dict_to_equipment_state(equipment_dict)
         except (json.JSONDecodeError, KeyError, TypeError):
             return None
 
@@ -407,13 +394,13 @@ class UserStore:
         """
         if not self.profile_path.exists():
             return
-        with open(self.profile_path) as f:
-            data = json.load(f)
-        if "equipment" not in data:
-            data["equipment"] = {}
-        data["equipment"][new_state.exercise_id] = equipment_state_to_dict(new_state)
-        with open(self.profile_path, "w") as f:
-            json.dump(data, f, indent=2)
+        with open(self.profile_path) as fp:
+            raw = json.load(fp)
+        if "equipment" not in raw:
+            raw["equipment"] = {}
+        raw["equipment"][new_state.exercise_id] = equipment_state_to_dict(new_state)
+        with open(self.profile_path, "w") as fp:
+            json.dump(raw, fp, indent=2)
 
     def clear_history(self, exercise_id: str) -> None:
         """

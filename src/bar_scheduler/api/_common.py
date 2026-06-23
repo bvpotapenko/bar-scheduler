@@ -1,15 +1,16 @@
 """Shared exceptions and private helpers for the bar-scheduler API."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from ..core.equipment import compute_leff
-from ..core.exercises.base import ExerciseDefinition
-from ..core.metrics import best_1rm_from_leff
-from ..core.models import SessionResult
-from ..core.timeline import TimelineEntry
-from ..io.user_store import UserStore
+from bar_scheduler.core.equipment import compute_leff
+from bar_scheduler.core.exercises.base import ExerciseDefinition
+from bar_scheduler.core.metrics import best_onerm_from_leff
+from bar_scheduler.core.models import SessionResult
+from bar_scheduler.core.timeline import TimelineEntry
+from bar_scheduler.io.user_store import UserStore
 
 
 # ---------------------------------------------------------------------------
@@ -58,9 +59,7 @@ def _require_store(data_dir: Path, exercise_id: str) -> UserStore:
     return store
 
 
-def _resolve_plan_start(
-    store: UserStore, exercise_id: str, history: list[SessionResult]
-) -> str:
+def _resolve_plan_start(store: UserStore, exercise_id: str, history: list[SessionResult]) -> str:
     plan_start = store.get_plan_start_date(exercise_id)
     if plan_start is None:
         if history:
@@ -72,7 +71,7 @@ def _resolve_plan_start(
 
 
 def _total_weeks(plan_start_date: str, weeks_ahead: int = 4) -> int:
-    from ..core.config import MAX_PLAN_WEEKS
+    from bar_scheduler.core.config import MAX_PLAN_WEEKS
 
     plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
     weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
@@ -84,94 +83,94 @@ def _session_performance_metrics(
 ) -> dict:
     """Compute volume_session, avg_volume_set, estimated_1rm from (leff, reps) pairs."""
     volumes = [leff * reps for leff, reps in sets_leff_reps]
-    n = len(volumes)
+    count = len(volumes)
     volume_session = sum(volumes)
-    avg_volume_set = volume_session / n if n > 0 else 0.0
-    best_1rm: float | None = None
+    avg_volume_set = volume_session / count if count > 0 else 0.0
+    best_onerm: float | None = None
     for leff, reps in sets_leff_reps:
-        est = best_1rm_from_leff(leff, reps)
-        if est is not None and (best_1rm is None or est > best_1rm):
-            best_1rm = est
+        est = best_onerm_from_leff(leff, reps)
+        if est is None:
+            continue
+        if best_onerm is None or est > best_onerm:
+            best_onerm = est
     return {
         "volume_session": round(volume_session, 2),
         "avg_volume_set": round(avg_volume_set, 2),
-        "estimated_1rm": round(best_1rm, 2) if best_1rm is not None else None,
+        "estimated_1rm": None if best_onerm is None else round(best_onerm, 2),
     }
 
 
 def _timeline_entry_to_dict(
-    e: TimelineEntry,
+    entry: TimelineEntry,
     exercise: ExerciseDefinition | None = None,
     current_bw: float | None = None,
 ) -> dict:
     """Serialise a TimelineEntry to a JSON-friendly dict."""
     planned_sets = None
-    if e.actual is not None and e.actual.planned_sets:
+    if entry.actual is not None and entry.actual.planned_sets:
         planned_sets = [
             {
-                "reps": s.target_reps,
-                "weight_kg": s.added_weight_kg,
-                "rest_s": s.rest_seconds_before,
+                "reps": ps.target_reps,
+                "weight_kg": ps.added_weight_kg,
+                "rest_s": ps.rest_seconds_before,
             }
-            for s in e.actual.planned_sets
+            for ps in entry.actual.planned_sets
         ]
-    elif e.planned is not None and e.planned.sets:
+    elif entry.planned is not None and entry.planned.sets:
         planned_sets = [
             {
-                "reps": s.target_reps,
-                "weight_kg": s.added_weight_kg,
-                "rest_s": s.rest_seconds_before,
+                "reps": ps.target_reps,
+                "weight_kg": ps.added_weight_kg,
+                "rest_s": ps.rest_seconds_before,
             }
-            for s in e.planned.sets
+            for ps in entry.planned.sets
         ]
 
     actual_sets = None
-    if e.actual is not None:
+    if entry.actual is not None:
         actual_sets = [
             {
-                "reps": s.actual_reps,
-                "weight_kg": s.added_weight_kg,
-                "rest_s": s.rest_seconds_before,
+                "reps": cs.actual_reps,
+                "weight_kg": cs.added_weight_kg,
+                "rest_s": cs.rest_seconds_before,
             }
-            for s in e.actual.completed_sets
-            if s.actual_reps is not None
+            for cs in entry.actual.completed_sets
+            if cs.actual_reps is not None
         ]
 
-    plan_type = (
-        e.actual.session_type
-        if e.actual
-        else (e.planned.session_type if e.planned else "")
-    )
-    plan_grip = e.actual.grip if e.actual else (e.planned.grip if e.planned else "")
+    if entry.actual:
+        plan_type, plan_grip = entry.actual.session_type, entry.actual.grip
+    elif entry.planned:
+        plan_type, plan_grip = entry.planned.session_type, entry.planned.grip
+    else:
+        plan_type, plan_grip = "", ""
 
     # Performance metrics for this session.
     # For completed sessions: use cached session_metrics (None if old record).
     # For planned/future sessions: compute from prescribed sets if exercise/BW available.
     session_metrics: dict | None = None
-    if e.actual is not None:
-        session_metrics = e.actual.session_metrics
-    elif e.planned is not None and exercise is not None and current_bw is not None:
+    if entry.actual is not None:
+        session_metrics = entry.actual.session_metrics
+    elif entry.planned is not None and exercise is not None and current_bw is not None:
         leff_reps = [
-            (compute_leff(exercise.bw_fraction, current_bw, s.added_weight_kg, 0.0), s.target_reps)
-            for s in e.planned.sets
-            if s.target_reps > 0
+            (compute_leff(exercise.bw_fraction, current_bw, ps.added_weight_kg, 0.0), ps.target_reps)
+            for ps in entry.planned.sets
+            if ps.target_reps > 0
         ]
         if leff_reps:
             session_metrics = _session_performance_metrics(leff_reps)
 
     return {
-        "date": e.date,
-        "week": e.week_number,
+        "date": entry.date,
+        "week": entry.week_number,
         "type": plan_type,
         "grip": plan_grip,
-        "status": e.status,
-        "id": e.actual_id,
-        "expected_tm": e.planned.expected_tm if e.planned else None,
+        "status": entry.status,
+        "id": entry.actual_id,
+        "expected_tm": entry.planned.expected_tm if entry.planned else None,
         "prescribed_sets": planned_sets,
         "actual_sets": actual_sets,
-        "track_b": e.track_b,
+        "track_b": entry.track_b,
         "session_metrics": session_metrics,
-        "prescribed_assistance_kg": (
-            e.planned.prescribed_assistance_kg if e.planned is not None else None
-        ),
+        "prescribed_assistance_kg": (entry.planned.prescribed_assistance_kg if entry.planned else None),
     }

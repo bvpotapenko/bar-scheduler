@@ -1,8 +1,8 @@
 """Utility functions for the bar-scheduler API."""
+
 from __future__ import annotations
 
 from pathlib import Path
-
 
 
 def get_data_dir() -> Path:
@@ -18,18 +18,18 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
     (``"8@0/180"``, ``"8 0 180"``, ``"8"``).
     Raises ``ValidationError`` if the string is empty or cannot be parsed.
     """
-    from ..io.serializers import parse_sets_string as _parse
+    from bar_scheduler.io.serializers import parse_sets_string as _parse
 
     return _parse(sets_str)
 
 
-def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
+def parse_compact_sets(sets_str: str) -> list[tuple[int, float, int]] | None:
     """
     Try to parse a compact sets string.
 
     Returns a list of ``(reps, added_weight_kg, rest_seconds)`` tuples if the
     string matches compact format, or ``None`` if it does not.
     """
-    from ..io.serializers import parse_compact_sets as _parse
+    from bar_scheduler.io.serializers import parse_compact_sets as _parse
 
-    return _parse(s)
+    return _parse(sets_str)

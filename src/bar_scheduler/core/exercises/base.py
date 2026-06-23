@@ -8,8 +8,12 @@ configuration (reps, sets, rest, RIR) tuned for the specific exercise.
 
 from dataclasses import dataclass, field
 
+# Plain (non-frozen) value dataclasses: they double as the OmegaConf structured
+# schema for the per-exercise YAML files (frozen nodes are read-only and cannot
+# be merged onto). They are treated as read-only by all consumers.
 
-@dataclass(frozen=True)
+
+@dataclass
 class SessionTypeParams:
     """Parameters for one session type within an exercise."""
 
@@ -17,17 +21,17 @@ class SessionTypeParams:
     reps_fraction_high: float  # Upper bound as fraction of TM
     reps_min: int  # Absolute minimum reps per set
     reps_max: int  # Absolute maximum reps per set
-    sets_min: int
-    sets_max: int
     rest_min: int  # Rest in seconds
     rest_max: int
     rir_target: int  # Reps-in-reserve target
+    sets_min: int = 1
+    sets_max: int = 10
     # Level-based set count. Index = level (0=lowest). None = midpoint fallback.
     # Levels defined by ExerciseDefinition.level_thresholds.
     sets_by_level: list[int] | None = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class ExerciseDefinition:
     """
     Full configuration for one exercise.
@@ -66,9 +70,7 @@ class ExerciseDefinition:
     onerm_explanation: str
 
     # Added-weight formula
-    weight_increment_fraction: (
-        float  # Fraction of effective load per TM point above threshold
-    )
+    weight_increment_fraction: float  # Fraction of effective load per TM point above threshold
     weight_tm_threshold: int  # TM must exceed this before adding weight
     max_added_weight_kg: float  # Absolute cap on added weight
 

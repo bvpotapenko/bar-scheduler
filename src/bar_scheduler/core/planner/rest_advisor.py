@@ -2,9 +2,9 @@
 
 import math
 
-from ..config import DROP_OFF_THRESHOLD, READINESS_Z_LOW
-from ..exercises.base import ExerciseDefinition
-from ..models import SessionResult, SessionType
+from bar_scheduler.core.config import DROP_OFF_THRESHOLD, READINESS_Z_LOW
+from bar_scheduler.core.exercises.base import ExerciseDefinition
+from bar_scheduler.core.models import SessionResult, SessionType
 
 
 def _analyze_rir(sets: list, rest: int) -> int:
@@ -14,12 +14,12 @@ def _analyze_rir(sets: list, rest: int) -> int:
     Any set with RIR ≤ 1 -> +30 s (near failure).
     All sets with RIR ≥ 3 -> −15 s (felt easy).
     """
-    rirs = [s.rir_reported for s in sets if s.rir_reported is not None]
+    rirs = [set_rec.rir_reported for set_rec in sets if set_rec.rir_reported is not None]
     if not rirs:
         return rest
-    if any(r <= 1 for r in rirs):
+    if any(rir_val <= 1 for rir_val in rirs):
         return rest + 30
-    if all(r >= 3 for r in rirs):
+    if all(rir_val >= 3 for rir_val in rirs):
         return rest - 15
     return rest
 
@@ -30,7 +30,7 @@ def _analyze_rep_drop(sets: list, rest: int) -> int:
 
     Drop-off > DROP_OFF_THRESHOLD -> +15 s.
     """
-    reps_list = [s.actual_reps for s in sets if s.actual_reps is not None]
+    reps_list = [set_rec.actual_reps for set_rec in sets if set_rec.actual_reps is not None]
     if len(reps_list) >= 2 and reps_list[0] > 0:
         drop_off = (reps_list[0] - reps_list[-1]) / reps_list[0]
         if drop_off > DROP_OFF_THRESHOLD:
@@ -48,8 +48,8 @@ def _adjust_for_readiness(ff_state, rest: int) -> int:
         return rest
     readiness = ff_state.fitness - ff_state.fatigue
     readiness_var = max(ff_state.readiness_var, 0.01)
-    z = (readiness - ff_state.readiness_mean) / math.sqrt(readiness_var)
-    if z < READINESS_Z_LOW:
+    z_score = (readiness - ff_state.readiness_mean) / math.sqrt(readiness_var)
+    if z_score < READINESS_Z_LOW:
         return rest + 30
     return rest
 
@@ -57,7 +57,7 @@ def _adjust_for_readiness(ff_state, rest: int) -> int:
 def _adjust_for_user_rest_pattern(
     recent_sessions: list[SessionResult],
     rest: int,
-    params,
+    sparams,
 ) -> int:
     """
     Shift rest prescription toward the user's actual rest behaviour.
@@ -67,17 +67,17 @@ def _adjust_for_user_rest_pattern(
     Only applied when ≥ 3 actual-rest data points exist.
     """
     actual_rests = [
-        s.rest_seconds_before
+        set_rec.rest_seconds_before
         for session in recent_sessions
-        for s in session.completed_sets
-        if s.rest_seconds_before > 0
+        for set_rec in session.completed_sets
+        if set_rec.rest_seconds_before > 0
     ]
     if len(actual_rests) < 3:
         return rest
     avg_actual = sum(actual_rests) / len(actual_rests)
-    if avg_actual < params.rest_min * 0.85:
+    if avg_actual < sparams.rest_min * 0.85:
         return rest - 20
-    if avg_actual > params.rest_max * 1.10:
+    if avg_actual > sparams.rest_max * 1.10:
         return rest + 20
     return rest
 
@@ -109,14 +109,14 @@ def calculate_adaptive_rest(
     Returns:
         Recommended rest in seconds
     """
-    params = exercise.session_params[session_type]
-    rest = (params.rest_min + params.rest_max) // 2
+    sparams = exercise.session_params[session_type]
+    rest = (sparams.rest_min + sparams.rest_max) // 2
 
     if not recent_sessions:
         return rest
 
     last = recent_sessions[-1]
-    sets = [s for s in last.completed_sets if s.actual_reps is not None]
+    sets = [set_rec for set_rec in last.completed_sets if set_rec.actual_reps is not None]
 
     if not sets:
         return rest
@@ -124,6 +124,6 @@ def calculate_adaptive_rest(
     rest = _analyze_rir(sets, rest)
     rest = _analyze_rep_drop(sets, rest)
     rest = _adjust_for_readiness(ff_state, rest)
-    rest = _adjust_for_user_rest_pattern(recent_sessions, rest, params)
+    rest = _adjust_for_user_rest_pattern(recent_sessions, rest, sparams)
 
-    return max(params.rest_min, min(params.rest_max, rest))
+    return max(sparams.rest_min, min(sparams.rest_max, rest))

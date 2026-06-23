@@ -2,14 +2,14 @@
 
 from datetime import datetime, timedelta
 
-from ..config import (
-    SCHEDULE_1_DAYS,
-    SCHEDULE_2_DAYS,
-    SCHEDULE_3_DAYS,
-    SCHEDULE_4_DAYS,
-    SCHEDULE_5_DAYS,
+from bar_scheduler.core.config import (
+    SCHEDULE_ONE_DAYS,
+    SCHEDULE_TWO_DAYS,
+    SCHEDULE_THREE_DAYS,
+    SCHEDULE_FOUR_DAYS,
+    SCHEDULE_FIVE_DAYS,
 )
-from ..models import SessionResult
+from bar_scheduler.core.models import SessionResult
 
 
 def get_schedule_template(days_per_week: int) -> list[str]:
@@ -23,14 +23,14 @@ def get_schedule_template(days_per_week: int) -> list[str]:
         List of session types for the week
     """
     if days_per_week == 1:
-        return SCHEDULE_1_DAYS.copy()
+        return SCHEDULE_ONE_DAYS.copy()
     if days_per_week == 2:
-        return SCHEDULE_2_DAYS.copy()
+        return SCHEDULE_TWO_DAYS.copy()
     if days_per_week == 4:
-        return SCHEDULE_4_DAYS.copy()
+        return SCHEDULE_FOUR_DAYS.copy()
     if days_per_week == 5:
-        return SCHEDULE_5_DAYS.copy()
-    return SCHEDULE_3_DAYS.copy()
+        return SCHEDULE_FIVE_DAYS.copy()
+    return SCHEDULE_THREE_DAYS.copy()
 
 
 def get_next_session_type_index(
@@ -53,7 +53,7 @@ def get_next_session_type_index(
     Returns:
         Index into schedule for the first planned session
     """
-    non_test = [s for s in history if s.session_type != "TEST"]
+    non_test = [sess for sess in history if sess.session_type != "TEST"]
     if not non_test:
         return 0
     last_type = non_test[-1].session_type
@@ -108,8 +108,8 @@ def calculate_session_days(
 
     for week in range(num_weeks):
         week_start = start_date + timedelta(days=week * 7)
-        for i, session_type in enumerate(schedule):
-            session_date = week_start + timedelta(days=day_offsets[i])
+        for slot_idx, session_type in enumerate(schedule):
+            session_date = week_start + timedelta(days=day_offsets[slot_idx])
             sessions.append((session_date, session_type))
 
     return sessions
