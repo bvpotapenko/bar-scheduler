@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from bar_scheduler.core.models import (
+from bar_scheduler.domain.models import (
     EquipmentSnapshot,
     EquipmentState,
     ExerciseTarget,

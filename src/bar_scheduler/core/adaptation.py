@@ -29,7 +29,7 @@ from bar_scheduler.core.metrics import (
     trend_slope_per_week,
     weekly_compliance,
 )
-from bar_scheduler.core.models import FitnessFatigueState, SessionResult, TrainingStatus
+from bar_scheduler.domain.models import FitnessFatigueState, SessionResult, TrainingStatus
 from bar_scheduler.core.physiology import build_fitness_fatigue_state, predicted_max_with_readiness
 
 

@@ -16,7 +16,7 @@ from bar_scheduler.core.config import (
     REST_REF_SECONDS,
     TM_FACTOR,
 )
-from bar_scheduler.core.models import SessionResult, SetResult
+from bar_scheduler.domain.models import SessionResult, SetResult
 
 
 def rest_factor(rest_seconds: int) -> float:
@@ -175,7 +175,9 @@ def session_max_reps(session: SessionResult) -> int:
         Max reps from bodyweight-only sets (or all sets if no BW-only), or 0
     """
     bw_only_sets = [
-        sr for sr in session.completed_sets if sr.actual_reps is not None and sr.added_weight_kg == 0
+        sr
+        for sr in session.completed_sets
+        if sr.actual_reps is not None and sr.added_weight_kg == 0
     ]
 
     if bw_only_sets:
@@ -211,7 +213,9 @@ def session_avg_rest(session: SessionResult) -> float:
     if not session.completed_sets:
         return 0.0
 
-    return sum(sr.rest_seconds_before for sr in session.completed_sets) / len(session.completed_sets)
+    return sum(sr.rest_seconds_before for sr in session.completed_sets) / len(
+        session.completed_sets
+    )
 
 
 def get_test_sessions(history: list[SessionResult]) -> list[SessionResult]:
@@ -366,7 +370,11 @@ def blended_onerm_added(bw_load_kg: float, reps: int) -> float | None:
     if reps <= 5:
         total = (brzycki_onerm(bw_load_kg, reps) + lander_onerm(bw_load_kg, reps)) / 2
     elif reps <= 10:
-        total = (brzycki_onerm(bw_load_kg, reps) + lander_onerm(bw_load_kg, reps) + epley_onerm(bw_load_kg, reps)) / 3
+        total = (
+            brzycki_onerm(bw_load_kg, reps)
+            + lander_onerm(bw_load_kg, reps)
+            + epley_onerm(bw_load_kg, reps)
+        ) / 3
     else:  # 11 ≤ reps ≤ 20
         total = (lombardi_onerm(bw_load_kg, reps) + epley_onerm(bw_load_kg, reps)) / 2
     return max(0.0, total - bw_load_kg)
@@ -593,7 +601,9 @@ def trend_slope_per_week(
         latest_date = datetime.strptime(test_sessions[-1].date, "%Y-%m-%d")
         cutoff = latest_date - timedelta(days=window_days)
 
-        filtered = [sess for sess in test_sessions if datetime.strptime(sess.date, "%Y-%m-%d") >= cutoff]
+        filtered = [
+            sess for sess in test_sessions if datetime.strptime(sess.date, "%Y-%m-%d") >= cutoff
+        ]
     else:
         filtered = []
 

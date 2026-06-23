@@ -34,8 +34,7 @@ def list_exercises() -> dict[str, dict]:
             "bw_fraction": ex.bw_fraction,
             "onerm_includes_bodyweight": ex.onerm_includes_bodyweight,
             "session_params": {
-                stype: dataclasses.asdict(sparams)
-                for stype, sparams in ex.session_params.items()
+                stype: dataclasses.asdict(sparams) for stype, sparams in ex.session_params.items()
             },
             "onerm_explanation": ex.onerm_explanation,
             "default_item": ex.default_item,
@@ -64,8 +63,7 @@ def get_exercise_info(exercise_id: str) -> dict:
         "bw_fraction": ex.bw_fraction,
         "onerm_includes_bodyweight": ex.onerm_includes_bodyweight,
         "session_params": {
-            stype: dataclasses.asdict(sparams)
-            for stype, sparams in ex.session_params.items()
+            stype: dataclasses.asdict(sparams) for stype, sparams in ex.session_params.items()
         },
         "onerm_explanation": ex.onerm_explanation,
         "default_item": ex.default_item,
@@ -109,7 +107,7 @@ def set_exercise_target(
     ``weight_kg`` is additional load on top of bodyweight (0 = bodyweight-only goal).
     Raises ``ValueError`` for unknown ``exercise_id`` or invalid values.
     """
-    from bar_scheduler.core.models import ExerciseTarget
+    from bar_scheduler.domain.models import ExerciseTarget
 
     get_exercise(exercise_id)
     target = ExerciseTarget(reps=reps, weight_kg=weight_kg)  # validates reps > 0, weight >= 0

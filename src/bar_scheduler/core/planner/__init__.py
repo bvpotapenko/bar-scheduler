@@ -30,7 +30,10 @@ from bar_scheduler.core.planner.grip_selector import (
 )
 
 # --- Load calculation (imported by test_cli_smoke.py) ---
-from bar_scheduler.core.planner.load_calculator import _calculate_added_weight, calculate_machine_assistance
+from bar_scheduler.core.planner.load_calculator import (
+    _calculate_added_weight,
+    calculate_machine_assistance,
+)
 
 # --- Rest calculation (imported by test_core_formulas.py) ---
 from bar_scheduler.core.planner.rest_advisor import calculate_adaptive_rest

@@ -22,7 +22,7 @@ from bar_scheduler.core.config import (
 )
 from bar_scheduler.core.exercises.base import ExerciseDefinition
 from bar_scheduler.core.exercises.registry import get_exercise
-from bar_scheduler.core.models import (
+from bar_scheduler.domain.models import (
     SessionPlan,
     SessionResult,
     SetResult,
@@ -101,7 +101,10 @@ def _compute_week_prog(
     # driving higher Epley 1RM and thus higher weight prescription.
     assert exercise_target is not None  # weighted_goal implies this
     current_weight = estimate_prescription_weight(
-        history, exercise, bodyweight_kg, exercise_target.reps,  # type: ignore[union-attr]
+        history,
+        exercise,
+        bodyweight_kg,
+        exercise_target.reps,  # type: ignore[union-attr]
         available_weights_kg=available_weights_kg,
     )
     goal_met = (
@@ -228,7 +231,9 @@ def _plan_core(
     )
 
     # Stable week-number anchor: first session in ALL history for this exercise
-    original_history = [sess for sess in user_state.history if sess.exercise_id == exercise.exercise_id]
+    original_history = [
+        sess for sess in user_state.history if sess.exercise_id == exercise.exercise_id
+    ]
     first_date: datetime | None = (
         datetime.strptime(original_history[0].date, "%Y-%m-%d") if original_history else None
     )
@@ -261,8 +266,13 @@ def _plan_core(
         # Apply weekly TM progression exactly once per calendar-week boundary
         if session_week_idx > current_plan_week_idx:
             tm_float += _compute_week_prog(
-                tm_float, weighted_goal, exercise_target, user_target,
-                history, exercise, user_state.profile.bodyweight_kg,
+                tm_float,
+                weighted_goal,
+                exercise_target,
+                user_target,
+                history,
+                exercise,
+                user_state.profile.bodyweight_kg,
                 available_weights_kg,
             )
             current_plan_week_idx = session_week_idx
@@ -276,18 +286,16 @@ def _plan_core(
             grip = exercise.primary_variant
 
         week_num = (
-            session_week_idx + 1
-            if first_monday is None
-            else (date - first_monday).days // 7 + 1
+            session_week_idx + 1 if first_monday is None else (date - first_monday).days // 7 + 1
         )
 
         sess_params = exercise.session_params[session_type]
 
         # Only sessions strictly before this slot's date: logging at D must not
         # change adaptive rest for D or any earlier slot.
-        recent_same_type = [hs for hs in history_by_type.get(session_type, []) if hs.date < date_str][
-            -5:
-        ]
+        recent_same_type = [
+            hs for hs in history_by_type.get(session_type, []) if hs.date < date_str
+        ][-5:]
 
         if available_machine_assistance_kg:
             prescribed_assistance = calculate_machine_assistance(
