@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bar_scheduler.core.adaptation import get_training_status as _get_training_status
+from bar_scheduler.containers import container
 from bar_scheduler.core.exercises.registry import get_exercise
-from bar_scheduler.api._common import _require_store
+from bar_scheduler.domain.context import EquipmentConstraints, PrescriptionContext
+from bar_scheduler.api._common import _assistance_for_item, _require_store
 
 
 def update_equipment(
@@ -90,10 +91,6 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         get_assistance_kg as _get_assistance_kg,
         recommend_equipment_item,
     )
-    from bar_scheduler.core.planner.load_calculator import (
-        calculate_band_assistance,
-        calculate_machine_assistance,
-    )
 
     store = _require_store(data_dir, exercise_id)
     state = store.load_current_equipment(exercise_id)
@@ -101,32 +98,20 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         return None
     ex = get_exercise(exercise_id)
     user_state = store.load_user_state(exercise_id)
-    current_tm = _get_training_status(
+    current_tm = container.training_state().status(
         user_state.history, user_state.profile.bodyweight_kg
     ).training_max
     recommended = recommend_equipment_item(state.available_items, ex, current_tm)
-    # Compute recommended assistance using H-session target reps as reference
-    history = [sess for sess in user_state.history if sess.exercise_id == exercise_id]
-    if recommended == "MACHINE_ASSISTED" and state.available_machine_assistance_kg:
-        recommended_assistance_kg = calculate_machine_assistance(
-            ex,
-            current_tm,
-            user_state.profile.bodyweight_kg,
-            history,
-            "H",
-            available_machine_assistance_kg=state.available_machine_assistance_kg,
-        )
-    elif recommended == "BAND_SET" and state.available_band_assistance_kg:
-        recommended_assistance_kg = calculate_band_assistance(
-            ex,
-            current_tm,
-            user_state.profile.bodyweight_kg,
-            history,
-            "H",
-            available_band_assistance_kg=state.available_band_assistance_kg,
-        )
-    else:
-        recommended_assistance_kg = 0.0
+    # Recommended assistance uses H-session target reps as the reference.
+    ctx = PrescriptionContext(
+        exercise=ex,
+        training_max=current_tm,
+        bodyweight_kg=user_state.profile.bodyweight_kg,
+        history=tuple(s for s in user_state.history if s.exercise_id == exercise_id),
+        session_type="H",
+        equipment=EquipmentConstraints.from_state(state),
+    )
+    recommended_assistance_kg = _assistance_for_item(recommended, state, ctx) or 0.0
     return {
         "exercise_id": state.exercise_id,
         "recommended_item": recommended,

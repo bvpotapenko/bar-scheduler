@@ -7,7 +7,7 @@ from pathlib import Path
 
 from bar_scheduler.core.equipment import compute_leff
 from bar_scheduler.core.exercises.base import ExerciseDefinition
-from bar_scheduler.core.metrics import best_onerm_from_leff
+from bar_scheduler.core.math.formulas import best_onerm_from_leff
 from bar_scheduler.domain.models import SessionResult
 from bar_scheduler.core.timeline import TimelineEntry
 from bar_scheduler.io.user_store import UserStore
@@ -76,6 +76,18 @@ def _total_weeks(plan_start_date: str, weeks_ahead: int = 4) -> int:
     plan_start_dt = datetime.strptime(plan_start_date, "%Y-%m-%d")
     weeks_since_start = max(0, (datetime.now() - plan_start_dt).days // 7)
     return max(2, min(weeks_since_start + weeks_ahead, MAX_PLAN_WEEKS * 3))
+
+
+def _assistance_for_item(active_item: str, eq_state, ctx) -> float | None:
+    """Prescribed machine/band assistance for the recommended item (None otherwise)."""
+    from bar_scheduler.containers import container
+
+    calc = container.load_calculator()
+    if active_item == "MACHINE_ASSISTED" and eq_state.available_machine_assistance_kg:
+        return calc.machine_assistance(ctx)
+    if active_item == "BAND_SET" and eq_state.available_band_assistance_kg:
+        return calc.band_assistance(ctx)
+    return None
 
 
 def _session_performance_metrics(

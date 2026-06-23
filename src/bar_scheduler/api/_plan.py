@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bar_scheduler.core.adaptation import get_training_status as _get_training_status
-from bar_scheduler.core.adaptation import overtraining_severity
+from bar_scheduler.containers import container
 from bar_scheduler.core.exercises.registry import get_exercise
-from bar_scheduler.core.planner import generate_plan
 from bar_scheduler.core.timeline import build_timeline
+from bar_scheduler.domain.context import EquipmentConstraints, PlanRequest
 from bar_scheduler.io.serializers import dict_to_session_plan, session_plan_to_dict
 from bar_scheduler.api._common import (
     _require_profile_store,
@@ -42,32 +41,30 @@ def get_plan(
     plan_start_date = _resolve_plan_start(store, exercise_id, user_state.history)
     total_weeks = _total_weeks(plan_start_date, weeks_ahead)
 
-    ot_severity = overtraining_severity(
+    ot_severity = container.overtraining().severity(
         user_state.history, user_state.profile.days_for_exercise(exercise_id)
     )
     ot_level = ot_severity["level"]
 
     eq_state = store.load_current_equipment(exercise_id)
-    available_weights_kg = eq_state.available_weights_kg if eq_state else []
-    available_machine_assistance_kg = eq_state.available_machine_assistance_kg if eq_state else []
 
     cache = store.load_plan_result_cache(exercise_id)
     input_mtime = store._input_files_mtime(exercise_id)
     if cache and cache.get("generated_at", 0.0) >= input_mtime:
         plans = [dict_to_session_plan(plan_dict) for plan_dict in cache["plans"]]
     else:
-        plans = generate_plan(
-            user_state,
-            plan_start_date,
-            exercise,
+        request = PlanRequest(
+            user_state=user_state,
+            start_date=plan_start_date,
+            exercise=exercise,
             weeks_ahead=total_weeks,
             overtraining_level=ot_level,
-            available_weights_kg=available_weights_kg or None,
-            available_machine_assistance_kg=available_machine_assistance_kg or None,
+            equipment=EquipmentConstraints.from_state(eq_state),
         )
+        plans = container.planning_service().generate(request)
         store.save_plan_result_cache(exercise_id, [session_plan_to_dict(plan) for plan in plans])
 
-    training_status = _get_training_status(
+    training_status = container.training_state().status(
         user_state.history,
         user_state.profile.bodyweight_kg,
     )

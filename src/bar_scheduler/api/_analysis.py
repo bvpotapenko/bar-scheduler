@@ -5,20 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from bar_scheduler.core.adaptation import get_training_status as _get_training_status
-from bar_scheduler.core.adaptation import overtraining_severity
+from bar_scheduler.containers import container
 from bar_scheduler.core.config import TM_FACTOR, expected_reps_per_week
 from bar_scheduler.core.exercises.registry import get_exercise
 from bar_scheduler.core.equipment import compute_leff
-from bar_scheduler.core.metrics import (
-    best_onerm_from_leff,
-    blended_onerm_added,
-    estimate_onerm,
-    get_test_sessions,
-    session_max_reps as _session_max_reps,
-    training_max_from_baseline,
-)
+from bar_scheduler.core.math import formulas, history_queries, onerm, training_max
 from bar_scheduler.api._common import _require_store
+
+_session_max_reps = history_queries.session_max_reps
 
 
 def get_training_status(data_dir: Path, exercise_id: str) -> dict:
@@ -30,7 +24,9 @@ def get_training_status(data_dir: Path, exercise_id: str) -> dict:
     """
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state(exercise_id)
-    status = _get_training_status(user_state.history, user_state.profile.bodyweight_kg)
+    status = container.training_state().status(
+        user_state.history, user_state.profile.bodyweight_kg
+    )
     ff = status.fitness_fatigue_state
     return {
         "training_max": status.training_max,
@@ -56,7 +52,7 @@ def get_onerepmax_data(data_dir: Path, exercise_id: str) -> dict | None:
     exercise = get_exercise(exercise_id)
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state(exercise_id)
-    return estimate_onerm(exercise, user_state.profile.bodyweight_kg, user_state.history)
+    return onerm.estimate_onerm(exercise, user_state.profile.bodyweight_kg, user_state.history)
 
 
 def get_volume_data(
@@ -145,7 +141,7 @@ def _build_base_trajectory(
     """Build (date, projected_bw_reps) trajectory from the latest test session."""
     latest_test = test_sessions[-1]
     start_dt = datetime.strptime(latest_test.date, "%Y-%m-%d")
-    initial_tm = training_max_from_baseline(_session_max_reps(latest_test))
+    initial_tm = training_max.training_max_from_baseline(_session_max_reps(latest_test))
     tm_target = int(traj_target * TM_FACTOR)
     cur_dt, tm_cur = start_dt, float(initial_tm)
     base_pts: list[tuple[datetime, float]] = []
@@ -191,7 +187,7 @@ def _build_traj_m(
     m_pts = []
     for pt_dt, proj_reps in base_pts:
         rep_count = min(int(round(proj_reps)), 20)
-        added = blended_onerm_added(bw_load, max(rep_count, 1))
+        added = formulas.blended_onerm_added(bw_load, max(rep_count, 1))
         if added is not None:
             m_pts.append(
                 {
@@ -226,7 +222,7 @@ def get_progress_data(
     user_state = store.load_user_state(exercise_id)
 
     sessions = user_state.history
-    test_sessions = get_test_sessions(sessions)
+    test_sessions = history_queries.get_test_sessions(sessions)
 
     data_points = [
         {"date": sess.date, "max_reps": _session_max_reps(sess)}
@@ -303,7 +299,7 @@ def get_goal_metrics(data_dir: Path, exercise_id: str) -> dict:
         target.weight_kg,
         0.0,
     )
-    onerm_est = best_onerm_from_leff(goal_leff, target.reps)
+    onerm_est = formulas.best_onerm_from_leff(goal_leff, target.reps)
     return {
         "goal_reps": target.reps,
         "goal_weight_kg": target.weight_kg,
@@ -322,6 +318,6 @@ def get_overtraining_status(data_dir: Path, exercise_id: str) -> dict:
     """
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state(exercise_id)
-    return overtraining_severity(
+    return container.overtraining().severity(
         user_state.history, user_state.profile.days_for_exercise(exercise_id)
     )

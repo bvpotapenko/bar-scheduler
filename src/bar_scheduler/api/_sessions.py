@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bar_scheduler.core.adaptation import get_training_status as _get_training_status
+from bar_scheduler.containers import container
 from bar_scheduler.core.equipment import compute_leff
 from bar_scheduler.core.exercises.registry import get_exercise
-from bar_scheduler.core.metrics import best_onerm_from_leff
+from bar_scheduler.core.math.formulas import best_onerm_from_leff
+from bar_scheduler.domain.context import EquipmentConstraints, PrescriptionContext
 from bar_scheduler.io.serializers import session_result_to_dict
 from bar_scheduler.api._common import (
     SessionNotFoundError,
+    _assistance_for_item,
     _require_store,
 )
 from bar_scheduler.api.types import SessionInput
@@ -33,10 +35,6 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
     the profile and attached automatically.
     """
     from bar_scheduler.core.equipment import recommend_equipment_item, snapshot_from_state
-    from bar_scheduler.core.planner.load_calculator import (
-        calculate_band_assistance,
-        calculate_machine_assistance,
-    )
     from bar_scheduler.io.serializers import dict_to_session_result
 
     store = _require_store(data_dir, exercise_id)
@@ -66,31 +64,19 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
         if eq_state is not None:
             ex = get_exercise(exercise_id)
             ustate = store.load_user_state(exercise_id)
-            current_tm = _get_training_status(
+            current_tm = container.training_state().status(
                 ustate.history, ustate.profile.bodyweight_kg
             ).training_max
             active_item = recommend_equipment_item(eq_state.available_items, ex, current_tm)
-            # Compute the prescribed assistance level for variable-assistance items.
-            override_assistance: float | None = None
-            history = [sess for sess in ustate.history if sess.exercise_id == exercise_id]
-            if active_item == "MACHINE_ASSISTED" and eq_state.available_machine_assistance_kg:
-                override_assistance = calculate_machine_assistance(
-                    ex,
-                    current_tm,
-                    ustate.profile.bodyweight_kg,
-                    history,
-                    session_obj.session_type,
-                    available_machine_assistance_kg=eq_state.available_machine_assistance_kg,
-                )
-            elif active_item == "BAND_SET" and eq_state.available_band_assistance_kg:
-                override_assistance = calculate_band_assistance(
-                    ex,
-                    current_tm,
-                    ustate.profile.bodyweight_kg,
-                    history,
-                    session_obj.session_type,
-                    available_band_assistance_kg=eq_state.available_band_assistance_kg,
-                )
+            ctx = PrescriptionContext(
+                exercise=ex,
+                training_max=current_tm,
+                bodyweight_kg=ustate.profile.bodyweight_kg,
+                history=tuple(s for s in ustate.history if s.exercise_id == exercise_id),
+                session_type=session_obj.session_type,
+                equipment=EquipmentConstraints.from_state(eq_state),
+            )
+            override_assistance = _assistance_for_item(active_item, eq_state, ctx)
             session_obj.equipment_snapshot = snapshot_from_state(
                 eq_state, active_item, override_assistance_kg=override_assistance
             )

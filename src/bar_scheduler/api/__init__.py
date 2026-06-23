@@ -54,6 +54,7 @@ from bar_scheduler.api._plan import (
 )
 
 # Analysis
+from bar_scheduler.core.math.training_max import training_max_from_baseline
 from bar_scheduler.api._analysis import (
     get_training_status,
     get_onerepmax_data,
@@ -61,7 +62,6 @@ from bar_scheduler.api._analysis import (
     get_progress_data,
     get_overtraining_status,
     get_goal_metrics,
-    training_max_from_baseline,
 )
 
 # Equipment
