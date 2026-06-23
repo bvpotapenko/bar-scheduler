@@ -14,7 +14,7 @@ Uses two independent methods:
     If you can do R reps at failure, the table says R corresponds to
     roughly X% of your 1RM capacity.  Because bodyweight is fixed,
     "1RM capacity" maps to your fresh single-set maximum.
-    nuzzo_est = reps_to_failure / pct_1rm_fraction
+    nuzzo_est = reps_to_failure / pct_onerm_fraction
 
   PCr recovery -- Bogdanis et al. 1995 (J Appl Physiol 78(2):782-791):
     Table of PCr resynthesis fraction as a function of rest duration.
@@ -27,7 +27,7 @@ from __future__ import annotations
 
 # ---------------------------------------------------------------------------
 # Nuzzo 2024 -- REPS~%1RM meta-regression (bench press)
-# Table: (pct_1rm, mean_reps, sd_reps)
+# Table: (pct_onerm, mean_reps, sd_reps)
 # Source: PMC10933212, Table 2 / Fig 3 weighted mean regression
 # ---------------------------------------------------------------------------
 NUZZO_BENCH_TABLE: list[tuple[int, float, float]] = [
@@ -73,16 +73,16 @@ def _pcr_recovery_factor(rest_seconds: float) -> float:
         return 0.0
     if rest_seconds >= PCR_RECOVERY[-1][0]:
         return 1.0
-    for i in range(len(PCR_RECOVERY) - 1):
-        t0, f0 = PCR_RECOVERY[i]
-        t1, f1 = PCR_RECOVERY[i + 1]
+    for idx in range(len(PCR_RECOVERY) - 1):
+        t0, f0 = PCR_RECOVERY[idx]
+        t1, f1 = PCR_RECOVERY[idx + 1]
         if t0 <= rest_seconds <= t1:
             alpha = (rest_seconds - t0) / (t1 - t0)
             return f0 + alpha * (f1 - f0)
     return 1.0
 
 
-def _reps_to_pct_1rm(reps_to_failure: float) -> float:
+def _reps_to_pct_onerm(reps_to_failure: float) -> float:
     """
     Inverse Nuzzo lookup: reps-to-failure -> %1RM as a fraction (0–1).
 
@@ -91,9 +91,9 @@ def _reps_to_pct_1rm(reps_to_failure: float) -> float:
     """
     if reps_to_failure <= NUZZO_BENCH_TABLE[0][1]:
         return 1.0
-    for i in range(len(NUZZO_BENCH_TABLE) - 1):
-        pct0, r0, _ = NUZZO_BENCH_TABLE[i]
-        pct1, r1, _ = NUZZO_BENCH_TABLE[i + 1]
+    for idx in range(len(NUZZO_BENCH_TABLE) - 1):
+        pct0, r0, _ = NUZZO_BENCH_TABLE[idx]
+        pct1, r1, _ = NUZZO_BENCH_TABLE[idx + 1]
         if r0 <= reps_to_failure <= r1:
             alpha = (reps_to_failure - r0) / (r1 - r0)
             pct = pct0 + alpha * (pct1 - pct0)
@@ -104,6 +104,20 @@ def _reps_to_pct_1rm(reps_to_failure: float) -> float:
     slope = (pct_last - pct_prev) / (r_last - r_prev)  # negative (pct decreases)
     pct_extrap = pct_last + slope * (reps_to_failure - r_last)
     return max(0.1, pct_extrap) / 100.0
+
+
+def _nuzzo_est_from_reps(R1: int, rirs: list[int | None], fi_reps: float) -> int:
+    """Estimate fresh max using Nuzzo lookup table method."""
+    rir1 = rirs[0]
+    if rir1 is None:
+        # Estimate RIR from FI: high FI -> low RIR (near failure); low FI -> high RIR
+        # At FI=0.30 -> RIR≈1; at FI=0.05 -> RIR≈3; at FI>0.35 -> RIR≈0
+        rir1 = max(0, round((0.35 - fi_reps) * 8))
+    reps_to_failure = R1 + rir1
+    pct_onerm = _reps_to_pct_onerm(float(reps_to_failure))
+    if pct_onerm > 0:
+        return round(reps_to_failure / pct_onerm)
+    return reps_to_failure
 
 
 # ---------------------------------------------------------------------------
@@ -136,22 +150,22 @@ def estimate_max_reps_from_session(
     """
     # Filter to valid sets only
     valid: list[tuple[int, int, int | None]] = []
-    for i, r in enumerate(actual_reps_per_set):
-        if r > 0:
-            rest = rest_before_each_set[i] if i < len(rest_before_each_set) else 180
+    for idx, rep_ct in enumerate(actual_reps_per_set):
+        if rep_ct > 0:
+            rest = rest_before_each_set[idx] if idx < len(rest_before_each_set) else 180
             rir = (
-                rir_reported_per_set[i]
-                if rir_reported_per_set and i < len(rir_reported_per_set)
+                rir_reported_per_set[idx]
+                if rir_reported_per_set and idx < len(rir_reported_per_set)
                 else None
             )
-            valid.append((r, rest, rir))
+            valid.append((rep_ct, rest, rir))
 
     if len(valid) < 2:
         return None
 
-    reps = [v[0] for v in valid]
-    rests = [v[1] for v in valid]
-    rirs = [v[2] for v in valid]
+    reps = [sv[0] for sv in valid]
+    rests = [sv[1] for sv in valid]
+    rirs = [sv[2] for sv in valid]
 
     R1 = reps[0]
     rest_before_R1 = rests[0]  # rest before the session's first set
@@ -176,24 +190,12 @@ def estimate_max_reps_from_session(
     fi_est = round(adj_R1 * (1.0 + fi_adjustment))
 
     # ── Nuzzo method ─────────────────────────────────────────────────────────
-    # Estimate reps-to-failure for R1
-    rir1 = rirs[0]
-    if rir1 is None:
-        # Estimate RIR from FI: high FI -> low RIR (near failure); low FI -> high RIR
-        # At FI=0.30 -> RIR≈1; at FI=0.05 -> RIR≈3; at FI>0.35 -> RIR≈0
-        rir1 = max(0, round((0.35 - fi_reps) * 8))
-
-    reps_to_failure = R1 + rir1
-    pct_1rm = _reps_to_pct_1rm(float(reps_to_failure))
-    if pct_1rm > 0:
-        nuzzo_est = round(reps_to_failure / pct_1rm)
-    else:
-        nuzzo_est = reps_to_failure
+    nuzzo_est = _nuzzo_est_from_reps(R1, rirs, fi_reps)
 
     # ── Confidence ───────────────────────────────────────────────────────────
     n_sets = len(reps)
     rir_known = rir_reported_per_set is not None and any(
-        r is not None for r in rir_reported_per_set
+        rir_val is not None for rir_val in rir_reported_per_set
     )
     if n_sets >= 4 and rir_known:
         confidence = "high"

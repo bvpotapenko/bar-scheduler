@@ -1,8 +1,9 @@
 """bar-scheduler public API."""
+
 from __future__ import annotations
 
 # Exceptions
-from ._common import (
+from bar_scheduler.api._common import (
     ProfileNotFoundError,
     HistoryNotFoundError,
     SessionNotFoundError,
@@ -10,13 +11,13 @@ from ._common import (
 )
 
 # ValidationError from io layer
-from ..io.serializers import ValidationError
+from bar_scheduler.io.serializers import ValidationError
 
 # Types
-from .types import SessionType, SessionInput, SetInput
+from bar_scheduler.api.types import SessionType, SessionInput, SetInput
 
 # Profile
-from ._profile import (
+from bar_scheduler.api._profile import (
     init_profile,
     get_profile,
     update_bodyweight,
@@ -26,7 +27,7 @@ from ._profile import (
 )
 
 # Exercises
-from ._exercises import (
+from bar_scheduler.api._exercises import (
     list_exercises,
     get_exercise_info,
     get_equipment_catalog,
@@ -38,14 +39,14 @@ from ._exercises import (
 )
 
 # Sessions
-from ._sessions import (
+from bar_scheduler.api._sessions import (
     log_session,
     delete_session,
     get_history,
 )
 
 # Planning
-from ._plan import (
+from bar_scheduler.api._plan import (
     get_plan,
     set_plan_start_date,
     get_plan_weeks,
@@ -53,7 +54,7 @@ from ._plan import (
 )
 
 # Analysis
-from ._analysis import (
+from bar_scheduler.api._analysis import (
     get_training_status,
     get_onerepmax_data,
     get_volume_data,
@@ -64,7 +65,7 @@ from ._analysis import (
 )
 
 # Equipment
-from ._equipment import (
+from bar_scheduler.api._equipment import (
     update_equipment,
     get_current_equipment,
     compute_leff,
@@ -73,7 +74,7 @@ from ._equipment import (
 )
 
 # Utils
-from ._utils import (
+from bar_scheduler.api._utils import (
     get_data_dir,
     parse_sets_string,
     parse_compact_sets,

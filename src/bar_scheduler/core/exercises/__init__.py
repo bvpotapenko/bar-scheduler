@@ -5,12 +5,19 @@ Each exercise is described by an ExerciseDefinition object that
 parameterises the shared planning engine.
 """
 
-from .base import ExerciseDefinition, SessionTypeParams
-from .registry import EXERCISE_REGISTRY, get_exercise
+from bar_scheduler.core.exercises.base import ExerciseDefinition, SessionTypeParams
+from bar_scheduler.core.exercises.registry import (
+    all_exercises,
+    get_exercise,
+    list_exercise_ids,
+)
+from bar_scheduler.core.exercises.repository import ExerciseRepository
 
 __all__ = [
     "ExerciseDefinition",
     "SessionTypeParams",
-    "EXERCISE_REGISTRY",
+    "ExerciseRepository",
     "get_exercise",
+    "list_exercise_ids",
+    "all_exercises",
 ]

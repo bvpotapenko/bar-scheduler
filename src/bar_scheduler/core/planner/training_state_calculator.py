@@ -1,9 +1,9 @@
 """Compute initial training state at plan-generation time."""
 
-from ..adaptation import get_training_status
-from ..config import TM_FACTOR
-from ..exercises.base import ExerciseDefinition
-from ..models import SessionResult, TrainingStatus, UserState
+from bar_scheduler.core.adaptation import get_training_status
+from bar_scheduler.core.config import TM_FACTOR
+from bar_scheduler.core.exercises.base import ExerciseDefinition
+from bar_scheduler.core.models import SessionResult, TrainingStatus, UserState
 
 
 def _extract_last_test_weight(
@@ -21,12 +21,13 @@ def _extract_last_test_weight(
     """
     if exercise.load_type != "external_only":
         return 0.0
-    test_hist = [s for s in history_for_init if s.session_type == "TEST"]
+    test_hist = [sess for sess in history_for_init if sess.session_type == "TEST"]
     if not test_hist or not test_hist[-1].completed_sets:
         return 0.0
     weights = [
-        s.added_weight_kg for s in test_hist[-1].completed_sets
-        if s.added_weight_kg > 0
+        set_rec.added_weight_kg
+        for set_rec in test_hist[-1].completed_sets
+        if set_rec.added_weight_kg > 0
     ]
     return weights[-1] if weights else 0.0
 

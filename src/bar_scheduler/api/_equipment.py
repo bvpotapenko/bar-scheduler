@@ -1,11 +1,12 @@
 """Equipment management functions for the bar-scheduler API."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from ..core.adaptation import get_training_status as _get_training_status
-from ..core.exercises.registry import get_exercise
-from ._common import _require_store
+from bar_scheduler.core.adaptation import get_training_status as _get_training_status
+from bar_scheduler.core.exercises.registry import get_exercise
+from bar_scheduler.api._common import _require_store
 
 
 def update_equipment(
@@ -43,23 +44,23 @@ def update_equipment(
 
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
-    from ..core.models import EquipmentState
+    from bar_scheduler.core.models import EquipmentState
 
     store = _require_store(data_dir, exercise_id)
     prev = store.load_current_equipment(exercise_id)
 
     if available_weights_kg is None:
-        inherited_weights = prev.available_weights_kg if prev is not None else []
+        inherited_weights = prev.available_weights_kg if prev else []
     else:
         inherited_weights = list(available_weights_kg)
 
     if available_machine_assistance_kg is None:
-        inherited_machine = prev.available_machine_assistance_kg if prev is not None else []
+        inherited_machine = prev.available_machine_assistance_kg if prev else []
     else:
         inherited_machine = list(available_machine_assistance_kg)
 
     if available_band_assistance_kg is None:
-        inherited_band = prev.available_band_assistance_kg if prev is not None else []
+        inherited_band = prev.available_band_assistance_kg if prev else []
     else:
         inherited_band = list(available_band_assistance_kg)
 
@@ -85,11 +86,14 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     ``ELEVATION_SURFACE`` is absent from ``available_items``).
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
-    from ..core.equipment import (
+    from bar_scheduler.core.equipment import (
         get_assistance_kg as _get_assistance_kg,
         recommend_equipment_item,
     )
-    from ..core.planner.load_calculator import calculate_band_assistance, calculate_machine_assistance
+    from bar_scheduler.core.planner.load_calculator import (
+        calculate_band_assistance,
+        calculate_machine_assistance,
+    )
 
     store = _require_store(data_dir, exercise_id)
     state = store.load_current_equipment(exercise_id)
@@ -102,15 +106,23 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     ).training_max
     recommended = recommend_equipment_item(state.available_items, ex, current_tm)
     # Compute recommended assistance using H-session target reps as reference
-    history = [s for s in user_state.history if s.exercise_id == exercise_id]
+    history = [sess for sess in user_state.history if sess.exercise_id == exercise_id]
     if recommended == "MACHINE_ASSISTED" and state.available_machine_assistance_kg:
         recommended_assistance_kg = calculate_machine_assistance(
-            ex, current_tm, user_state.profile.bodyweight_kg, history, "H",
+            ex,
+            current_tm,
+            user_state.profile.bodyweight_kg,
+            history,
+            "H",
             available_machine_assistance_kg=state.available_machine_assistance_kg,
         )
     elif recommended == "BAND_SET" and state.available_band_assistance_kg:
         recommended_assistance_kg = calculate_band_assistance(
-            ex, current_tm, user_state.profile.bodyweight_kg, history, "H",
+            ex,
+            current_tm,
+            user_state.profile.bodyweight_kg,
+            history,
+            "H",
             available_band_assistance_kg=state.available_band_assistance_kg,
         )
     else:
@@ -122,7 +134,8 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         "available_machine_assistance_kg": list(state.available_machine_assistance_kg),
         "available_band_assistance_kg": list(state.available_band_assistance_kg),
         "assistance_kg": _get_assistance_kg(
-            recommended, state.exercise_id,
+            recommended,
+            state.exercise_id,
             state.available_machine_assistance_kg,
             state.available_band_assistance_kg,
         ),
@@ -142,7 +155,7 @@ def compute_leff(
 
     ``Leff = BW × bw_fraction + added_weight_kg − assistance_kg`` (≥ 0).
     """
-    from ..core.equipment import compute_leff as _compute_leff
+    from bar_scheduler.core.equipment import compute_leff as _compute_leff
 
     return _compute_leff(bw_fraction, bodyweight_kg, added_weight_kg, assistance_kg)
 
@@ -153,7 +166,7 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
 
     Returns ``{"reps_factor": float, "description": str}``.
     """
-    from ..core.equipment import compute_equipment_adjustment as _compute
+    from bar_scheduler.core.equipment import compute_equipment_adjustment as _compute
 
     return _compute(old_leff, new_leff)
 
@@ -173,10 +186,8 @@ def get_assistance_kg(
     the maximum available assistance (conservative fallback).
     For BAND_SET items, pass ``available_band_assistance_kg`` similarly.
     """
-    from ..core.equipment import get_assistance_kg as _get
+    from bar_scheduler.core.equipment import get_assistance_kg as _get
 
     machine_list = list(available_machine_assistance_kg) if available_machine_assistance_kg else []
     band_list = list(available_band_assistance_kg) if available_band_assistance_kg else []
     return _get(item_id, exercise_id, machine_list, band_list)
-
-

@@ -28,9 +28,9 @@ user-spec v2026-02-24.
 
 from __future__ import annotations
 
-from .exercises.base import ExerciseDefinition
-from .exercises.registry import get_exercise
-from .models import EquipmentState, EquipmentSnapshot
+from bar_scheduler.core.exercises.base import ExerciseDefinition
+from bar_scheduler.core.exercises.registry import get_exercise
+from bar_scheduler.core.models import EquipmentState, EquipmentSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -79,17 +79,13 @@ def get_assistance_kg(
     catalog = get_catalog(exercise_id)
     if item_id not in catalog:
         return 0.0
-    a = catalog[item_id]["assistance_kg"]
-    if a is None:
+    fixed_assistance = catalog[item_id]["assistance_kg"]
+    if fixed_assistance is None:
         if item_id == "BAND_SET":
             return max(available_band_assistance_kg) if available_band_assistance_kg else 0.0
         # MACHINE_ASSISTED: use max of available list (conservative fallback)
-        return (
-            max(available_machine_assistance_kg)
-            if available_machine_assistance_kg
-            else 0.0
-        )
-    return float(a)
+        return max(available_machine_assistance_kg) if available_machine_assistance_kg else 0.0
+    return float(fixed_assistance)
 
 
 def compute_leff(
@@ -131,15 +127,15 @@ def snapshot_from_state(
     by ``calculate_machine_assistance()`` / ``calculate_band_assistance()`` so the
     snapshot reflects the actual prescription rather than a generic fallback.
     """
-    if override_assistance_kg is not None:
-        a_kg = override_assistance_kg
-    else:
+    if override_assistance_kg is None:
         a_kg = get_assistance_kg(
             active_item,
             state.exercise_id,
             state.available_machine_assistance_kg,
             state.available_band_assistance_kg,
         )
+    else:
+        a_kg = override_assistance_kg
     return EquipmentSnapshot(
         active_item=active_item,
         assistance_kg=a_kg,
@@ -184,9 +180,9 @@ def recommend_equipment_item(
             return candidate
 
     # 3. Fallback: first item in the exercise catalog that the user has
-    for item in catalog:
-        if item in available_items:
-            return item
+    for catalog_item in catalog:
+        if catalog_item in available_items:
+            return catalog_item
 
     return "BAR_ONLY"
 
@@ -233,7 +229,10 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
         pct = round((factor - 1) * 100)
         return {
             "reps_factor": factor,
-            "description": f"Leff decreased ~{round((1-ratio)*100)}% -> increasing reps ~{pct}% to maintain stimulus",
+            "description": (
+                f"Leff decreased ~{round((1 - ratio) * 100)}%"
+                f" -> increasing reps ~{pct}% to maintain stimulus"
+            ),
         }
     else:
         return {

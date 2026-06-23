@@ -1,15 +1,16 @@
 """Planning functions for the bar-scheduler API."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from ..core.adaptation import get_training_status as _get_training_status
-from ..core.adaptation import overtraining_severity
-from ..core.exercises.registry import get_exercise
-from ..core.planner import generate_plan
-from ..core.timeline import build_timeline
-from ..io.serializers import dict_to_session_plan, session_plan_to_dict
-from ._common import (
+from bar_scheduler.core.adaptation import get_training_status as _get_training_status
+from bar_scheduler.core.adaptation import overtraining_severity
+from bar_scheduler.core.exercises.registry import get_exercise
+from bar_scheduler.core.planner import generate_plan
+from bar_scheduler.core.timeline import build_timeline
+from bar_scheduler.io.serializers import dict_to_session_plan, session_plan_to_dict
+from bar_scheduler.api._common import (
     _require_profile_store,
     _require_store,
     _resolve_plan_start,
@@ -47,15 +48,13 @@ def get_plan(
     ot_level = ot_severity["level"]
 
     eq_state = store.load_current_equipment(exercise_id)
-    available_weights_kg = eq_state.available_weights_kg if eq_state is not None else []
-    available_machine_assistance_kg = (
-        eq_state.available_machine_assistance_kg if eq_state is not None else []
-    )
+    available_weights_kg = eq_state.available_weights_kg if eq_state else []
+    available_machine_assistance_kg = eq_state.available_machine_assistance_kg if eq_state else []
 
     cache = store.load_plan_result_cache(exercise_id)
     input_mtime = store._input_files_mtime(exercise_id)
-    if cache is not None and cache.get("generated_at", 0.0) >= input_mtime:
-        plans = [dict_to_session_plan(d) for d in cache["plans"]]
+    if cache and cache.get("generated_at", 0.0) >= input_mtime:
+        plans = [dict_to_session_plan(plan_dict) for plan_dict in cache["plans"]]
     else:
         plans = generate_plan(
             user_state,
@@ -66,7 +65,7 @@ def get_plan(
             available_weights_kg=available_weights_kg or None,
             available_machine_assistance_kg=available_machine_assistance_kg or None,
         )
-        store.save_plan_result_cache(exercise_id, [session_plan_to_dict(p) for p in plans])
+        store.save_plan_result_cache(exercise_id, [session_plan_to_dict(plan) for plan in plans])
 
     training_status = _get_training_status(
         user_state.history,
@@ -88,8 +87,8 @@ def get_plan(
             "fatigue": round(ff.fatigue, 4),
         },
         "sessions": [
-            _timeline_entry_to_dict(e, exercise, user_state.profile.bodyweight_kg)
-            for e in timeline
+            _timeline_entry_to_dict(tl_entry, exercise, user_state.profile.bodyweight_kg)
+            for tl_entry in timeline
         ],
         "overtraining": ot_severity,
     }
@@ -128,5 +127,3 @@ def set_plan_weeks(data_dir: Path, weeks: int) -> None:
     """
     store = _require_profile_store(data_dir)
     store.set_plan_weeks(weeks)
-
-

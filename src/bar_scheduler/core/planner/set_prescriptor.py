@@ -1,11 +1,11 @@
 """Set and rep prescription for each session type."""
 
-from ..adaptation import apply_autoregulation
-from ..config import MIN_SESSIONS_FOR_AUTOREG, TM_FACTOR
-from ..exercises.base import ExerciseDefinition, SessionTypeParams
-from ..models import PlannedSet, SessionResult, SessionType
-from .load_calculator import _calculate_added_weight
-from .rest_advisor import calculate_adaptive_rest
+from bar_scheduler.core.adaptation import apply_autoregulation
+from bar_scheduler.core.config import MIN_SESSIONS_FOR_AUTOREG, TM_FACTOR
+from bar_scheduler.core.exercises.base import ExerciseDefinition, SessionTypeParams
+from bar_scheduler.core.models import PlannedSet, SessionResult, SessionType
+from bar_scheduler.core.planner.load_calculator import _calculate_added_weight
+from bar_scheduler.core.planner.rest_advisor import calculate_adaptive_rest
 
 
 def _classify_level(
@@ -24,17 +24,17 @@ def _classify_level(
       dip thresholds:     [7, 19, 33]  → 4 levels (0–3)
     """
     if latest_test_max is None or not level_thresholds:
-        n = len(level_thresholds) if level_thresholds else 2
-        return max(0, (n - 1) // 2)
-    for i, threshold in enumerate(level_thresholds):
+        num_levels = len(level_thresholds) if level_thresholds else 2
+        return max(0, (num_levels - 1) // 2)
+    for level_idx, threshold in enumerate(level_thresholds):
         if latest_test_max <= threshold:
-            return i
+            return level_idx
     return len(level_thresholds)  # highest level
 
 
 def _calculate_rep_targets(
     training_max: int,
-    params: SessionTypeParams,
+    sparams: SessionTypeParams,
 ) -> tuple[int, int, int]:
     """
     Compute low, high, and target reps per set from TM and session params.
@@ -42,16 +42,16 @@ def _calculate_rep_targets(
     Returns:
         (reps_low, reps_high, target_reps)
     """
-    reps_low = max(params.reps_min, int(training_max * params.reps_fraction_low))
-    reps_high = min(params.reps_max, int(training_max * params.reps_fraction_high))
+    reps_low = max(sparams.reps_min, int(training_max * sparams.reps_fraction_low))
+    reps_high = min(sparams.reps_max, int(training_max * sparams.reps_fraction_high))
     target_reps = (reps_low + reps_high) // 2
-    target_reps = max(params.reps_min, min(params.reps_max, target_reps))
+    target_reps = max(sparams.reps_min, min(sparams.reps_max, target_reps))
     return reps_low, reps_high, target_reps
 
 
 def _build_endurance_sets(
     num_sets: int,
-    params: SessionTypeParams,
+    sparams: SessionTypeParams,
     rest: int,
     target_reps: int,
     added_weight: float = 0.0,
@@ -61,16 +61,16 @@ def _build_endurance_sets(
     sets: list[PlannedSet] = []
 
     while len(sets) < num_sets:
-        actual_reps = max(params.reps_min, current_reps)
+        actual_reps = max(sparams.reps_min, current_reps)
         sets.append(
             PlannedSet(
                 target_reps=actual_reps,
                 rest_seconds_before=rest,
                 added_weight_kg=added_weight,
-                rir_target=params.rir_target,
+                rir_target=sparams.rir_target,
             )
         )
-        current_reps = max(params.reps_min, current_reps - 1)
+        current_reps = max(sparams.reps_min, current_reps - 1)
 
     return sets
 
@@ -80,21 +80,23 @@ def _build_strength_sets(
     adj_reps: int,
     rest: int,
     added_weight: float,
-    params: SessionTypeParams,
+    sparams: SessionTypeParams,
     exercise: ExerciseDefinition,
 ) -> list[PlannedSet]:
     """Build sets for a Strength session with per-set rep decay."""
     curve = exercise.set_fatigue_curve
     sets = []
-    for i in range(adj_sets):
-        factor = curve[i] if i < len(curve) else curve[-1]
+    for set_idx in range(adj_sets):
+        factor = curve[set_idx] if set_idx < len(curve) else curve[-1]
         reps = max(1, round(adj_reps * factor))
-        sets.append(PlannedSet(
-            target_reps=reps,
-            rest_seconds_before=rest,
-            added_weight_kg=added_weight,
-            rir_target=params.rir_target,
-        ))
+        sets.append(
+            PlannedSet(
+                target_reps=reps,
+                rest_seconds_before=rest,
+                added_weight_kg=added_weight,
+                rir_target=sparams.rir_target,
+            )
+        )
     return sets
 
 
@@ -102,22 +104,24 @@ def _build_standard_sets(
     adj_sets: int,
     adj_reps: int,
     rest: int,
-    params: SessionTypeParams,
+    sparams: SessionTypeParams,
     exercise: ExerciseDefinition,
     added_weight: float = 0.0,
 ) -> list[PlannedSet]:
     """Build sets for H, T, and TEST sessions with per-set rep decay."""
     curve = exercise.set_fatigue_curve
     sets = []
-    for i in range(adj_sets):
-        factor = curve[i] if i < len(curve) else curve[-1]
+    for set_idx in range(adj_sets):
+        factor = curve[set_idx] if set_idx < len(curve) else curve[-1]
         reps = max(1, round(adj_reps * factor))
-        sets.append(PlannedSet(
-            target_reps=reps,
-            rest_seconds_before=rest,
-            added_weight_kg=added_weight,
-            rir_target=params.rir_target,
-        ))
+        sets.append(
+            PlannedSet(
+                target_reps=reps,
+                rest_seconds_before=rest,
+                added_weight_kg=added_weight,
+                rir_target=sparams.rir_target,
+            )
+        )
     return sets
 
 
@@ -155,9 +159,9 @@ def calculate_set_prescription(
     Returns:
         List of PlannedSet
     """
-    params = exercise.session_params[session_type]
+    sparams = exercise.session_params[session_type]
 
-    reps_low, reps_high, target_reps = _calculate_rep_targets(training_max, params)
+    reps_low, reps_high, target_reps = _calculate_rep_targets(training_max, sparams)
 
     # TEST sessions: target is to beat the previous result by 1 rep, not to stop at TM.
     # TM = floor(0.9 × last_test), so round(TM / TM_FACTOR) ≈ last_test.
@@ -165,23 +169,23 @@ def calculate_set_prescription(
     # When there is no prior test, use params.reps_max ("do your absolute max").
     if session_type == "TEST":
         if latest_test_max is None:
-            target_reps = params.reps_max
+            target_reps = sparams.reps_max
         else:
             target_reps = round(training_max / TM_FACTOR) + 1
 
     # Level-based set count when exercise defines thresholds and session has sets_by_level
-    if params.sets_by_level is not None and exercise.level_thresholds is not None:
+    if sparams.sets_by_level is not None and exercise.level_thresholds is not None:
         level = _classify_level(latest_test_max, exercise.level_thresholds)
-        idx = min(level, len(params.sets_by_level) - 1)
-        base_sets = params.sets_by_level[idx]
+        level_idx = min(level, len(sparams.sets_by_level) - 1)
+        base_sets = sparams.sets_by_level[level_idx]
     else:
-        base_sets = (params.sets_min + params.sets_max) // 2
+        base_sets = (sparams.sets_min + sparams.sets_max) // 2
 
     # Apply autoregulation only when we have enough history to properly
     # calibrate the fitness-fatigue model
     if history_sessions >= MIN_SESSIONS_FOR_AUTOREG:
         adj_sets, adj_reps = apply_autoregulation(
-            base_sets, target_reps, ff_state, sets_min=params.sets_min
+            base_sets, target_reps, ff_state, sets_min=sparams.sets_min
         )
     else:
         adj_sets, adj_reps = base_sets, target_reps
@@ -191,15 +195,19 @@ def calculate_set_prescription(
 
     # Added weight applies to all session types; 0.0 when in BW-only phase
     added_weight = _calculate_added_weight(
-        exercise, training_max, bodyweight_kg, history or [], session_type,
+        exercise,
+        training_max,
+        bodyweight_kg,
+        history or [],
+        session_type,
         available_weights_kg=available_weights_kg,
     )
 
     if session_type == "E":
-        return _build_endurance_sets(adj_sets, params, rest, target_reps, added_weight)
+        return _build_endurance_sets(adj_sets, sparams, rest, target_reps, added_weight)
 
     if session_type == "S":
-        return _build_strength_sets(adj_sets, adj_reps, rest, added_weight, params, exercise)
+        return _build_strength_sets(adj_sets, adj_reps, rest, added_weight, sparams, exercise)
 
     # H, T, TEST
-    return _build_standard_sets(adj_sets, adj_reps, rest, params, exercise, added_weight)
+    return _build_standard_sets(adj_sets, adj_reps, rest, sparams, exercise, added_weight)

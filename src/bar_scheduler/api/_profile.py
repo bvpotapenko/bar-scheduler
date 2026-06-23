@@ -1,15 +1,16 @@
 """Profile management functions for the bar-scheduler API."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from ..io.user_store import UserStore
-from ..io.serializers import (
+from bar_scheduler.io.user_store import UserStore
+from bar_scheduler.io.serializers import (
     dict_to_user_profile,
     user_profile_to_dict,
 )
-from ._common import (
+from bar_scheduler.api._common import (
     ProfileAlreadyExistsError,
     _require_profile_store,
 )
@@ -32,7 +33,7 @@ def init_profile(
     Raises ``ValueError`` for invalid field values.
     Returns the profile dict (same shape as ``get_profile()``).
     """
-    from ..core.models import UserProfile
+    from bar_scheduler.core.models import UserProfile
 
     profile_path = data_dir / "profile.json"
     if profile_path.exists():
@@ -124,22 +125,22 @@ def update_profile(
         raise ValueError("language must be a non-empty string")
 
     store = _require_profile_store(data_dir)
-    with open(store.profile_path) as f:
-        data = json.load(f)
+    with open(store.profile_path) as fp:
+        raw = json.load(fp)
 
     if height_cm is not None:
-        data["height_cm"] = height_cm
+        raw["height_cm"] = height_cm
     if bodyweight_kg is not None:
-        data["current_bodyweight_kg"] = bodyweight_kg
+        raw["current_bodyweight_kg"] = bodyweight_kg
     if language is not None:
         if language == "en":
-            data.pop("language", None)
+            raw.pop("language", None)
         else:
-            data["language"] = language
+            raw["language"] = language
 
-    dict_to_user_profile(data)  # validate -- raises ValidationError if inconsistent
+    dict_to_user_profile(raw)  # validate -- raises ValidationError if inconsistent
 
-    with open(store.profile_path, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(store.profile_path, "w") as fp:
+        json.dump(raw, fp, indent=2)
 
     return get_profile(data_dir)

@@ -1,7 +1,7 @@
 """Variant / grip rotation management for plan generation."""
 
-from ..exercises.base import ExerciseDefinition
-from ..models import Grip, SessionResult, SessionType
+from bar_scheduler.core.exercises.base import ExerciseDefinition
+from bar_scheduler.core.models import Grip, SessionResult, SessionType
 
 
 def _init_grip_counts(
@@ -21,9 +21,9 @@ def _init_grip_counts(
     if not exercise.has_variant_rotation:
         return {}
     last_grip_by_type: dict[str, str] = {}
-    for s in history:
-        if s.exercise_id == exercise.exercise_id:
-            last_grip_by_type[s.session_type] = s.grip
+    for session in history:
+        if session.exercise_id == exercise.exercise_id:
+            last_grip_by_type[session.session_type] = session.grip
     counts: dict[str, int] = {}
     for session_type, last_grip in last_grip_by_type.items():
         cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
@@ -32,8 +32,9 @@ def _init_grip_counts(
         except ValueError:
             # Logged grip not in cycle (deviant entry); fall back to total count
             counts[session_type] = sum(
-                1 for s in history
-                if s.exercise_id == exercise.exercise_id and s.session_type == session_type
+                1
+                for sess in history
+                if sess.exercise_id == exercise.exercise_id and sess.session_type == session_type
             )
     return counts
 
@@ -69,7 +70,7 @@ def select_grip(
         Selected grip/variant
     """
     cycle = exercise.grip_cycles.get(session_type, [exercise.primary_variant])
-    count = sum(1 for s in history if s.session_type == session_type)
+    count = sum(1 for sess in history if sess.session_type == session_type)
     return cycle[count % len(cycle)]  # type: ignore
 
 

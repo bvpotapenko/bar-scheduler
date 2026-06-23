@@ -96,8 +96,8 @@ class EquipmentSnapshot:
     0; the load contribution comes from SetResult.added_weight_kg instead.
     """
 
-    active_item: str                    # e.g. "BAND_SET", "BAR_ONLY"
-    assistance_kg: float                # kg of assistance subtracted from Leff
+    active_item: str  # e.g. "BAND_SET", "BAR_ONLY"
+    assistance_kg: float  # kg of assistance subtracted from Leff
 
 
 @dataclass
@@ -110,7 +110,7 @@ class EquipmentState:
     """
 
     exercise_id: str
-    available_items: list[str]          # all items the user owns / has access to
+    available_items: list[str]  # all items the user owns / has access to
     available_weights_kg: list[float] = field(default_factory=list)
     # Discrete dumbbell / plate weights the user owns for this exercise.
     # Empty list = continuous (0.5 kg rounding, existing behaviour).
@@ -144,7 +144,9 @@ class SessionResult:
     planned_sets: list[SetResult] = field(default_factory=list)
     completed_sets: list[SetResult] = field(default_factory=list)
     notes: str | None = None
-    session_metrics: dict | None = None  # cached at log time: volume_session, avg_volume_set, estimated_1rm
+    session_metrics: dict | None = (
+        None  # cached at log time: volume_session, avg_volume_set, estimated_1rm
+    )
 
     def __post_init__(self) -> None:
         """Validate session data."""
@@ -172,8 +174,8 @@ class SessionResult:
 
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
-        except ValueError as e:
-            raise ValueError(f"Invalid date: {date_str}") from e
+        except ValueError as exc:
+            raise ValueError(f"Invalid date: {date_str}") from exc
 
 
 @dataclass
@@ -191,7 +193,9 @@ class SessionPlan:
     sets: list[PlannedSet] = field(default_factory=list)
     expected_tm: int = 0  # Expected training max after completing this session
     week_number: int = 1  # Week number in the plan (1-indexed)
-    prescribed_assistance_kg: float | None = None  # Machine assistance for this session (None = not applicable)
+    prescribed_assistance_kg: float | None = (
+        None  # Machine assistance for this session (None = not applicable)
+    )
 
     def __post_init__(self) -> None:
         """Validate session plan data."""
@@ -203,7 +207,7 @@ class SessionPlan:
     @property
     def total_reps(self) -> int:
         """Sum of target reps for all sets in this session."""
-        return sum(s.target_reps for s in self.sets)
+        return sum(planned_set.target_reps for planned_set in self.sets)
 
     def to_session_result(self, bodyweight_kg: float) -> SessionResult:
         """Convert to a SessionResult for logging."""
@@ -213,7 +217,7 @@ class SessionPlan:
             grip=self.grip,
             session_type=self.session_type,
             exercise_id=self.exercise_id,
-            planned_sets=[s.to_set_result() for s in self.sets],
+            planned_sets=[planned_set.to_set_result() for planned_set in self.sets],
             completed_sets=[],
         )
 
@@ -257,7 +261,7 @@ class UserProfile:
 
     height_cm: int
     bodyweight_kg: float
-    exercise_days: dict = field(default_factory=dict)   # {exercise_id: days_per_week}
+    exercise_days: dict = field(default_factory=dict)  # {exercise_id: days_per_week}
     exercise_targets: dict = field(default_factory=dict)  # {exercise_id: ExerciseTarget}
     exercises_enabled: list = field(default_factory=list)
     language: str = "en"  # ISO 639-1 code; "en" = English (default)
@@ -283,9 +287,7 @@ class UserProfile:
 
         for ex_id, days in self.exercise_days.items():
             if days not in (1, 2, 3, 4, 5):
-                raise ValueError(
-                    f"exercise_days[{ex_id!r}] must be 1–5, got {days}"
-                )
+                raise ValueError(f"exercise_days[{ex_id!r}] must be 1–5, got {days}")
 
         for ex_id, tgt in self.exercise_targets.items():
             if not isinstance(tgt, ExerciseTarget):

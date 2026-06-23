@@ -148,15 +148,19 @@ def profile1_dir(tmp_path_factory):
     enable_exercise(d, "dip", days_per_week=P1_DIP_DAYS)
     set_exercise_target(d, "dip", reps=P1_DIP_TARGET_REPS, weight_kg=P1_DIP_TARGET_WEIGHT_KG)
     update_equipment(
-        d, "dip",
+        d,
+        "dip",
         available_items=P1_DIP_AVAILABLE_ITEMS,
         available_machine_assistance_kg=P1_DIP_MACHINE_ASSISTANCE_KG,
     )
 
     enable_exercise(d, "incline_db_press", days_per_week=P1_INCLINE_DAYS)
-    set_exercise_target(d, "incline_db_press", reps=P1_INCLINE_TARGET_REPS, weight_kg=P1_INCLINE_TARGET_WEIGHT_KG)
+    set_exercise_target(
+        d, "incline_db_press", reps=P1_INCLINE_TARGET_REPS, weight_kg=P1_INCLINE_TARGET_WEIGHT_KG
+    )
     update_equipment(
-        d, "incline_db_press",
+        d,
+        "incline_db_press",
         available_items=P1_INCLINE_AVAILABLE_ITEMS,
         available_weights_kg=P1_INCLINE_WEIGHTS_KG,
     )
@@ -164,7 +168,8 @@ def profile1_dir(tmp_path_factory):
     enable_exercise(d, "bss", days_per_week=P1_BSS_DAYS)
     set_exercise_target(d, "bss", reps=P1_BSS_TARGET_REPS, weight_kg=P1_BSS_TARGET_WEIGHT_KG)
     update_equipment(
-        d, "bss",
+        d,
+        "bss",
         available_items=P1_BSS_AVAILABLE_ITEMS,
         available_weights_kg=P1_BSS_WEIGHTS_KG,
     )
@@ -194,7 +199,9 @@ def profile2_dir(tmp_path_factory):
     init_profile(d, height_cm=P2_HEIGHT_CM, bodyweight_kg=P2_BODYWEIGHT_KG)
 
     enable_exercise(d, "pull_up", days_per_week=P2_PULL_UP_DAYS)
-    set_exercise_target(d, "pull_up", reps=P2_PULL_UP_TARGET_REPS, weight_kg=P2_PULL_UP_TARGET_WEIGHT_KG)
+    set_exercise_target(
+        d, "pull_up", reps=P2_PULL_UP_TARGET_REPS, weight_kg=P2_PULL_UP_TARGET_WEIGHT_KG
+    )
     update_equipment(d, "pull_up", available_items=P2_PULL_UP_AVAILABLE_ITEMS)
 
     enable_exercise(d, "dip", days_per_week=P2_DIP_DAYS)
@@ -224,13 +231,16 @@ def profile3_dir(tmp_path_factory):
     enable_exercise(d, "bss", days_per_week=P3_BSS_DAYS)
     set_exercise_target(d, "bss", reps=P3_BSS_TARGET_REPS, weight_kg=P3_BSS_TARGET_WEIGHT_KG)
     update_equipment(
-        d, "bss",
+        d,
+        "bss",
         available_items=P3_BSS_AVAILABLE_ITEMS,
         available_weights_kg=P3_BSS_WEIGHTS_KG,
     )
 
     enable_exercise(d, "pull_up", days_per_week=P3_PULL_UP_DAYS)
-    set_exercise_target(d, "pull_up", reps=P3_PULL_UP_TARGET_REPS, weight_kg=P3_PULL_UP_TARGET_WEIGHT_KG)
+    set_exercise_target(
+        d, "pull_up", reps=P3_PULL_UP_TARGET_REPS, weight_kg=P3_PULL_UP_TARGET_WEIGHT_KG
+    )
     update_equipment(d, "pull_up", available_items=P3_PULL_UP_AVAILABLE_ITEMS)
 
     _log_history(d, "bss", P3_BSS_HISTORY)
