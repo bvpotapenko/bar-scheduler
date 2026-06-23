@@ -15,16 +15,23 @@ MON = datetime(2026, 1, 5)  # a Monday
 
 
 def _session(date: str, stype: str, grip: str = "pronated") -> SessionResult:
-    return SessionResult(date=date, bodyweight_kg=80.0, grip=grip,
-                         session_type=stype, exercise_id="pull_up")
+    return SessionResult(
+        date=date, bodyweight_kg=80.0, grip=grip, session_type=stype, exercise_id="pull_up"
+    )
 
 
 # --- ScheduleBuilder ---
 
+
 @pytest.mark.parametrize(
     ("days", "expected"),
-    [(1, ["S"]), (2, ["S", "H"]), (3, ["S", "H", "E"]),
-     (4, ["S", "H", "T", "E"]), (5, ["S", "H", "T", "E", "S"])],
+    [
+        (1, ["S"]),
+        (2, ["S", "H"]),
+        (3, ["S", "H", "E"]),
+        (4, ["S", "H", "T", "E"]),
+        (5, ["S", "H", "T", "E", "S"]),
+    ],
     ids=["1d", "2d", "3d", "4d", "5d"],
 )
 def test_template(days, expected):
@@ -59,6 +66,7 @@ def test_next_type_index_empty_history():
 
 # --- TestSessionInserter ---
 
+
 def test_insert_marks_due_slot_as_test():
     # No TEST history -> first slot is one full cycle past synthetic baseline -> TEST.
     inserter = TestSessionInserter(test_spacing=1)
@@ -78,12 +86,16 @@ def test_insert_enforces_spacing_after_in_plan_test():
 
 # --- GripSelector ---
 
+
 def test_grip_rotation_cycles_in_order():
     selector = GripSelector(get_exercise("pull_up"))
     selector.initialize_counts([])
     # pull_up S cycle is [pronated, neutral, supinated]
     assert [selector.next_grip("S") for _ in range(4)] == [
-        "pronated", "neutral", "supinated", "pronated",
+        "pronated",
+        "neutral",
+        "supinated",
+        "pronated",
     ]
 
 

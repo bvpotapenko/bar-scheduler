@@ -31,8 +31,7 @@ def _init_grip_counts(history: list[SessionResult], exercise: ExerciseDefinition
         if sess.exercise_id == exercise.exercise_id:
             last_by_type[sess.session_type] = sess.grip
     return {
-        stype: _resume_index(history, exercise, stype, grip)
-        for stype, grip in last_by_type.items()
+        stype: _resume_index(history, exercise, stype, grip) for stype, grip in last_by_type.items()
     }
 
 

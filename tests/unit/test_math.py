@@ -27,8 +27,11 @@ def _test_session(reps: int, added: float = 0.0, bw: float = 80.0) -> SessionRes
         grip="pronated",
         session_type="TEST",
         exercise_id="pull_up",
-        completed_sets=[SetResult(target_reps=reps, actual_reps=reps,
-                                  rest_seconds_before=180, added_weight_kg=added)],
+        completed_sets=[
+            SetResult(
+                target_reps=reps, actual_reps=reps, rest_seconds_before=180, added_weight_kg=added
+            )
+        ],
     )
 
 
@@ -123,6 +126,12 @@ def test_estimate_onerm_reports_best_set():
 
 
 def test_estimate_onerm_no_usable_sets_is_none():
-    empty = SessionResult(date="2026-01-01", bodyweight_kg=80.0, grip="pronated",
-                          session_type="S", exercise_id="pull_up", completed_sets=[])
+    empty = SessionResult(
+        date="2026-01-01",
+        bodyweight_kg=80.0,
+        grip="pronated",
+        session_type="S",
+        exercise_id="pull_up",
+        completed_sets=[],
+    )
     assert estimate_onerm(get_exercise("pull_up"), 80.0, [empty]) is None

@@ -28,7 +28,9 @@ def _recommended_formula(reps: int) -> str:
     return "epley (unreliable above 20 reps)"
 
 
-def _usable_eff_load(exercise, bodyweight_kg: float, assistance_kg: float, sr: SetResult) -> float | None:
+def _usable_eff_load(
+    exercise, bodyweight_kg: float, assistance_kg: float, sr: SetResult
+) -> float | None:
     """Effective load for a set, or None if it cannot seed a 1RM estimate."""
     if sr.actual_reps is None or sr.actual_reps <= 0:
         return None
@@ -38,7 +40,9 @@ def _usable_eff_load(exercise, bodyweight_kg: float, assistance_kg: float, sr: S
     return eff_load if eff_load > 0 else None
 
 
-def _scan_session(exercise, bodyweight_kg: float, session: SessionResult, best: _BestSet | None) -> _BestSet | None:
+def _scan_session(
+    exercise, bodyweight_kg: float, session: SessionResult, best: _BestSet | None
+) -> _BestSet | None:
     """Update ``best`` with the strongest Epley set in one session."""
     assistance_kg = _session_assistance(session)
     for sr in session.completed_sets:

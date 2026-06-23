@@ -22,7 +22,9 @@ def effective_reps(actual_reps: int, rest_seconds: int) -> float:
     return actual_reps / rest_factor(rest_seconds)
 
 
-def bodyweight_normalized_reps(reps: float, load: LoadSpec, reference_bodyweight_kg: float) -> float:
+def bodyweight_normalized_reps(
+    reps: float, load: LoadSpec, reference_bodyweight_kg: float
+) -> float:
     """Scale reps by effective load relative to a reference bodyweight (linear)."""
     total_load = max(0.0, load.effective_kg)
     if reference_bodyweight_kg <= 0:
