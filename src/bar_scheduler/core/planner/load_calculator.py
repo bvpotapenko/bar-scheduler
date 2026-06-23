@@ -16,9 +16,9 @@ Session target reps (used for Epley inverse):
     T  ->  6  reps  (~83 % 1RM)
 """
 
-from ..config import TM_FACTOR
-from ..exercises.base import ExerciseDefinition
-from ..metrics import best_1rm_from_leff
+from bar_scheduler.core.config import TM_FACTOR
+from bar_scheduler.core.exercises.base import ExerciseDefinition
+from bar_scheduler.core.metrics import best_onerm_from_leff
 
 # Target reps per session type — used to invert the Epley formula
 _SESSION_TARGET_REPS: dict[str, int] = {
@@ -35,9 +35,9 @@ def _apply_rounding(raw: float) -> float:
     return round(raw * 2) / 2
 
 
-def _apply_cap(value: float, max_kg: float) -> float:
+def _apply_cap(load_kg: float, max_kg: float) -> float:
     """Clamp added weight to the exercise maximum."""
-    return min(value, max_kg)
+    return min(load_kg, max_kg)
 
 
 def _expand_dual_dumbbell_totals(available: list[float]) -> list[float]:
@@ -48,9 +48,9 @@ def _expand_dual_dumbbell_totals(available: list[float]) -> list[float]:
     [8, 10, 16] -> [8, 10, 16, 18, 20, 24, 26, 32].
     """
     totals: set[float] = set(available)
-    for i, a in enumerate(available):
-        for b in available[i:]:
-            totals.add(a + b)
+    for idx, weight_a in enumerate(available):
+        for weight_b in available[idx:]:
+            totals.add(weight_a + weight_b)
     return sorted(totals)
 
 
@@ -68,7 +68,7 @@ def _snap_to_available(weight_kg: float, available: list[float]) -> float:
     Returns:
         The snapped weight from the available list.
     """
-    below = [w for w in available if w <= weight_kg]
+    below = [wt for wt in available if wt <= weight_kg]
     return max(below) if below else min(available)
 
 
@@ -80,19 +80,21 @@ def _last_test_weight_bss(history: list, exercise: ExerciseDefinition) -> float:
     is carried forward from the last test.
     """
     test_hist = [
-        s
-        for s in history
-        if s.session_type == "TEST" and s.exercise_id == exercise.exercise_id
+        sess
+        for sess in history
+        if sess.session_type == "TEST" and sess.exercise_id == exercise.exercise_id
     ]
     if not test_hist or not test_hist[-1].completed_sets:
         return 0.0
     weights = [
-        s.added_weight_kg for s in test_hist[-1].completed_sets if s.added_weight_kg > 0
+        sess_set.added_weight_kg
+        for sess_set in test_hist[-1].completed_sets
+        if sess_set.added_weight_kg > 0
     ]
     return weights[-1] if weights else 0.0
 
 
-def _estimate_effective_leff_1rm(history: list, bw_fraction: float) -> float | None:
+def _estimate_effective_leff_onerm(history: list, bw_fraction: float) -> float | None:
     """
     Estimate Leff 1RM from all available historical sessions.
 
@@ -109,21 +111,15 @@ def _estimate_effective_leff_1rm(history: list, bw_fraction: float) -> float | N
     """
     candidates: list[float] = []
     for session in history:
-        assistance = (
-            session.equipment_snapshot.assistance_kg
-            if session.equipment_snapshot is not None
-            else 0.0
-        )
-        for s in session.completed_sets:
-            if not s.actual_reps or s.actual_reps < 1:
+        assistance = session.equipment_snapshot.assistance_kg if session.equipment_snapshot else 0.0
+        for set_rec in session.completed_sets:
+            if not set_rec.actual_reps or set_rec.actual_reps < 1:
                 continue
             leff = (
-                session.bodyweight_kg * bw_fraction
-                + (s.added_weight_kg or 0.0)
-                - assistance
+                session.bodyweight_kg * bw_fraction + (set_rec.added_weight_kg or 0.0) - assistance
             )
             if leff > 0:
-                estimate = best_1rm_from_leff(leff, s.actual_reps)
+                estimate = best_onerm_from_leff(leff, set_rec.actual_reps)
                 if estimate is not None:
                     candidates.append(estimate)
     return max(candidates) if candidates else None
@@ -174,10 +170,10 @@ def _calculate_added_weight(
         if exercise.bw_fraction == 0.0:
             # Purely external load (e.g. incline_db_press): derive weight from
             # the best Leff 1RM seen across all history, not just TEST sessions.
-            leff_1rm_hist = _estimate_effective_leff_1rm(history, 0.0)
-            if leff_1rm_hist:
+            leff_onerm_hist = _estimate_effective_leff_onerm(history, 0.0)
+            if leff_onerm_hist:
                 target_reps = _SESSION_TARGET_REPS.get(session_type, 8)
-                leff_target = leff_1rm_hist * TM_FACTOR / (1 + target_reps / 30)
+                leff_target = leff_onerm_hist * TM_FACTOR / (1 + target_reps / 30)
                 added = max(0.0, _apply_cap(leff_target, exercise.max_added_weight_kg))
                 if available_weights_kg:
                     snap_list = (
@@ -188,34 +184,34 @@ def _calculate_added_weight(
                     return _snap_to_available(added, snap_list)
                 return _apply_rounding(added)
         # BSS or no history: carry forward last TEST weight
-        w = _last_test_weight_bss(history, exercise)
-        if available_weights_kg and w > 0:
+        last_wt = _last_test_weight_bss(history, exercise)
+        if available_weights_kg and last_wt > 0:
             snap_list = (
                 _expand_dual_dumbbell_totals(available_weights_kg)
                 if exercise.dual_dumbbell
                 else available_weights_kg
             )
-            w = _snap_to_available(w, snap_list)
-        return w
+            last_wt = _snap_to_available(last_wt, snap_list)
+        return last_wt
 
     if training_max <= exercise.weight_tm_threshold:
         return 0.0
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
-    leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
+    leff_onerm_hist = _estimate_effective_leff_onerm(history, exercise.bw_fraction)
     # TM-derived fallback: estimate 1RM from bodyweight-only reps equal to TM.
     # Uses rep-range-aware blend so the estimate grows correctly beyond TM=12.
-    leff_1rm_tm = best_1rm_from_leff(bw_contrib, training_max) or bw_contrib
+    leff_onerm_tm = best_onerm_from_leff(bw_contrib, training_max) or bw_contrib
 
-    if leff_1rm_hist is None or leff_1rm_hist <= bw_contrib:
-        leff_1rm = leff_1rm_tm
+    if leff_onerm_hist is None or leff_onerm_hist <= bw_contrib:
+        leff_onerm = leff_onerm_tm
     else:
         # Take max: history wins early (accurate current baseline); TM-derived
         # takes over as the plan projects forward and TM grows beyond baseline.
-        leff_1rm = max(leff_1rm_hist, leff_1rm_tm)
+        leff_onerm = max(leff_onerm_hist, leff_onerm_tm)
 
     target_reps = _SESSION_TARGET_REPS.get(session_type, 8)
-    leff_target = leff_1rm * TM_FACTOR / (1 + target_reps / 30)
+    leff_target = leff_onerm * TM_FACTOR / (1 + target_reps / 30)
     added = leff_target - bw_contrib
     added = max(0.0, _apply_cap(added, exercise.max_added_weight_kg))
 
@@ -230,7 +226,7 @@ def _ceiling_snap_assistance(assistance_kg: float, available: list[float]) -> fl
     If all available values are below the ideal (user can't provide enough
     assistance), return the maximum available as the best approximation.
     """
-    above = [a for a in available if a >= assistance_kg]
+    above = [avail for avail in available if avail >= assistance_kg]
     return min(above) if above else max(available)
 
 
@@ -250,16 +246,16 @@ def _calculate_variable_assistance(
         return 0.0
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
-    leff_1rm_hist = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
-    leff_1rm_tm = best_1rm_from_leff(bw_contrib, training_max) or bw_contrib
+    leff_onerm_hist = _estimate_effective_leff_onerm(history, exercise.bw_fraction)
+    leff_onerm_tm = best_onerm_from_leff(bw_contrib, training_max) or bw_contrib
 
-    if leff_1rm_hist is None or leff_1rm_hist <= 0:
-        leff_1rm = leff_1rm_tm
+    if leff_onerm_hist is None or leff_onerm_hist <= 0:
+        leff_onerm = leff_onerm_tm
     else:
-        leff_1rm = max(leff_1rm_hist, leff_1rm_tm)
+        leff_onerm = max(leff_onerm_hist, leff_onerm_tm)
 
     target_reps = _SESSION_TARGET_REPS.get(session_type, 8)
-    leff_target = leff_1rm * TM_FACTOR / (1 + target_reps / 30)
+    leff_target = leff_onerm * TM_FACTOR / (1 + target_reps / 30)
 
     needed = max(0.0, bw_contrib - leff_target)
     if needed <= 0.0:
@@ -284,7 +280,11 @@ def calculate_machine_assistance(
     is needed.
     """
     return _calculate_variable_assistance(
-        exercise, training_max, bodyweight_kg, history, session_type,
+        exercise,
+        training_max,
+        bodyweight_kg,
+        history,
+        session_type,
         available_machine_assistance_kg,
     )
 
@@ -307,7 +307,11 @@ def calculate_band_assistance(
     assistance is needed.
     """
     return _calculate_variable_assistance(
-        exercise, training_max, bodyweight_kg, history, session_type,
+        exercise,
+        training_max,
+        bodyweight_kg,
+        history,
+        session_type,
         available_band_assistance_kg,
     )
 
@@ -339,23 +343,23 @@ def estimate_prescription_weight(
         Projected added weight in kg (≥ 0, snapped or rounded to available increment).
     """
     if exercise.load_type == "external_only":
-        w = _last_test_weight_bss(history, exercise)
-        if available_weights_kg and w > 0:
+        last_wt = _last_test_weight_bss(history, exercise)
+        if available_weights_kg and last_wt > 0:
             snap_list = (
                 _expand_dual_dumbbell_totals(available_weights_kg)
                 if exercise.dual_dumbbell
                 else available_weights_kg
             )
-            w = _snap_to_available(w, snap_list)
-        return w
+            last_wt = _snap_to_available(last_wt, snap_list)
+        return last_wt
 
     bw_contrib = bodyweight_kg * exercise.bw_fraction
-    leff_1rm = _estimate_effective_leff_1rm(history, exercise.bw_fraction)
+    leff_onerm = _estimate_effective_leff_onerm(history, exercise.bw_fraction)
 
-    if leff_1rm is None or leff_1rm <= bw_contrib:
+    if leff_onerm is None or leff_onerm <= bw_contrib:
         return 0.0  # Not enough history to project
 
-    leff_target = leff_1rm * TM_FACTOR / (1 + at_reps / 30)
+    leff_target = leff_onerm * TM_FACTOR / (1 + at_reps / 30)
     added = leff_target - bw_contrib
     added = max(0.0, _apply_cap(added, exercise.max_added_weight_kg))
 

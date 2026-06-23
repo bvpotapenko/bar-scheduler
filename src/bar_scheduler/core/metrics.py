@@ -8,7 +8,7 @@ See docs/training_model.md for formula explanations.
 import math
 from typing import Sequence
 
-from .config import (
+from bar_scheduler.core.config import (
     F_REST_MAX,
     F_REST_MIN,
     GAMMA_REST,
@@ -16,7 +16,7 @@ from .config import (
     REST_REF_SECONDS,
     TM_FACTOR,
 )
-from .models import SessionResult, SetResult
+from bar_scheduler.domain.models import SessionResult, SetResult
 
 
 def rest_factor(rest_seconds: int) -> float:
@@ -35,8 +35,8 @@ def rest_factor(rest_seconds: int) -> float:
         Rest normalization factor (0.80 to 1.05)
     """
     # Clamp rest to avoid issues with very short rests
-    r = max(rest_seconds, REST_MIN_CLAMP)
-    raw = (r / REST_REF_SECONDS) ** GAMMA_REST
+    rest_clamped = max(rest_seconds, REST_MIN_CLAMP)
+    raw = (rest_clamped / REST_REF_SECONDS) ** GAMMA_REST
     return max(F_REST_MIN, min(F_REST_MAX, raw))
 
 
@@ -175,16 +175,16 @@ def session_max_reps(session: SessionResult) -> int:
         Max reps from bodyweight-only sets (or all sets if no BW-only), or 0
     """
     bw_only_sets = [
-        s
-        for s in session.completed_sets
-        if s.actual_reps is not None and s.added_weight_kg == 0
+        sr
+        for sr in session.completed_sets
+        if sr.actual_reps is not None and sr.added_weight_kg == 0
     ]
 
     if bw_only_sets:
-        return max(s.actual_reps for s in bw_only_sets)  # type: ignore
+        return max(sr.actual_reps for sr in bw_only_sets)  # type: ignore
 
-    all_sets = [s for s in session.completed_sets if s.actual_reps is not None]
-    return max((s.actual_reps for s in all_sets), default=0)  # type: ignore
+    all_sets = [sr for sr in session.completed_sets if sr.actual_reps is not None]
+    return max((sr.actual_reps for sr in all_sets), default=0)  # type: ignore
 
 
 def session_total_reps(session: SessionResult) -> int:
@@ -197,9 +197,7 @@ def session_total_reps(session: SessionResult) -> int:
     Returns:
         Sum of actual reps
     """
-    return sum(
-        s.actual_reps for s in session.completed_sets if s.actual_reps is not None
-    )
+    return sum(sr.actual_reps for sr in session.completed_sets if sr.actual_reps is not None)
 
 
 def session_avg_rest(session: SessionResult) -> float:
@@ -215,7 +213,7 @@ def session_avg_rest(session: SessionResult) -> float:
     if not session.completed_sets:
         return 0.0
 
-    return sum(s.rest_seconds_before for s in session.completed_sets) / len(
+    return sum(sr.rest_seconds_before for sr in session.completed_sets) / len(
         session.completed_sets
     )
 
@@ -230,7 +228,7 @@ def get_test_sessions(history: list[SessionResult]) -> list[SessionResult]:
     Returns:
         List of TEST sessions only
     """
-    return [s for s in history if s.session_type == "TEST"]
+    return [sess for sess in history if sess.session_type == "TEST"]
 
 
 def latest_test_max(history: list[SessionResult]) -> int | None:
@@ -266,7 +264,7 @@ def overall_max_reps(history: list[SessionResult]) -> int:
     if not test_sessions:
         return 0
 
-    return max(session_max_reps(s) for s in test_sessions)
+    return max(session_max_reps(sess) for sess in test_sessions)
 
 
 def training_max(history: list[SessionResult]) -> int:
@@ -303,7 +301,7 @@ def training_max_from_baseline(baseline_max: int) -> int:
     return max(1, tm)
 
 
-def epley_1rm(total_load_kg: float, reps: int) -> float:
+def epley_onerm(total_load_kg: float, reps: int) -> float:
     """
     Estimate 1RM using Epley formula.
 
@@ -321,14 +319,14 @@ def epley_1rm(total_load_kg: float, reps: int) -> float:
     return total_load_kg * (1 + reps / 30)
 
 
-def lombardi_1rm(total_load_kg: float, reps: int) -> float:
+def lombardi_onerm(total_load_kg: float, reps: int) -> float:
     """1RM = w × r^0.10  (Lombardi; non-linear, handles higher-rep sets better than Epley)."""
     if reps <= 0:
         return 0.0
     return total_load_kg * (reps**0.10)
 
 
-def brzycki_1rm(total_load_kg: float, reps: int) -> float:
+def brzycki_onerm(total_load_kg: float, reps: int) -> float:
     """1RM = w / (1.0278 − 0.0278 × r)  (Brzycki; accurate for r ≤ 10)."""
     if reps <= 0:
         return 0.0
@@ -338,7 +336,7 @@ def brzycki_1rm(total_load_kg: float, reps: int) -> float:
     return total_load_kg / denom
 
 
-def lander_1rm(total_load_kg: float, reps: int) -> float:
+def lander_onerm(total_load_kg: float, reps: int) -> float:
     """1RM = 100 × w / (101.3 − 2.67123 × r)  (Lander; accurate for r ≤ 10)."""
     if reps <= 0:
         return 0.0
@@ -348,7 +346,7 @@ def lander_1rm(total_load_kg: float, reps: int) -> float:
     return (100.0 * total_load_kg) / denom
 
 
-def blended_1rm_added(bw_load_kg: float, reps: int) -> float | None:
+def blended_onerm_added(bw_load_kg: float, reps: int) -> float | None:
     """
     Rep-range–aware 1RM estimate returning ADDED kg only (total 1RM − bw_load).
 
@@ -369,17 +367,20 @@ def blended_1rm_added(bw_load_kg: float, reps: int) -> float | None:
         return None
     if reps > 20:
         return None
-    w = bw_load_kg
     if reps <= 5:
-        total = (brzycki_1rm(w, reps) + lander_1rm(w, reps)) / 2
+        total = (brzycki_onerm(bw_load_kg, reps) + lander_onerm(bw_load_kg, reps)) / 2
     elif reps <= 10:
-        total = (brzycki_1rm(w, reps) + lander_1rm(w, reps) + epley_1rm(w, reps)) / 3
-    else:  # 11 ≤ r ≤ 20
-        total = (lombardi_1rm(w, reps) + epley_1rm(w, reps)) / 2
+        total = (
+            brzycki_onerm(bw_load_kg, reps)
+            + lander_onerm(bw_load_kg, reps)
+            + epley_onerm(bw_load_kg, reps)
+        ) / 3
+    else:  # 11 ≤ reps ≤ 20
+        total = (lombardi_onerm(bw_load_kg, reps) + epley_onerm(bw_load_kg, reps)) / 2
     return max(0.0, total - bw_load_kg)
 
 
-def best_1rm_from_leff(leff: float, reps: int) -> float | None:
+def best_onerm_from_leff(leff: float, reps: int) -> float | None:
     """
     Rep-range-aware 1RM estimate in Leff units (total effective load kg).
 
@@ -388,7 +389,7 @@ def best_1rm_from_leff(leff: float, reps: int) -> float | None:
         r ≤ 10  -> avg(Brzycki, Lander, Epley)  [moderate reps]
         r > 10  -> avg(Lombardi, Epley)          [high reps; Lombardi handles these best]
 
-    Unlike blended_1rm_added, this takes full Leff (BW-derived + added load)
+    Unlike blended_onerm_added, this takes full Leff (BW-derived + added load)
     and returns total 1RM in Leff units — works for any set, not just BW-only.
 
     Args:
@@ -401,16 +402,14 @@ def best_1rm_from_leff(leff: float, reps: int) -> float | None:
     if reps <= 0:
         return None
     if reps <= 5:
-        return (brzycki_1rm(leff, reps) + lander_1rm(leff, reps)) / 2
+        return (brzycki_onerm(leff, reps) + lander_onerm(leff, reps)) / 2
     elif reps <= 10:
-        return (
-            brzycki_1rm(leff, reps) + lander_1rm(leff, reps) + epley_1rm(leff, reps)
-        ) / 3
+        return (brzycki_onerm(leff, reps) + lander_onerm(leff, reps) + epley_onerm(leff, reps)) / 3
     else:  # 11 ≤ r ≤ 20
-        return (lombardi_1rm(leff, reps) + epley_1rm(leff, reps)) / 2
+        return (lombardi_onerm(leff, reps) + epley_onerm(leff, reps)) / 2
 
 
-def estimate_pullup_1rm(
+def estimate_pullup_onerm(
     history: list[SessionResult],
     current_bodyweight_kg: float,
     window_sessions: int = 5,
@@ -434,17 +433,17 @@ def estimate_pullup_1rm(
         for set_result in session.completed_sets:
             if set_result.added_weight_kg > 0 and set_result.actual_reps is not None:
                 total_load = session.bodyweight_kg + set_result.added_weight_kg
-                estimate = epley_1rm(total_load, set_result.actual_reps)
+                estimate = epley_onerm(total_load, set_result.actual_reps)
                 weighted_estimates.append(estimate)
 
     if not weighted_estimates:
         return None
 
     sorted_estimates = sorted(weighted_estimates)
-    n = len(sorted_estimates)
-    if n % 2 == 0:
-        return (sorted_estimates[n // 2 - 1] + sorted_estimates[n // 2]) / 2
-    return sorted_estimates[n // 2]
+    count = len(sorted_estimates)
+    if count % 2 == 0:
+        return (sorted_estimates[count // 2 - 1] + sorted_estimates[count // 2]) / 2
+    return sorted_estimates[count // 2]
 
 
 def _recommended_formula(reps: int) -> str:
@@ -456,7 +455,7 @@ def _recommended_formula(reps: int) -> str:
     return "epley (unreliable above 20 reps)"
 
 
-def estimate_1rm(
+def estimate_onerm(
     exercise,  # ExerciseDefinition -- avoid circular import by not type-hinting here
     bodyweight_kg: float,
     history: list[SessionResult],
@@ -480,7 +479,7 @@ def estimate_1rm(
         recommended_formula.
         Returns None if no usable sets found.
     """
-    best_1rm = 0.0
+    best_onerm = 0.0
     best_info: dict | None = None
 
     for session in history[-window_sessions:]:
@@ -489,43 +488,37 @@ def estimate_1rm(
         if session.equipment_snapshot is not None:
             assistance_kg = session.equipment_snapshot.assistance_kg
 
-        for s in session.completed_sets:
-            if s.actual_reps is None or s.actual_reps <= 0:
+        for set_rec in session.completed_sets:
+            if set_rec.actual_reps is None or set_rec.actual_reps <= 0:
                 continue
             # For external_only exercises (BSS), require actual added load
             # but include bw_fraction × BW in Leff per the spec formula
             if exercise.load_type == "external_only":
-                if s.added_weight_kg <= 0:
+                if set_rec.added_weight_kg <= 0:
                     continue
             eff_load = max(
                 0.0,
-                bodyweight_kg * exercise.bw_fraction
-                + s.added_weight_kg
-                - assistance_kg,
+                bodyweight_kg * exercise.bw_fraction + set_rec.added_weight_kg - assistance_kg,
             )
 
             if eff_load <= 0:
                 continue
 
-            est = epley_1rm(eff_load, s.actual_reps)
-            if est > best_1rm:
-                best_1rm = est
-                reps = s.actual_reps
+            est = epley_onerm(eff_load, set_rec.actual_reps)
+            if est > best_onerm:
+                best_onerm = est
+                reps = set_rec.actual_reps
 
                 # Compute all formulas for the best set
-                brzycki = round(brzycki_1rm(eff_load, reps), 1) if reps < 37 else None
-                lander = round(lander_1rm(eff_load, reps), 1) if reps < 37 else None
-                blended_added = blended_1rm_added(eff_load, reps)
-                blended = (
-                    round(eff_load + blended_added, 1)
-                    if blended_added is not None
-                    else None
-                )
+                brzycki = round(brzycki_onerm(eff_load, reps), 1) if reps < 37 else None
+                lander = round(lander_onerm(eff_load, reps), 1) if reps < 37 else None
+                blended_added = blended_onerm_added(eff_load, reps)
+                blended = None if blended_added is None else round(eff_load + blended_added, 1)
 
                 best_info = {
                     "1rm_kg": round(est, 1),
                     "best_reps": reps,
-                    "best_added_weight_kg": s.added_weight_kg,
+                    "best_added_weight_kg": set_rec.added_weight_kg,
                     "best_date": session.date,
                     "effective_load_kg": round(eff_load, 1),
                     "onerm_includes_bodyweight": exercise.onerm_includes_bodyweight,
@@ -536,7 +529,7 @@ def estimate_1rm(
                         "epley": round(est, 1),
                         "brzycki": brzycki,
                         "lander": lander,
-                        "lombardi": round(lombardi_1rm(eff_load, reps), 1),
+                        "lombardi": round(lombardi_onerm(eff_load, reps), 1),
                         "blended": blended,
                     },
                     "recommended_formula": _recommended_formula(reps),
@@ -564,23 +557,23 @@ def linear_trend_max_reps(
             return (float(test_points[0][1]), 0.0)
         return (0.0, 0.0)
 
-    n = len(test_points)
-    sum_x = sum_y = sum_xy = sum_x2 = 0
-    for x, y in test_points:
-        sum_x += x
-        sum_y += y
-        sum_xy += x * y
-        sum_x2 += x * x
+    count = len(test_points)
+    sum_x, sum_y, sum_xy, sum_x2 = 0, 0, 0, 0
+    for day_idx, reps_val in test_points:
+        sum_x += day_idx
+        sum_y += reps_val
+        sum_xy += day_idx * reps_val
+        sum_x2 += day_idx * day_idx
 
     # Avoid division by zero
-    denominator = n * sum_x2 - sum_x**2
+    denominator = count * sum_x2 - sum_x**2
     if abs(denominator) < 1e-10:
-        return (sum_y / n if n > 0 else 0.0, 0.0)
+        return (sum_y / count if count > 0 else 0.0, 0.0)
 
-    b = (n * sum_xy - sum_x * sum_y) / denominator
-    a = (sum_y - b * sum_x) / n
+    slope = (count * sum_xy - sum_x * sum_y) / denominator
+    intercept = (sum_y - slope * sum_x) / count
 
-    return (a, b)
+    return (intercept, slope)
 
 
 def trend_slope_per_week(
@@ -609,7 +602,7 @@ def trend_slope_per_week(
         cutoff = latest_date - timedelta(days=window_days)
 
         filtered = [
-            s for s in test_sessions if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff
+            sess for sess in test_sessions if datetime.strptime(sess.date, "%Y-%m-%d") >= cutoff
         ]
     else:
         filtered = []
@@ -620,8 +613,8 @@ def trend_slope_per_week(
     # Convert to day indices
     base_date = datetime.strptime(filtered[0].date, "%Y-%m-%d")
     points = [
-        ((datetime.strptime(s.date, "%Y-%m-%d") - base_date).days, session_max_reps(s))
-        for s in filtered
+        ((datetime.strptime(sess.date, "%Y-%m-%d") - base_date).days, session_max_reps(sess))
+        for sess in filtered
     ]
 
     _, slope_per_day = linear_trend_max_reps(points)
@@ -644,10 +637,8 @@ def compliance_ratio(
     Returns:
         Ratio of actual to planned reps (0.0 to 1.0+)
     """
-    planned_total = sum(s.target_reps for s in planned_sets)
-    actual_total = sum(
-        s.actual_reps for s in completed_sets if s.actual_reps is not None
-    )
+    planned_total = sum(sr.target_reps for sr in planned_sets)
+    actual_total = sum(sr.actual_reps for sr in completed_sets if sr.actual_reps is not None)
 
     if planned_total == 0:
         return 1.0 if actual_total == 0 else float("inf")
@@ -687,12 +678,12 @@ def weekly_compliance(history: list[SessionResult], weeks_back: int = 1) -> floa
     latest_date = datetime.strptime(history[-1].date, "%Y-%m-%d")
     cutoff = latest_date - timedelta(days=weeks_back * 7)
 
-    recent = [s for s in history if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff]
+    recent = [sess for sess in history if datetime.strptime(sess.date, "%Y-%m-%d") >= cutoff]
 
     if not recent:
         return 1.0
 
-    ratios = [session_compliance(s) for s in recent]
+    ratios = [session_compliance(sess) for sess in recent]
     return sum(ratios) / len(ratios)
 
 
@@ -710,7 +701,7 @@ def drop_off_ratio(session: SessionResult) -> float:
     Returns:
         Drop-off ratio (0 to 1, higher = more fatigue)
     """
-    completed = [s for s in session.completed_sets if s.actual_reps is not None]
+    completed = [sr for sr in session.completed_sets if sr.actual_reps is not None]
 
     if len(completed) < 2:
         return 0.0
@@ -721,7 +712,7 @@ def drop_off_ratio(session: SessionResult) -> float:
 
     # Get last 2 sets
     last_two = completed[-2:]
-    mean_last = sum(s.actual_reps for s in last_two) / 2  # type: ignore
+    mean_last = sum(sr.actual_reps for sr in last_two) / 2  # type: ignore
 
     return 1 - (mean_last / first_reps)  # type: ignore
 

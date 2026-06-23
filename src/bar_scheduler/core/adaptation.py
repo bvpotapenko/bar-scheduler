@@ -7,7 +7,7 @@ based on performance trends and recovery state.
 
 from datetime import datetime, timedelta
 
-from .config import (
+from bar_scheduler.core.config import (
     COMPLIANCE_THRESHOLD,
     DELOAD_VOLUME_REDUCTION,
     FATIGUE_Z_THRESHOLD,
@@ -22,15 +22,15 @@ from .config import (
     WEEKLY_HARD_SETS_MIN,
     WEEKLY_VOLUME_INCREASE_RATE,
 )
-from .metrics import (
+from bar_scheduler.core.metrics import (
     get_test_sessions,
     overall_max_reps,
     session_max_reps,
     trend_slope_per_week,
     weekly_compliance,
 )
-from .models import FitnessFatigueState, SessionResult, TrainingStatus
-from .physiology import build_fitness_fatigue_state, predicted_max_with_readiness
+from bar_scheduler.domain.models import FitnessFatigueState, SessionResult, TrainingStatus
+from bar_scheduler.core.physiology import build_fitness_fatigue_state, predicted_max_with_readiness
 
 
 def detect_plateau(history: list[SessionResult]) -> bool:
@@ -64,7 +64,9 @@ def detect_plateau(history: list[SessionResult]) -> bool:
     best_ever = overall_max_reps(history)
 
     recent_tests = [
-        s for s in test_sessions if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff
+        session
+        for session in test_sessions
+        if datetime.strptime(session.date, "%Y-%m-%d") >= cutoff
     ]
 
     for session in recent_tests:
@@ -130,7 +132,7 @@ def check_underperformance(
         True if underperforming
     """
     # Get recent S (strength) sessions
-    strength_sessions = [s for s in history if s.session_type == "S"]
+    strength_sessions = [session for session in history if session.session_type == "S"]
 
     if len(strength_sessions) < consecutive_required:
         return False
@@ -176,10 +178,10 @@ def should_deload(
         return False
 
     # Check readiness z-score
-    z = ff_state.readiness_z_score()
+    z_score = ff_state.readiness_z_score()
 
     # Trigger 1: Plateau with fatigue
-    if detect_plateau(history) and z < FATIGUE_Z_THRESHOLD:
+    if detect_plateau(history) and z_score < FATIGUE_Z_THRESHOLD:
         return True
 
     # Trigger 2: Consecutive underperformance
@@ -215,15 +217,15 @@ def calculate_volume_adjustment(
         new_sets = int(current_weekly_sets * (1 - DELOAD_VOLUME_REDUCTION))
         return max(WEEKLY_HARD_SETS_MIN, new_sets)
 
-    z = ff_state.readiness_z_score()
+    z_score = ff_state.readiness_z_score()
     compliance = weekly_compliance(history, weeks_back=1) if history else 1.0
 
-    if z < READINESS_Z_LOW:
+    if z_score < READINESS_Z_LOW:
         # Low readiness: reduce volume
         new_sets = int(current_weekly_sets * (1 - READINESS_VOLUME_REDUCTION))
         return max(WEEKLY_HARD_SETS_MIN, new_sets)
 
-    if z > READINESS_Z_HIGH and compliance > 0.9:
+    if z_score > READINESS_Z_HIGH and compliance > COMPLIANCE_THRESHOLD:
         # High readiness and good compliance: allow increase
         new_sets = int(current_weekly_sets * (1 + WEEKLY_VOLUME_INCREASE_RATE))
         return min(WEEKLY_HARD_SETS_MAX, new_sets)
@@ -248,7 +250,7 @@ def get_training_status(
     Returns:
         TrainingStatus with all metrics
     """
-    from .metrics import latest_test_max, training_max
+    from bar_scheduler.core.metrics import latest_test_max, training_max
 
     # Build fitness-fatigue state
     ff_state, _ = build_fitness_fatigue_state(history, current_bodyweight_kg, baseline_max)
@@ -261,7 +263,7 @@ def get_training_status(
     # Calculate training max
     tm = training_max(history)
     if tm == 1 and baseline_max is not None:
-        from .metrics import training_max_from_baseline
+        from bar_scheduler.core.metrics import training_max_from_baseline
 
         tm = training_max_from_baseline(baseline_max)
 
@@ -315,14 +317,14 @@ def apply_autoregulation(
     Returns:
         Tuple of (adjusted_sets, adjusted_reps)
     """
-    z = ff_state.readiness_z_score()
+    z_score = ff_state.readiness_z_score()
 
-    if z < READINESS_Z_LOW:
+    if z_score < READINESS_Z_LOW:
         # Reduce sets, keep reps
         adjusted_sets = max(sets_min, int(base_sets * (1 - READINESS_VOLUME_REDUCTION)))
         return (adjusted_sets, base_reps)
 
-    if z > READINESS_Z_HIGH:
+    if z_score > READINESS_Z_HIGH:
         # Allow small progression: +1 rep on some sets
         adjusted_reps = base_reps + 1
         return (base_sets, adjusted_reps)
@@ -355,7 +357,7 @@ def overtraining_severity(
         extra_rest_days (int): estimated additional rest days needed
         description (str):     human-readable summary, e.g. "3 sessions in 4 days"
     """
-    _empty = {
+    zero_stats = {
         "level": 0,
         "sessions": 0,
         "span_days": 0,
@@ -363,24 +365,24 @@ def overtraining_severity(
         "description": "",
     }
     if not history:
-        return _empty
+        return zero_stats
 
-    ref = (reference_date or datetime.now()).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    ref = (reference_date or datetime.now()).replace(hour=0, minute=0, second=0, microsecond=0)
     cutoff = ref - timedelta(days=6)  # 7-day window ending today
 
-    recent = [s for s in history if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff]
-    n = len(recent)
-    if n < 2:
-        return _empty
+    recent = [
+        session for session in history if datetime.strptime(session.date, "%Y-%m-%d") >= cutoff
+    ]
+    count = len(recent)
+    if count < 2:
+        return zero_stats
 
-    dates = sorted(datetime.strptime(s.date, "%Y-%m-%d") for s in recent)
+    dates = sorted(datetime.strptime(session.date, "%Y-%m-%d") for session in recent)
     span_days = (dates[-1] - dates[0]).days  # 0 = all on same day
 
-    # Expected time to complete n sessions at the user's planned frequency.
-    # n sessions have n-1 intervals between them.
-    expected_days = (n - 1) * (7.0 / max(days_per_week, 1))
+    # Expected time to complete count sessions at the user's planned frequency.
+    # count sessions have count-1 intervals between them.
+    expected_days = (count - 1) * (7.0 / max(days_per_week, 1))
     # Actual elapsed time (calendar days between first and last session)
     actual_days = max(span_days, 1)
     extra = max(0, round(expected_days - actual_days))
@@ -397,10 +399,10 @@ def overtraining_severity(
     # Use inclusive calendar-day count for the human-readable description
     inclusive_days = span_days + 1
     day_word = "day" if inclusive_days <= 1 else "days"
-    description = f"{n} sessions in {inclusive_days} {day_word}"
+    description = f"{count} sessions in {inclusive_days} {day_word}"
     return {
         "level": level,
-        "sessions": n,
+        "sessions": count,
         "span_days": span_days,
         "extra_rest_days": extra,
         "description": description,

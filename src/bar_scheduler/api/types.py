@@ -1,9 +1,11 @@
 """Public input types for the bar-scheduler API."""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
 SessionType = Literal["S", "H", "E", "T", "TEST"]
+
 
 @dataclass
 class SetInput:
@@ -23,7 +25,7 @@ class SetInput:
 
 @dataclass
 class SessionInput:
-    date: str            # YYYY-MM-DD
+    date: str  # YYYY-MM-DD
     session_type: SessionType
     bodyweight_kg: float
     sets: list[SetInput]
@@ -32,6 +34,7 @@ class SessionInput:
 
     def __post_init__(self) -> None:
         from datetime import datetime
+
         try:
             datetime.strptime(self.date, "%Y-%m-%d")
         except ValueError:

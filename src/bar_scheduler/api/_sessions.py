@@ -1,18 +1,19 @@
 """Session management functions for the bar-scheduler API."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from ..core.adaptation import get_training_status as _get_training_status
-from ..core.equipment import compute_leff
-from ..core.exercises.registry import get_exercise
-from ..core.metrics import best_1rm_from_leff
-from ..io.serializers import session_result_to_dict
-from ._common import (
+from bar_scheduler.core.adaptation import get_training_status as _get_training_status
+from bar_scheduler.core.equipment import compute_leff
+from bar_scheduler.core.exercises.registry import get_exercise
+from bar_scheduler.core.metrics import best_onerm_from_leff
+from bar_scheduler.io.serializers import session_result_to_dict
+from bar_scheduler.api._common import (
     SessionNotFoundError,
     _require_store,
 )
-from .types import SessionInput
+from bar_scheduler.api.types import SessionInput
 
 
 def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict:
@@ -31,28 +32,35 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
     Returns the serialised session dict. The equipment snapshot is read from
     the profile and attached automatically.
     """
-    from ..core.equipment import recommend_equipment_item, snapshot_from_state
-    from ..core.planner.load_calculator import calculate_band_assistance, calculate_machine_assistance
-    from ..io.serializers import dict_to_session_result
+    from bar_scheduler.core.equipment import recommend_equipment_item, snapshot_from_state
+    from bar_scheduler.core.planner.load_calculator import (
+        calculate_band_assistance,
+        calculate_machine_assistance,
+    )
+    from bar_scheduler.io.serializers import dict_to_session_result
 
     store = _require_store(data_dir, exercise_id)
-    session_obj = dict_to_session_result({
-        "date": session.date,
-        "bodyweight_kg": session.bodyweight_kg,
-        "grip": session.grip,
-        "session_type": session.session_type,
-        "exercise_id": exercise_id,
-        "completed_sets": [
-            {
-                "actual_reps": s.reps,
-                "rest_seconds_before": s.rest_seconds,
-                "added_weight_kg": s.added_weight_kg,
-                **({"rir_reported": s.rir_reported} if s.rir_reported is not None else {}),
-            }
-            for s in session.sets
-        ],
-        **({"notes": session.notes} if session.notes else {}),
-    })
+    session_obj = dict_to_session_result(
+        {
+            "date": session.date,
+            "bodyweight_kg": session.bodyweight_kg,
+            "grip": session.grip,
+            "session_type": session.session_type,
+            "exercise_id": exercise_id,
+            "completed_sets": [
+                {
+                    "actual_reps": set_in.reps,
+                    "rest_seconds_before": set_in.rest_seconds,
+                    "added_weight_kg": set_in.added_weight_kg,
+                    **(
+                        {} if set_in.rir_reported is None else {"rir_reported": set_in.rir_reported}
+                    ),
+                }
+                for set_in in session.sets
+            ],
+            **({"notes": session.notes} if session.notes else {}),
+        }
+    )
     if session_obj.equipment_snapshot is None:
         eq_state = store.load_current_equipment(exercise_id)
         if eq_state is not None:
@@ -61,12 +69,10 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
             current_tm = _get_training_status(
                 ustate.history, ustate.profile.bodyweight_kg
             ).training_max
-            active_item = recommend_equipment_item(
-                eq_state.available_items, ex, current_tm
-            )
+            active_item = recommend_equipment_item(eq_state.available_items, ex, current_tm)
             # Compute the prescribed assistance level for variable-assistance items.
             override_assistance: float | None = None
-            history = [s for s in ustate.history if s.exercise_id == exercise_id]
+            history = [sess for sess in ustate.history if sess.exercise_id == exercise_id]
             if active_item == "MACHINE_ASSISTED" and eq_state.available_machine_assistance_kg:
                 override_assistance = calculate_machine_assistance(
                     ex,
@@ -91,36 +97,36 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
     # Compute and cache performance metrics at log time.
     ex = get_exercise(exercise_id)
     assistance_kg = (
-        session_obj.equipment_snapshot.assistance_kg
-        if session_obj.equipment_snapshot is not None
-        else 0.0
+        session_obj.equipment_snapshot.assistance_kg if session_obj.equipment_snapshot else 0.0
     )
     leff_reps = [
         (
             compute_leff(
                 ex.bw_fraction,
                 session_obj.bodyweight_kg,
-                s.added_weight_kg,
+                completed_set.added_weight_kg,
                 assistance_kg,
             ),
-            s.actual_reps,
+            completed_set.actual_reps,
         )
-        for s in session_obj.completed_sets
-        if s.actual_reps is not None and s.actual_reps > 0
+        for completed_set in session_obj.completed_sets
+        if completed_set.actual_reps
     ]
     volumes = [leff * reps for leff, reps in leff_reps]
-    n = len(volumes)
+    count = len(volumes)
     volume_session = sum(volumes)
-    avg_volume_set = volume_session / n if n > 0 else 0.0
-    best_1rm: float | None = None
+    avg_volume_set = volume_session / count if count > 0 else 0.0
+    best_onerm: float | None = None
     for leff, reps in leff_reps:
-        est = best_1rm_from_leff(leff, reps)
-        if est is not None and (best_1rm is None or est > best_1rm):
-            best_1rm = est
+        est = best_onerm_from_leff(leff, reps)
+        if est is None:
+            continue
+        if best_onerm is None or est > best_onerm:
+            best_onerm = est
     session_obj.session_metrics = {
         "volume_session": round(volume_session, 2),
         "avg_volume_set": round(avg_volume_set, 2),
-        "estimated_1rm": round(best_1rm, 2) if best_1rm is not None else None,
+        "estimated_1rm": None if best_onerm is None else round(best_onerm, 2),
     }
 
     store.append_session(session_obj)
@@ -155,14 +161,14 @@ def get_history(data_dir: Path, exercise_id: str) -> list[dict]:
     """
     store = _require_store(data_dir, exercise_id)
     sessions = store.load_history(exercise_id)
-    result = []
-    for s in sessions:
-        d = session_result_to_dict(s)
-        if "session_metrics" not in d:
-            d["session_metrics"] = {
+    history_list = []
+    for session_rec in sessions:
+        entry = session_result_to_dict(session_rec)
+        if "session_metrics" not in entry:
+            entry["session_metrics"] = {
                 "volume_session": None,
                 "avg_volume_set": None,
                 "estimated_1rm": None,
             }
-        result.append(d)
-    return result
+        history_list.append(entry)
+    return history_list

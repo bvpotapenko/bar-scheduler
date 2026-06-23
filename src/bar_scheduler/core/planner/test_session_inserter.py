@@ -2,8 +2,8 @@
 
 from datetime import datetime, timedelta
 
-from ..config import DAY_SPACING
-from ..models import SessionResult
+from bar_scheduler.core.config import DAY_SPACING
+from bar_scheduler.domain.models import SessionResult
 
 
 def _find_last_test(
@@ -25,7 +25,7 @@ def _find_last_test(
     Returns:
         Effective last-test date
     """
-    test_hist = [s for s in history if s.session_type == "TEST"]
+    test_hist = [sess for sess in history if sess.session_type == "TEST"]
     if test_hist:
         return datetime.strptime(test_hist[-1].date, "%Y-%m-%d")
     # Treat plan start as if a test was due right before (trigger at first week boundary)
@@ -53,17 +53,17 @@ def _insert_test_sessions(
         Modified session list with TEST sessions injected
     """
     last_test = _find_last_test(history, plan_start, test_frequency_weeks)
-    historical_test = last_test if any(s.session_type == "TEST" for s in history) else None
+    historical_test = last_test if any(sess.session_type == "TEST" for sess in history) else None
 
-    result: list[tuple[datetime, str]] = []
+    scheduled: list[tuple[datetime, str]] = []
     for date, stype in session_dates:
         if (date - last_test).days >= test_frequency_weeks * 7:
-            result.append((date, "TEST"))
+            scheduled.append((date, "TEST"))
             last_test = date
         else:
-            result.append((date, stype))
+            scheduled.append((date, stype))
 
-    return _enforce_test_spacing(result, DAY_SPACING["TEST"], historical_test)
+    return _enforce_test_spacing(scheduled, DAY_SPACING["TEST"], historical_test)
 
 
 def _enforce_test_spacing(
@@ -86,22 +86,22 @@ def _enforce_test_spacing(
     Returns:
         Adjusted schedule with spacing enforced
     """
-    result = list(schedule)
+    adjusted = list(schedule)
 
     # Push plan sessions that follow a historical TEST too closely.
     if last_historical_test is not None:
         cutoff = last_historical_test + timedelta(days=spacing + 1)
-        for i, (d, stype) in enumerate(result):
-            if d < cutoff:
-                result[i] = (cutoff, stype)
+        for slot_idx, (slot_date, stype) in enumerate(adjusted):
+            if slot_date < cutoff:
+                adjusted[slot_idx] = (cutoff, stype)
             else:
                 break
 
     # Enforce spacing between in-plan TEST and the session immediately after.
-    for i, (d, stype) in enumerate(result):
-        if stype == "TEST" and i + 1 < len(result):
-            next_date, next_type = result[i + 1]
-            if (next_date - d).days <= spacing:
-                result[i + 1] = (d + timedelta(days=spacing + 1), next_type)
+    for slot_idx, (slot_date, stype) in enumerate(adjusted):
+        if stype == "TEST" and slot_idx + 1 < len(adjusted):
+            next_date, next_type = adjusted[slot_idx + 1]
+            if (next_date - slot_date).days <= spacing:
+                adjusted[slot_idx + 1] = (slot_date + timedelta(days=spacing + 1), next_type)
 
-    return result
+    return adjusted

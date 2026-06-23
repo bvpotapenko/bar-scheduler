@@ -8,7 +8,7 @@ See docs/training_model.md for detailed explanation.
 import math
 from datetime import datetime
 
-from .config import (
+from bar_scheduler.core.config import (
     A_RIR,
     ALPHA_MHAT,
     BETA_SIGMA,
@@ -24,13 +24,13 @@ from .config import (
     TAU_FATIGUE,
     TAU_FITNESS,
 )
-from .metrics import (
+from bar_scheduler.core.metrics import (
     estimate_rir_from_fraction,
     get_test_sessions,
     session_max_reps,
     standardized_reps,
 )
-from .models import FitnessFatigueState, SessionResult
+from bar_scheduler.domain.models import FitnessFatigueState, SessionResult
 
 
 def rir_effort_multiplier(rir: int) -> float:
@@ -69,8 +69,8 @@ def rest_stress_multiplier(rest_seconds: int) -> float:
     Returns:
         Rest stress multiplier (1.0 to S_max)
     """
-    r = max(rest_seconds, REST_MIN_CLAMP)
-    raw = (REST_REF_SECONDS / r) ** GAMMA_S
+    rest_clamped = max(rest_seconds, REST_MIN_CLAMP)
+    raw = (REST_REF_SECONDS / rest_clamped) ** GAMMA_S
     return max(1.0, min(S_REST_MAX, raw))
 
 
@@ -104,9 +104,7 @@ def load_stress_multiplier(
     return l_rel**GAMMA_LOAD
 
 
-def grip_stress_multiplier(
-    grip: str, variant_factors: dict[str, float] | None = None
-) -> float:
+def grip_stress_multiplier(grip: str, variant_factors: dict[str, float] | None = None) -> float:
     """
     Get grip/variant stress multiplier.
 
@@ -389,10 +387,10 @@ def build_fitness_fatigue_state(
         curr_date = datetime.strptime(session.date, "%Y-%m-%d")
 
         # Calculate days since last
-        if prev_date is not None:
-            days_since = (curr_date - prev_date).days
-        else:
+        if prev_date is None:
             days_since = 1
+        else:
+            days_since = (curr_date - prev_date).days
 
         # Decay state over rest days
         if days_since > 1:
@@ -443,16 +441,16 @@ def get_session_standardized_max(
 
     max_std = 0.0
 
-    for s in session.completed_sets:
-        if s.actual_reps is None:
+    for set_rec in session.completed_sets:
+        if set_rec.actual_reps is None:
             continue
 
         std = standardized_reps(
-            actual_reps=s.actual_reps,
-            rest_seconds=s.rest_seconds_before,
+            actual_reps=set_rec.actual_reps,
+            rest_seconds=set_rec.rest_seconds_before,
             session_bodyweight_kg=session.bodyweight_kg,
             reference_bodyweight_kg=reference_bodyweight_kg,
-            added_load_kg=s.added_weight_kg,
+            added_load_kg=set_rec.added_weight_kg,
             grip=session.grip,
         )
 

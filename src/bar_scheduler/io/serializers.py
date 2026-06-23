@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from ..core.models import (
+from bar_scheduler.domain.models import (
     EquipmentSnapshot,
     EquipmentState,
     ExerciseTarget,
@@ -25,8 +25,6 @@ from ..core.models import (
 
 class ValidationError(Exception):
     """Raised when data validation fails."""
-
-    pass
 
 
 def validate_date(date_str: str) -> str:
@@ -47,8 +45,8 @@ def validate_date(date_str: str) -> str:
 
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError as e:
-        raise ValidationError(f"Invalid date: {date_str}") from e
+    except ValueError as exc:
+        raise ValidationError(f"Invalid date: {date_str}") from exc
 
     return date_str
 
@@ -90,18 +88,16 @@ def validate_session_type(session_type: str) -> SessionType:
     """
     valid_types = ("S", "H", "E", "T", "TEST")
     if session_type not in valid_types:
-        raise ValidationError(
-            f"Invalid session_type: {session_type}. Must be one of {valid_types}"
-        )
+        raise ValidationError(f"Invalid session_type: {session_type}. Must be one of {valid_types}")
     return session_type  # type: ignore
 
 
-def validate_non_negative(value: int | float, name: str) -> int | float:
+def validate_non_negative(num: int | float, name: str) -> int | float:
     """
     Validate that a value is non-negative.
 
     Args:
-        value: Value to validate
+        num: Value to validate
         name: Name for error message
 
     Returns:
@@ -110,17 +106,17 @@ def validate_non_negative(value: int | float, name: str) -> int | float:
     Raises:
         ValidationError: If value is negative
     """
-    if value < 0:
-        raise ValidationError(f"{name} must be non-negative, got {value}")
-    return value
+    if num < 0:
+        raise ValidationError(f"{name} must be non-negative, got {num}")
+    return num
 
 
-def validate_positive(value: int | float, name: str) -> int | float:
+def validate_positive(num: int | float, name: str) -> int | float:
     """
     Validate that a value is positive.
 
     Args:
-        value: Value to validate
+        num: Value to validate
         name: Name for error message
 
     Returns:
@@ -129,9 +125,9 @@ def validate_positive(value: int | float, name: str) -> int | float:
     Raises:
         ValidationError: If value is not positive
     """
-    if value <= 0:
-        raise ValidationError(f"{name} must be positive, got {value}")
-    return value
+    if num <= 0:
+        raise ValidationError(f"{name} must be positive, got {num}")
+    return num
 
 
 def set_result_to_dict(set_result: SetResult) -> dict[str, Any]:
@@ -154,7 +150,7 @@ def set_result_to_dict(set_result: SetResult) -> dict[str, Any]:
     }
 
 
-def dict_to_set_result(data: dict[str, Any]) -> SetResult:
+def dict_to_set_result(raw: dict[str, Any]) -> SetResult:
     """
     Convert dict to SetResult.
 
@@ -165,7 +161,7 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
       - old format:    both present -> use both as-is
 
     Args:
-        data: Dict representation
+        raw: Dict representation
 
     Returns:
         SetResult instance
@@ -173,8 +169,8 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
     Raises:
         ValidationError: If data is invalid
     """
-    actual_reps = data.get("actual_reps")
-    target_reps = data.get("target_reps")
+    actual_reps = raw.get("actual_reps")
+    target_reps = raw.get("target_reps")
 
     # Compact new format: derive the missing field
     if actual_reps is not None and target_reps is None:
@@ -184,18 +180,16 @@ def dict_to_set_result(data: dict[str, Any]) -> SetResult:
     validate_non_negative(target_reps or 0, "target_reps")
     if actual_reps is not None:
         validate_non_negative(actual_reps, "actual_reps")
-    validate_non_negative(data.get("rest_seconds_before", 0), "rest_seconds_before")
-    validate_non_negative(data.get("added_weight_kg", 0), "added_weight_kg")
+    validate_non_negative(raw.get("rest_seconds_before", 0), "rest_seconds_before")
+    validate_non_negative(raw.get("added_weight_kg", 0), "added_weight_kg")
 
     return SetResult(
         target_reps=int(target_reps or 0),
-        actual_reps=int(actual_reps) if actual_reps is not None else None,
-        rest_seconds_before=int(data.get("rest_seconds_before", 0)),
-        added_weight_kg=float(data.get("added_weight_kg", 0.0)),
-        rir_target=int(data.get("rir_target", 2)),
-        rir_reported=(
-            int(data["rir_reported"]) if data.get("rir_reported") is not None else None
-        ),
+        actual_reps=None if actual_reps is None else int(actual_reps),
+        rest_seconds_before=int(raw.get("rest_seconds_before", 0)),
+        added_weight_kg=float(raw.get("added_weight_kg", 0.0)),
+        rir_target=int(raw.get("rir_target", 2)),
+        rir_reported=(None if raw.get("rir_reported") is None else int(raw["rir_reported"])),
     )
 
 
@@ -217,12 +211,12 @@ def planned_set_to_dict(planned_set: PlannedSet) -> dict[str, Any]:
     }
 
 
-def dict_to_planned_set(data: dict[str, Any]) -> PlannedSet:
+def dict_to_planned_set(raw: dict[str, Any]) -> PlannedSet:
     """
     Convert dict to PlannedSet.
 
     Args:
-        data: Dict representation
+        raw: Dict representation
 
     Returns:
         PlannedSet instance
@@ -230,37 +224,37 @@ def dict_to_planned_set(data: dict[str, Any]) -> PlannedSet:
     Raises:
         ValidationError: If data is invalid
     """
-    validate_non_negative(data.get("target_reps", 0), "target_reps")
-    validate_non_negative(data.get("rest_seconds_before", 0), "rest_seconds_before")
-    validate_non_negative(data.get("added_weight_kg", 0), "added_weight_kg")
-    validate_non_negative(data.get("rir_target", 0), "rir_target")
+    validate_non_negative(raw.get("target_reps", 0), "target_reps")
+    validate_non_negative(raw.get("rest_seconds_before", 0), "rest_seconds_before")
+    validate_non_negative(raw.get("added_weight_kg", 0), "added_weight_kg")
+    validate_non_negative(raw.get("rir_target", 0), "rir_target")
 
     return PlannedSet(
-        target_reps=int(data["target_reps"]),
-        rest_seconds_before=int(data["rest_seconds_before"]),
-        added_weight_kg=float(data.get("added_weight_kg", 0.0)),
-        rir_target=int(data.get("rir_target", 2)),
+        target_reps=int(raw["target_reps"]),
+        rest_seconds_before=int(raw["rest_seconds_before"]),
+        added_weight_kg=float(raw.get("added_weight_kg", 0.0)),
+        rir_target=int(raw.get("rir_target", 2)),
     )
 
 
-def _completed_set_to_dict(s: SetResult) -> dict[str, Any]:
+def _completed_set_to_dict(set_rec: SetResult) -> dict[str, Any]:
     """Compact serializer for a completed set: only actual_reps (target is always equal)."""
-    d: dict[str, Any] = {
-        "actual_reps": s.actual_reps,
-        "rest_seconds_before": s.rest_seconds_before,
-        "added_weight_kg": s.added_weight_kg,
+    row: dict[str, Any] = {
+        "actual_reps": set_rec.actual_reps,
+        "rest_seconds_before": set_rec.rest_seconds_before,
+        "added_weight_kg": set_rec.added_weight_kg,
     }
-    if s.rir_reported is not None:
-        d["rir_reported"] = s.rir_reported
-    return d
+    if set_rec.rir_reported is not None:
+        row["rir_reported"] = set_rec.rir_reported
+    return row
 
 
-def _planned_set_result_to_dict(s: SetResult) -> dict[str, Any]:
+def _planned_set_result_to_dict(set_rec: SetResult) -> dict[str, Any]:
     """Compact serializer for a planned set (from cache): only target_reps."""
     return {
-        "target_reps": s.target_reps,
-        "rest_seconds_before": s.rest_seconds_before,
-        "added_weight_kg": s.added_weight_kg,
+        "target_reps": set_rec.target_reps,
+        "rest_seconds_before": set_rec.rest_seconds_before,
+        "added_weight_kg": set_rec.added_weight_kg,
     }
 
 
@@ -272,42 +266,40 @@ def equipment_snapshot_to_dict(snapshot: EquipmentSnapshot) -> dict[str, Any]:
     }
 
 
-def dict_to_equipment_snapshot(data: dict[str, Any]) -> EquipmentSnapshot:
+def dict_to_equipment_snapshot(raw: dict[str, Any]) -> EquipmentSnapshot:
     """Deserialize an EquipmentSnapshot from a dict."""
     return EquipmentSnapshot(
-        active_item=str(data.get("active_item", "")),
-        assistance_kg=float(data.get("assistance_kg", 0.0)),
+        active_item=str(raw.get("active_item", "")),
+        assistance_kg=float(raw.get("assistance_kg", 0.0)),
     )
 
 
 def equipment_state_to_dict(state: EquipmentState) -> dict[str, Any]:
     """Serialize EquipmentState for storage in profile.json."""
-    d: dict[str, Any] = {
+    row: dict[str, Any] = {
         "exercise_id": state.exercise_id,
         "available_items": list(state.available_items),
     }
     if state.available_weights_kg:
-        d["available_weights_kg"] = list(state.available_weights_kg)
+        row["available_weights_kg"] = list(state.available_weights_kg)
     if state.available_machine_assistance_kg:
-        d["available_machine_assistance_kg"] = list(
-            state.available_machine_assistance_kg
-        )
+        row["available_machine_assistance_kg"] = list(state.available_machine_assistance_kg)
     if state.available_band_assistance_kg:
-        d["available_band_assistance_kg"] = list(state.available_band_assistance_kg)
-    return d
+        row["available_band_assistance_kg"] = list(state.available_band_assistance_kg)
+    return row
 
 
-def dict_to_equipment_state(data: dict[str, Any]) -> EquipmentState:
+def dict_to_equipment_state(raw: dict[str, Any]) -> EquipmentState:
     """Deserialize an EquipmentState from a profile.json dict."""
     return EquipmentState(
-        exercise_id=str(data.get("exercise_id", "")),
-        available_items=list(data.get("available_items", [])),
-        available_weights_kg=[float(w) for w in data.get("available_weights_kg", [])],
+        exercise_id=str(raw.get("exercise_id", "")),
+        available_items=list(raw.get("available_items", [])),
+        available_weights_kg=[float(wt) for wt in raw.get("available_weights_kg", [])],
         available_machine_assistance_kg=[
-            float(w) for w in data.get("available_machine_assistance_kg", [])
+            float(wt) for wt in raw.get("available_machine_assistance_kg", [])
         ],
         available_band_assistance_kg=[
-            float(w) for w in data.get("available_band_assistance_kg", [])
+            float(wt) for wt in raw.get("available_band_assistance_kg", [])
         ],
     )
 
@@ -326,35 +318,33 @@ def session_result_to_dict(session: SessionResult) -> dict[str, Any]:
     Returns:
         Dict representation
     """
-    d: dict = {
+    row: dict = {
         "date": session.date,
         "bodyweight_kg": session.bodyweight_kg,
         "grip": session.grip,
         "session_type": session.session_type,
         "exercise_id": session.exercise_id,
-        "completed_sets": [_completed_set_to_dict(s) for s in session.completed_sets],
+        "completed_sets": [_completed_set_to_dict(sr) for sr in session.completed_sets],
         "notes": session.notes,
     }
     # Only include planned_sets when non-empty (meaningful prescription data from cache)
     if session.planned_sets:
-        d["planned_sets"] = [
-            _planned_set_result_to_dict(s) for s in session.planned_sets
-        ]
+        row["planned_sets"] = [_planned_set_result_to_dict(sr) for sr in session.planned_sets]
     # Only include equipment_snapshot when present
     if session.equipment_snapshot is not None:
-        d["equipment_snapshot"] = equipment_snapshot_to_dict(session.equipment_snapshot)
+        row["equipment_snapshot"] = equipment_snapshot_to_dict(session.equipment_snapshot)
     # Only include session_metrics when present (cached at log time)
     if session.session_metrics is not None:
-        d["session_metrics"] = session.session_metrics
-    return d
+        row["session_metrics"] = session.session_metrics
+    return row
 
 
-def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
+def dict_to_session_result(raw: dict[str, Any]) -> SessionResult:
     """
     Convert dict to SessionResult.
 
     Args:
-        data: Dict representation
+        raw: Dict representation
 
     Returns:
         SessionResult instance
@@ -362,45 +352,45 @@ def dict_to_session_result(data: dict[str, Any]) -> SessionResult:
     Raises:
         ValidationError: If data is invalid
     """
-    validate_date(data["date"])
-    validate_positive(data.get("bodyweight_kg", 0), "bodyweight_kg")
-    validate_grip(data["grip"])
-    validate_session_type(data["session_type"])
+    validate_date(raw["date"])
+    validate_positive(raw.get("bodyweight_kg", 0), "bodyweight_kg")
+    validate_grip(raw["grip"])
+    validate_session_type(raw["session_type"])
 
-    if "exercise_id" not in data:
+    if "exercise_id" not in raw:
         raise ValidationError("Missing required field: exercise_id")
 
     # Deserialize equipment snapshot if present (absent -> None)
-    eq_data = data.get("equipment_snapshot")
+    eq_data = raw.get("equipment_snapshot")
     equipment_snapshot = dict_to_equipment_snapshot(eq_data) if eq_data else None
 
     return SessionResult(
-        date=data["date"],
-        bodyweight_kg=float(data["bodyweight_kg"]),
-        grip=data["grip"],
-        session_type=data["session_type"],
-        exercise_id=data["exercise_id"],
+        date=raw["date"],
+        bodyweight_kg=float(raw["bodyweight_kg"]),
+        grip=raw["grip"],
+        session_type=raw["session_type"],
+        exercise_id=raw["exercise_id"],
         equipment_snapshot=equipment_snapshot,
-        planned_sets=[dict_to_set_result(s) for s in data.get("planned_sets", [])],
-        completed_sets=[dict_to_set_result(s) for s in data.get("completed_sets", [])],
-        notes=data.get("notes"),
-        session_metrics=data.get("session_metrics"),
+        planned_sets=[dict_to_set_result(set_dict) for set_dict in raw.get("planned_sets", [])],
+        completed_sets=[dict_to_set_result(set_dict) for set_dict in raw.get("completed_sets", [])],
+        notes=raw.get("notes"),
+        session_metrics=raw.get("session_metrics"),
     )
 
 
 def exercise_target_to_dict(target: ExerciseTarget) -> dict[str, Any]:
     """Serialize an ExerciseTarget; omits weight_kg when zero."""
-    d: dict[str, Any] = {"reps": target.reps}
+    row: dict[str, Any] = {"reps": target.reps}
     if target.weight_kg > 0:
-        d["weight_kg"] = target.weight_kg
-    return d
+        row["weight_kg"] = target.weight_kg
+    return row
 
 
-def dict_to_exercise_target(data: dict[str, Any]) -> ExerciseTarget:
+def dict_to_exercise_target(raw: dict[str, Any]) -> ExerciseTarget:
     """Deserialize an ExerciseTarget from a dict."""
     return ExerciseTarget(
-        reps=int(data["reps"]),
-        weight_kg=float(data.get("weight_kg", 0.0)),
+        reps=int(raw["reps"]),
+        weight_kg=float(raw.get("weight_kg", 0.0)),
     )
 
 
@@ -414,24 +404,23 @@ def user_profile_to_dict(profile: UserProfile) -> dict[str, Any]:
     Returns:
         Dict representation
     """
-    d: dict[str, Any] = {
+    row: dict[str, Any] = {
         "height_cm": profile.height_cm,
         "current_bodyweight_kg": profile.bodyweight_kg,
         "exercises_enabled": list(profile.exercises_enabled),
     }
     if profile.exercise_days:
-        d["exercise_days"] = dict(profile.exercise_days)
+        row["exercise_days"] = dict(profile.exercise_days)
     if profile.exercise_targets:
-        d["exercise_targets"] = {
-            ex_id: exercise_target_to_dict(tgt)
-            for ex_id, tgt in profile.exercise_targets.items()
+        row["exercise_targets"] = {
+            ex_id: exercise_target_to_dict(tgt) for ex_id, tgt in profile.exercise_targets.items()
         }
     if profile.language != "en":
-        d["language"] = profile.language
-    return d
+        row["language"] = profile.language
+    return row
 
 
-def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
+def dict_to_user_profile(raw: dict[str, Any]) -> UserProfile:
     """
     Convert dict to UserProfile.
 
@@ -444,23 +433,23 @@ def dict_to_user_profile(data: dict[str, Any]) -> UserProfile:
     Raises:
         ValidationError: If data is invalid
     """
-    validate_positive(data.get("height_cm", 0), "height_cm")
-    validate_positive(data.get("current_bodyweight_kg", 0), "current_bodyweight_kg")
+    validate_positive(raw.get("height_cm", 0), "height_cm")
+    validate_positive(raw.get("current_bodyweight_kg", 0), "current_bodyweight_kg")
 
-    raw_exercise_days = data.get("exercise_days") or {}
-    exercise_days = {k: int(v) for k, v in raw_exercise_days.items()}
+    raw_exercise_days = raw.get("exercise_days") or {}
+    exercise_days = {ex_id: int(days) for ex_id, days in raw_exercise_days.items()}
 
     raw_exercise_targets: dict[str, ExerciseTarget] = {}
-    for ex_id, v in (data.get("exercise_targets") or {}).items():
-        raw_exercise_targets[ex_id] = dict_to_exercise_target(v)
+    for ex_id, tgt in (raw.get("exercise_targets") or {}).items():
+        raw_exercise_targets[ex_id] = dict_to_exercise_target(tgt)
 
     return UserProfile(
-        height_cm=int(data["height_cm"]),
-        bodyweight_kg=float(data["current_bodyweight_kg"]),
+        height_cm=int(raw["height_cm"]),
+        bodyweight_kg=float(raw["current_bodyweight_kg"]),
         exercise_days=exercise_days,
         exercise_targets=raw_exercise_targets,
-        exercises_enabled=list(data.get("exercises_enabled", [])),
-        language=str(data.get("language", "en")),
+        exercises_enabled=list(raw.get("exercises_enabled", [])),
+        language=str(raw.get("language", "en")),
     )
 
 
@@ -474,8 +463,8 @@ def session_to_json_line(session: SessionResult) -> str:
     Returns:
         JSON string (single line, no trailing newline)
     """
-    data = session_result_to_dict(session)
-    return json.dumps(data, separators=(",", ":"))
+    raw = session_result_to_dict(session)
+    return json.dumps(raw, separators=(",", ":"))
 
 
 def json_line_to_session(line: str) -> SessionResult:
@@ -492,17 +481,17 @@ def json_line_to_session(line: str) -> SessionResult:
         ValidationError: If JSON is invalid or data validation fails
     """
     try:
-        data = json.loads(line.strip())
-    except json.JSONDecodeError as e:
-        raise ValidationError(f"Invalid JSON: {e}") from e
+        raw = json.loads(line.strip())
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"Invalid JSON: {exc}") from exc
 
-    return dict_to_session_result(data)
+    return dict_to_session_result(raw)
 
 
 _DEFAULT_REST_SECONDS = 180  # Used when rest is omitted from a set
 
 
-def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
+def parse_compact_sets(sets_str: str) -> list[tuple[int, float, int]] | None:
     """
     Try to parse a compact plan-style sets string.
 
@@ -523,7 +512,7 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
     Returns list of (reps, weight, rest) tuples, or None if format not recognised.
     Triggers on at least one 'x'/'×' OR a shared rest suffix '/ Ns'.
     """
-    text = s.strip()
+    text = sets_str.strip()
 
     # Require at least one 'x'/'×' OR a shared rest suffix '/ Ns' to be compact.
     # Per-set formats embed rest without a trailing 's' (e.g. "8@0/180"), so this is safe.
@@ -534,44 +523,44 @@ def parse_compact_sets(s: str) -> list[tuple[int, float, int]] | None:
 
     # Extract optional rest suffix:  / Ns
     rest = _DEFAULT_REST_SECONDS
-    m = re.search(r"\s*/\s*(\d+)\s*s\s*$", text)
-    if m:
-        rest = int(m.group(1))
-        text = text[: m.start()].strip()
+    match = re.search(r"\s*/\s*(\d+)\s*s\s*$", text)
+    if match:
+        rest = int(match.group(1))
+        text = text[: match.start()].strip()
 
     # Extract optional weight prefix on the right:  +W.Wkg
     weight = 0.0
-    m = re.search(r"\+\s*([0-9]+(?:\.[0-9]+)?)\s*kg\s*$", text, re.IGNORECASE)
-    if m:
-        weight = float(m.group(1))
-        text = text[: m.start()].strip()
+    match = re.search(r"\+\s*([0-9]+(?:\.[0-9]+)?)\s*kg\s*$", text, re.IGNORECASE)
+    if match:
+        weight = float(match.group(1))
+        text = text[: match.start()].strip()
 
     # Parse comma-separated groups
-    groups = [g.strip() for g in text.split(",") if g.strip()]
+    groups = [token.strip() for token in text.split(",") if token.strip()]
     if not groups:
         return None
 
-    result: list[tuple[int, float, int]] = []
+    parsed_sets: list[tuple[int, float, int]] = []
     for group in groups:
         # NxM / N×M -> N reps × M sets
-        m = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", group)
-        if m:
-            n_reps = int(m.group(1))
-            n_sets = int(m.group(2))
+        match = re.fullmatch(r"(\d+)\s*[xX×]\s*(\d+)", group)
+        if match:
+            n_reps = int(match.group(1))
+            n_sets = int(match.group(2))
             if n_sets < 1 or n_reps < 0:
                 return None
             for _ in range(n_sets):
-                result.append((n_reps, weight, rest))
+                parsed_sets.append((n_reps, weight, rest))
             continue
         # Bare integer -> 1 set of N reps
-        m = re.fullmatch(r"(\d+)", group)
-        if m:
-            result.append((int(m.group(1)), weight, rest))
+        match = re.fullmatch(r"(\d+)", group)
+        if match:
+            parsed_sets.append((int(match.group(1)), weight, rest))
             continue
         # Unknown group -- not compact format
         return None
 
-    return result if result else None
+    return parsed_sets if parsed_sets else None
 
 
 def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
@@ -609,7 +598,7 @@ def parse_sets_string(sets_str: str) -> list[tuple[int, float, int]]:
         return compact
 
     sets: list[tuple[int, float, int]] = []
-    parts = [p.strip() for p in sets_str.split(",") if p.strip()]
+    parts = [raw_part.strip() for raw_part in sets_str.split(",") if raw_part.strip()]
 
     for part in parts:
         # Try formats in priority order:
@@ -675,12 +664,12 @@ def session_plan_to_dict(plan: SessionPlan) -> dict:
         "exercise_id": plan.exercise_id,
         "sets": [
             {
-                "target_reps": s.target_reps,
-                "rest_seconds_before": s.rest_seconds_before,
-                "added_weight_kg": s.added_weight_kg,
-                "rir_target": s.rir_target,
+                "target_reps": ps.target_reps,
+                "rest_seconds_before": ps.rest_seconds_before,
+                "added_weight_kg": ps.added_weight_kg,
+                "rir_target": ps.rir_target,
             }
-            for s in plan.sets
+            for ps in plan.sets
         ],
         "expected_tm": plan.expected_tm,
         "week_number": plan.week_number,
@@ -688,23 +677,23 @@ def session_plan_to_dict(plan: SessionPlan) -> dict:
     }
 
 
-def dict_to_session_plan(data: dict) -> SessionPlan:
+def dict_to_session_plan(raw: dict) -> SessionPlan:
     """Parse a SessionPlan from a dict."""
     return SessionPlan(
-        date=data["date"],
-        grip=data["grip"],
-        session_type=data["session_type"],
-        exercise_id=data["exercise_id"],
+        date=raw["date"],
+        grip=raw["grip"],
+        session_type=raw["session_type"],
+        exercise_id=raw["exercise_id"],
         sets=[
             PlannedSet(
-                target_reps=s["target_reps"],
-                rest_seconds_before=s["rest_seconds_before"],
-                added_weight_kg=s.get("added_weight_kg", 0.0),
-                rir_target=s.get("rir_target", 2),
+                target_reps=set_dict["target_reps"],
+                rest_seconds_before=set_dict["rest_seconds_before"],
+                added_weight_kg=set_dict.get("added_weight_kg", 0.0),
+                rir_target=set_dict.get("rir_target", 2),
             )
-            for s in data.get("sets", [])
+            for set_dict in raw.get("sets", [])
         ],
-        expected_tm=data.get("expected_tm", 0),
-        week_number=data.get("week_number", 1),
-        prescribed_assistance_kg=data.get("prescribed_assistance_kg"),
+        expected_tm=raw.get("expected_tm", 0),
+        week_number=raw.get("week_number", 1),
+        prescribed_assistance_kg=raw.get("prescribed_assistance_kg"),
     )

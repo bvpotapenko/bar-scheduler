@@ -7,7 +7,7 @@ continue to work without modification.
 """
 
 # --- Primary public API (imported by cli/commands/planning.py) ---
-from .plan_engine import (
+from bar_scheduler.core.planner.plan_engine import (
     generate_plan,
     create_synthetic_test_session,
     estimate_plan_completion_date,
@@ -15,14 +15,14 @@ from .plan_engine import (
 )
 
 # --- Schedule construction (imported by test_plan_integration.py, test_core_formulas.py) ---
-from .schedule_builder import (
+from bar_scheduler.core.planner.schedule_builder import (
     get_schedule_template,
     get_next_session_type_index,
     calculate_session_days,
 )
 
 # --- Grip rotation (imported by tests) ---
-from .grip_selector import (
+from bar_scheduler.core.planner.grip_selector import (
     select_grip,
     _init_grip_counts,
     _next_grip,
@@ -30,16 +30,19 @@ from .grip_selector import (
 )
 
 # --- Load calculation (imported by test_cli_smoke.py) ---
-from .load_calculator import _calculate_added_weight, calculate_machine_assistance
+from bar_scheduler.core.planner.load_calculator import (
+    _calculate_added_weight,
+    calculate_machine_assistance,
+)
 
 # --- Rest calculation (imported by test_core_formulas.py) ---
-from .rest_advisor import calculate_adaptive_rest
+from bar_scheduler.core.planner.rest_advisor import calculate_adaptive_rest
 
 # --- Set prescription (imported by tests) ---
-from .set_prescriptor import calculate_set_prescription
+from bar_scheduler.core.planner.set_prescriptor import calculate_set_prescription
 
 # --- TEST injection (imported by test_cli_smoke.py) ---
-from .test_session_inserter import _insert_test_sessions
+from bar_scheduler.core.planner.test_session_inserter import _insert_test_sessions
 
 __all__ = [
     # Public API
