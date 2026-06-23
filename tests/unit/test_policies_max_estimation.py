@@ -14,6 +14,7 @@ def estimator() -> MaxEstimator:
 
 # --- interpolation ---
 
+
 @pytest.mark.parametrize(
     ("x", "expected"),
     [(0.0, 0.0), (5.0, 5.0), (2.5, 2.5), (-1.0, 0.0), (11.0, 10.0)],
@@ -35,6 +36,7 @@ def test_extrapolate_linear_beyond_table():
 
 
 # --- MaxEstimator ---
+
 
 def test_fewer_than_two_valid_sets_returns_none(estimator):
     assert estimator.estimate([10], [180]) is None

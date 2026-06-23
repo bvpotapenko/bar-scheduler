@@ -50,7 +50,9 @@ def _actual_rests(recent_sessions: list[SessionResult]) -> list[int]:
     ]
 
 
-def _adjust_for_user_pattern(recent: list[SessionResult], rest: int, sparams: SessionTypeParams) -> int:
+def _adjust_for_user_pattern(
+    recent: list[SessionResult], rest: int, sparams: SessionTypeParams
+) -> int:
     """Shift toward the user's actual rest behaviour (needs >=3 data points)."""
     rests = _actual_rests(recent)
     if len(rests) < 3:

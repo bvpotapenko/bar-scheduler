@@ -8,7 +8,11 @@ from bar_scheduler.core.policies.autoregulation import AutoregulationPolicy
 from bar_scheduler.core.policies.load import DEFAULT_SESSION_TARGET_REPS, LoadCalculator
 from bar_scheduler.core.policies.rest import RestAdvisor
 from bar_scheduler.core.policies.sets import SetPrescriptor
-from bar_scheduler.domain.context import AdaptationSignals, EquipmentConstraints, PrescriptionContext
+from bar_scheduler.domain.context import (
+    AdaptationSignals,
+    EquipmentConstraints,
+    PrescriptionContext,
+)
 from bar_scheduler.domain.models import FitnessFatigueState, SessionResult, SetResult
 
 
@@ -22,8 +26,12 @@ def prescriptor() -> SetPrescriptor:
 
 def _ctx(stype: str, tm: int) -> PrescriptionContext:
     return PrescriptionContext(
-        exercise=get_exercise("pull_up"), training_max=tm, bodyweight_kg=80.0,
-        history=(), session_type=stype, equipment=EquipmentConstraints(),
+        exercise=get_exercise("pull_up"),
+        training_max=tm,
+        bodyweight_kg=80.0,
+        history=(),
+        session_type=stype,
+        equipment=EquipmentConstraints(),
     )
 
 
@@ -32,6 +40,7 @@ def _signals(**kw) -> AdaptationSignals:
 
 
 # --- AutoregulationPolicy ---
+
 
 def test_autoreg_skipped_below_min_sessions():
     autoreg = AutoregulationPolicy(ReadinessConfig(), min_sessions=3)
@@ -53,6 +62,7 @@ def test_autoreg_adds_rep_when_high_readiness():
 
 # --- RestAdvisor ---
 
+
 def test_rest_midpoint_when_no_history():
     advisor = RestAdvisor(drop_off_threshold=0.35, readiness_z_low=-0.5)
     # pull_up S: rest_min 180, rest_max 300 -> midpoint 240
@@ -62,14 +72,20 @@ def test_rest_midpoint_when_no_history():
 def test_rest_increases_near_failure():
     advisor = RestAdvisor(drop_off_threshold=0.35, readiness_z_low=-0.5)
     near_failure = SessionResult(
-        date="2026-01-01", bodyweight_kg=80.0, grip="pronated", session_type="S",
+        date="2026-01-01",
+        bodyweight_kg=80.0,
+        grip="pronated",
+        session_type="S",
         exercise_id="pull_up",
-        completed_sets=[SetResult(target_reps=5, actual_reps=5, rest_seconds_before=200, rir_reported=0)],
+        completed_sets=[
+            SetResult(target_reps=5, actual_reps=5, rest_seconds_before=200, rir_reported=0)
+        ],
     )
     assert advisor.recommend("S", [near_failure], None, get_exercise("pull_up")) == 270  # 240 + 30
 
 
 # --- SetPrescriptor ---
+
 
 def test_prescribe_strength_uses_fatigue_curve(prescriptor):
     sets = prescriptor.prescribe(_ctx("S", tm=12), _signals())

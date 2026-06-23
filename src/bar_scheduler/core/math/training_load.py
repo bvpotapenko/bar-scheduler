@@ -16,7 +16,9 @@ def rir_effort_multiplier(rir: int, a_rir: float) -> float:
     return max(0.5, 1.0 + a_rir * (3 - rir))
 
 
-def load_stress_multiplier(load: LoadSpec, reference_bodyweight_kg: float, gamma_load: float) -> float:
+def load_stress_multiplier(
+    load: LoadSpec, reference_bodyweight_kg: float, gamma_load: float
+) -> float:
     """S_load = (Leff / BW_ref) ^ gamma_load."""
     total = max(0.0, load.effective_kg)
     return (total / reference_bodyweight_kg) ** gamma_load

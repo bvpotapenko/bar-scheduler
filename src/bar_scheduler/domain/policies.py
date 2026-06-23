@@ -43,7 +43,9 @@ class SchedulePolicy(Protocol):
 class SetPolicy(Protocol):
     """Sets/reps/rest/weight prescription for one session slot."""
 
-    def prescribe(self, ctx: PrescriptionContext, signals: AdaptationSignals) -> list[PlannedSet]: ...
+    def prescribe(
+        self, ctx: PrescriptionContext, signals: AdaptationSignals
+    ) -> list[PlannedSet]: ...
 
 
 class RestPolicy(Protocol):

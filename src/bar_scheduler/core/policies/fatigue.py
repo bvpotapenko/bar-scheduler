@@ -50,13 +50,17 @@ def _initial_state(
     )
 
 
-def _decayed(state: FitnessFatigueState, days: int, ff: FitnessFatigueConfig) -> FitnessFatigueState:
+def _decayed(
+    state: FitnessFatigueState, days: int, ff: FitnessFatigueConfig
+) -> FitnessFatigueState:
     fitness = state.fitness * math.exp(-days / ff.TAU_FITNESS)
     fatigue = state.fatigue * math.exp(-days / ff.TAU_FATIGUE)
     return replace(state, fitness=fitness, fatigue=fatigue)
 
 
-def _updated(state: FitnessFatigueState, load: float, ff: FitnessFatigueConfig) -> FitnessFatigueState:
+def _updated(
+    state: FitnessFatigueState, load: float, ff: FitnessFatigueConfig
+) -> FitnessFatigueState:
     new_fit = _decay_impulse(state.fitness, ff.TAU_FITNESS, ff.K_FITNESS, load)
     new_fat = _decay_impulse(state.fatigue, ff.TAU_FATIGUE, ff.K_FATIGUE, load)
     readiness = new_fit - new_fat
@@ -65,7 +69,9 @@ def _updated(state: FitnessFatigueState, load: float, ff: FitnessFatigueConfig) 
     return replace(state, fitness=new_fit, fatigue=new_fat, readiness_mean=mean, readiness_var=var)
 
 
-def _with_max(state: FitnessFatigueState, observed: int, ewma: EwmaMaxConfig) -> FitnessFatigueState:
+def _with_max(
+    state: FitnessFatigueState, observed: int, ewma: EwmaMaxConfig
+) -> FitnessFatigueState:
     residual_sq = (observed - state.m_hat) ** 2
     new_m_hat = _ewma(state.m_hat, observed, ewma.ALPHA_MHAT)
     new_var = _ewma(state.sigma_m**2, residual_sq, ewma.BETA_SIGMA)
@@ -118,7 +124,9 @@ class FitnessFatigueModel:
             state = self._apply_test(state, session)
         return state, load
 
-    def _apply_test(self, state: FitnessFatigueState, session: SessionResult) -> FitnessFatigueState:
+    def _apply_test(
+        self, state: FitnessFatigueState, session: SessionResult
+    ) -> FitnessFatigueState:
         observed = session_max_reps(session)
         return _with_max(state, observed, self._ewma) if observed > 0 else state
 

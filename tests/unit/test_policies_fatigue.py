@@ -24,7 +24,11 @@ def ctx() -> AthleteContext:
 
 def _test_session(date: str, reps: int) -> SessionResult:
     return SessionResult(
-        date=date, bodyweight_kg=80.0, grip="pronated", session_type="TEST", exercise_id="pull_up",
+        date=date,
+        bodyweight_kg=80.0,
+        grip="pronated",
+        session_type="TEST",
+        exercise_id="pull_up",
         completed_sets=[SetResult(target_reps=reps, actual_reps=reps, rest_seconds_before=180)],
     )
 
