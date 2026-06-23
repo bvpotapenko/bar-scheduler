@@ -8,7 +8,7 @@ from pathlib import Path
 from bar_scheduler.core.equipment import compute_leff
 from bar_scheduler.core.exercises.base import ExerciseDefinition
 from bar_scheduler.core.metrics import best_onerm_from_leff
-from bar_scheduler.core.models import SessionResult
+from bar_scheduler.domain.models import SessionResult
 from bar_scheduler.core.timeline import TimelineEntry
 from bar_scheduler.io.user_store import UserStore
 
@@ -153,7 +153,10 @@ def _timeline_entry_to_dict(
         session_metrics = entry.actual.session_metrics
     elif entry.planned is not None and exercise is not None and current_bw is not None:
         leff_reps = [
-            (compute_leff(exercise.bw_fraction, current_bw, ps.added_weight_kg, 0.0), ps.target_reps)
+            (
+                compute_leff(exercise.bw_fraction, current_bw, ps.added_weight_kg, 0.0),
+                ps.target_reps,
+            )
             for ps in entry.planned.sets
             if ps.target_reps > 0
         ]
@@ -172,5 +175,7 @@ def _timeline_entry_to_dict(
         "actual_sets": actual_sets,
         "track_b": entry.track_b,
         "session_metrics": session_metrics,
-        "prescribed_assistance_kg": (entry.planned.prescribed_assistance_kg if entry.planned else None),
+        "prescribed_assistance_kg": (
+            entry.planned.prescribed_assistance_kg if entry.planned else None
+        ),
     }

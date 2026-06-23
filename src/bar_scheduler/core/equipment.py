@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from bar_scheduler.core.exercises.base import ExerciseDefinition
 from bar_scheduler.core.exercises.registry import get_exercise
-from bar_scheduler.core.models import EquipmentState, EquipmentSnapshot
+from bar_scheduler.domain.models import EquipmentState, EquipmentSnapshot
 
 
 # ---------------------------------------------------------------------------

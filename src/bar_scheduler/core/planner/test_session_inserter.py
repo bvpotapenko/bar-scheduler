@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 from bar_scheduler.core.config import DAY_SPACING
-from bar_scheduler.core.models import SessionResult
+from bar_scheduler.domain.models import SessionResult
 
 
 def _find_last_test(
@@ -53,9 +53,7 @@ def _insert_test_sessions(
         Modified session list with TEST sessions injected
     """
     last_test = _find_last_test(history, plan_start, test_frequency_weeks)
-    historical_test = (
-        last_test if any(sess.session_type == "TEST" for sess in history) else None
-    )
+    historical_test = last_test if any(sess.session_type == "TEST" for sess in history) else None
 
     scheduled: list[tuple[datetime, str]] = []
     for date, stype in session_dates:

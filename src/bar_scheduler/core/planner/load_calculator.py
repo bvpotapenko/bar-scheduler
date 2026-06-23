@@ -80,7 +80,8 @@ def _last_test_weight_bss(history: list, exercise: ExerciseDefinition) -> float:
     is carried forward from the last test.
     """
     test_hist = [
-        sess for sess in history
+        sess
+        for sess in history
         if sess.session_type == "TEST" and sess.exercise_id == exercise.exercise_id
     ]
     if not test_hist or not test_hist[-1].completed_sets:

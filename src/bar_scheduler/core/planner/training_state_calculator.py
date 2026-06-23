@@ -3,7 +3,7 @@
 from bar_scheduler.core.adaptation import get_training_status
 from bar_scheduler.core.config import TM_FACTOR
 from bar_scheduler.core.exercises.base import ExerciseDefinition
-from bar_scheduler.core.models import SessionResult, TrainingStatus, UserState
+from bar_scheduler.domain.models import SessionResult, TrainingStatus, UserState
 
 
 def _extract_last_test_weight(

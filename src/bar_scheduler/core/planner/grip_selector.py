@@ -1,7 +1,7 @@
 """Variant / grip rotation management for plan generation."""
 
 from bar_scheduler.core.exercises.base import ExerciseDefinition
-from bar_scheduler.core.models import Grip, SessionResult, SessionType
+from bar_scheduler.domain.models import Grip, SessionResult, SessionType
 
 
 def _init_grip_counts(

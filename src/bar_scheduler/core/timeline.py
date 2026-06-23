@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from bar_scheduler.core.max_estimator import estimate_max_reps_from_session
-from bar_scheduler.core.models import SessionPlan, SessionResult
+from bar_scheduler.domain.models import SessionPlan, SessionResult
 
 TimelineStatus = Literal["done", "missed", "next", "planned", "extra"]
 

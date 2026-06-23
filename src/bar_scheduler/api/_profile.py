@@ -33,7 +33,7 @@ def init_profile(
     Raises ``ValueError`` for invalid field values.
     Returns the profile dict (same shape as ``get_profile()``).
     """
-    from bar_scheduler.core.models import UserProfile
+    from bar_scheduler.domain.models import UserProfile
 
     profile_path = data_dir / "profile.json"
     if profile_path.exists():

@@ -3,7 +3,7 @@
 from bar_scheduler.core.adaptation import apply_autoregulation
 from bar_scheduler.core.config import MIN_SESSIONS_FOR_AUTOREG, TM_FACTOR
 from bar_scheduler.core.exercises.base import ExerciseDefinition, SessionTypeParams
-from bar_scheduler.core.models import PlannedSet, SessionResult, SessionType
+from bar_scheduler.domain.models import PlannedSet, SessionResult, SessionType
 from bar_scheduler.core.planner.load_calculator import _calculate_added_weight
 from bar_scheduler.core.planner.rest_advisor import calculate_adaptive_rest
 

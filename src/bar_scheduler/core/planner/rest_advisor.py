@@ -4,7 +4,7 @@ import math
 
 from bar_scheduler.core.config import DROP_OFF_THRESHOLD, READINESS_Z_LOW
 from bar_scheduler.core.exercises.base import ExerciseDefinition
-from bar_scheduler.core.models import SessionResult, SessionType
+from bar_scheduler.domain.models import SessionResult, SessionType
 
 
 def _analyze_rir(sets: list, rest: int) -> int:

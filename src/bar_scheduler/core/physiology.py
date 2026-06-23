@@ -30,7 +30,7 @@ from bar_scheduler.core.metrics import (
     session_max_reps,
     standardized_reps,
 )
-from bar_scheduler.core.models import FitnessFatigueState, SessionResult
+from bar_scheduler.domain.models import FitnessFatigueState, SessionResult
 
 
 def rir_effort_multiplier(rir: int) -> float:

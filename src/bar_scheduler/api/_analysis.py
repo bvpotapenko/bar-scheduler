@@ -81,7 +81,9 @@ def get_volume_data(
             sess_dt = datetime.strptime(sess.date, "%Y-%m-%d")
             ago = (latest - sess_dt).days // 7
             if ago < weeks:
-                reps = sum(sr.actual_reps for sr in sess.completed_sets if sr.actual_reps is not None)
+                reps = sum(
+                    sr.actual_reps for sr in sess.completed_sets if sr.actual_reps is not None
+                )
                 if ago not in weekly:
                     # Compute week start (Monday)
                     monday = sess_dt - timedelta(days=sess_dt.weekday())

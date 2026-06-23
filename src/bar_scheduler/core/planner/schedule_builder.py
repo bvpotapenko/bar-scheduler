@@ -9,7 +9,7 @@ from bar_scheduler.core.config import (
     SCHEDULE_FOUR_DAYS,
     SCHEDULE_FIVE_DAYS,
 )
-from bar_scheduler.core.models import SessionResult
+from bar_scheduler.domain.models import SessionResult
 
 
 def get_schedule_template(days_per_week: int) -> list[str]:

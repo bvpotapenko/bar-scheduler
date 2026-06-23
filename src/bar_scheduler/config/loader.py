@@ -20,7 +20,7 @@ def default_bundled_config_path() -> Path | None:
         ref = importlib_resources.files("bar_scheduler").joinpath("exercises.yaml")
         with importlib_resources.as_file(ref) as path:
             return path if path.exists() else None
-    except (ModuleNotFoundError, FileNotFoundError):
+    except ModuleNotFoundError, FileNotFoundError:
         candidate = Path(__file__).parent.parent / "exercises.yaml"
         return candidate if candidate.exists() else None
 

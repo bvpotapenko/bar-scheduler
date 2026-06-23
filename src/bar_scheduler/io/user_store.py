@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from bar_scheduler.core.models import EquipmentState, SessionResult, UserProfile, UserState
+from bar_scheduler.domain.models import EquipmentState, SessionResult, UserProfile, UserState
 from bar_scheduler.io.serializers import (
     ValidationError,
     dict_to_equipment_state,
@@ -66,7 +66,7 @@ class UserStore:
             with open(self.profile_path, "r") as fp:
                 raw = json.load(fp)
             return dict_to_user_profile(raw)
-        except (json.JSONDecodeError, ValidationError, KeyError):
+        except json.JSONDecodeError, ValidationError, KeyError:
             return None
 
     def get_plan_start_date(self, exercise_id: str) -> str | None:
@@ -82,7 +82,7 @@ class UserStore:
             with open(self.profile_path, "r") as fp:
                 raw = json.load(fp)
             return raw.get("plan_start_dates", {}).get(exercise_id)
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError, KeyError:
             return None
 
     def set_plan_start_date(self, exercise_id: str, date: str) -> None:
@@ -115,7 +115,7 @@ class UserStore:
                 raw = json.load(fp)
             weeks = raw.get("plan_weeks")
             return None if weeks is None else int(weeks)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             return None
 
     def set_plan_weeks(self, weeks: int) -> None:
@@ -206,7 +206,9 @@ class UserStore:
                     sessions.append(session)
 
                 except (json.JSONDecodeError, ValidationError) as exc:
-                    raise ValidationError(f"Error parsing line {line_num} in {path}: {exc}") from exc
+                    raise ValidationError(
+                        f"Error parsing line {line_num} in {path}: {exc}"
+                    ) from exc
 
         # Sort by date
         sessions.sort(key=lambda sess: sess.date)
@@ -351,7 +353,7 @@ class UserStore:
             with open(path) as fp:
                 raw = json.load(fp)
             return raw if isinstance(raw, dict) else None
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError, OSError:
             return None
 
     def save_plan_result_cache(self, exercise_id: str, plans: list[dict]) -> None:
@@ -382,7 +384,7 @@ class UserStore:
             if equipment_dict is None:
                 return None
             return dict_to_equipment_state(equipment_dict)
-        except (json.JSONDecodeError, KeyError, TypeError):
+        except json.JSONDecodeError, KeyError, TypeError:
             return None
 
     def update_equipment(self, new_state: EquipmentState) -> None:

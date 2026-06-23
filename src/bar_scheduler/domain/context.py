@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from bar_scheduler.core.exercises.base import ExerciseDefinition
-from bar_scheduler.core.models import (
+from bar_scheduler.domain.models import (
     EquipmentState,
     ExerciseTarget,
     SessionResult,
@@ -46,7 +46,7 @@ class EquipmentConstraints:
 class LoadSpec:
     """The components of effective load (Leff) for one set.
 
-    ``effective_kg`` = bodyweight share + added weight − assistance. Replaces
+    ``effective_kg`` = bodyweight share + added weight - assistance. Replaces
     the 5-argument "load calculation" group spread across the math functions.
     """
 

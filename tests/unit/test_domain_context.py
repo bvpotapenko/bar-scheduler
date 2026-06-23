@@ -2,12 +2,12 @@
 
 import pytest
 
-from bar_scheduler.core.domain import (
+from bar_scheduler.domain import (
     EquipmentConstraints,
     LoadSpec,
     ProgressionGoal,
 )
-from bar_scheduler.core.models import EquipmentState, ExerciseTarget
+from bar_scheduler.domain.models import EquipmentState, ExerciseTarget
 
 
 @pytest.mark.parametrize(

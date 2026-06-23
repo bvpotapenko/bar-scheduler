@@ -44,7 +44,7 @@ def update_equipment(
 
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
-    from bar_scheduler.core.models import EquipmentState
+    from bar_scheduler.domain.models import EquipmentState
 
     store = _require_store(data_dir, exercise_id)
     prev = store.load_current_equipment(exercise_id)
