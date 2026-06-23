@@ -30,6 +30,7 @@ from bar_scheduler.core.metrics import (
     session_max_reps,
     standardized_reps,
 )
+from bar_scheduler.domain import LoadSpec
 from bar_scheduler.domain.models import FitnessFatigueState, SessionResult
 
 
@@ -446,12 +447,13 @@ def get_session_standardized_max(
             continue
 
         std = standardized_reps(
-            actual_reps=set_rec.actual_reps,
-            rest_seconds=set_rec.rest_seconds_before,
-            session_bodyweight_kg=session.bodyweight_kg,
-            reference_bodyweight_kg=reference_bodyweight_kg,
-            added_load_kg=set_rec.added_weight_kg,
-            grip=session.grip,
+            set_rec.actual_reps,
+            set_rec.rest_seconds_before,
+            LoadSpec(
+                bodyweight_kg=session.bodyweight_kg,
+                added_load_kg=set_rec.added_weight_kg,
+            ),
+            reference_bodyweight_kg,
         )
 
         if std > max_std:
