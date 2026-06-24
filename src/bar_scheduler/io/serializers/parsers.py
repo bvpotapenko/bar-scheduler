@@ -12,13 +12,13 @@ from bar_scheduler.io.serializers.validators import ValidationError
 
 # (pattern, has_weight, has_rest). Order = match priority.
 _Format = tuple[re.Pattern[str], bool, bool]
-_PER_SET_FORMATS: list[_Format] = [
-    (re.compile(r"^(\d+)@\+?(-?\d+\.?\d*)/(\d+)$"), True, True),   # reps@+kg/rest
-    (re.compile(r"^(\d+)@\+?(-?\d+\.?\d*)$"), True, False),        # reps@+kg
+_PER_SET_FORMATS: tuple[_Format, ...] = (
+    (re.compile(r"^(\d+)@\+?(-?\d+\.?\d*)/(\d+)$"), True, True),  # reps@+kg/rest
+    (re.compile(r"^(\d+)@\+?(-?\d+\.?\d*)$"), True, False),  # reps@+kg
     (re.compile(r"^(\d+)\s+(\+?-?\d+\.?\d*)\s+(\d+)$"), True, True),  # reps kg rest
-    (re.compile(r"^(\d+)\s+(\+?-?\d+\.?\d*)$"), True, False),      # reps kg
-    (re.compile(r"^(\d+)$"), False, False),                        # bare reps
-]
+    (re.compile(r"^(\d+)\s+(\+?-?\d+\.?\d*)$"), True, False),  # reps kg
+    (re.compile(r"^(\d+)$"), False, False),  # bare reps
+)
 
 _FORMAT_HELP = (
     "Use: reps@weight/rest (e.g. 8@0/180), reps@weight (e.g. 6@+5),\n"

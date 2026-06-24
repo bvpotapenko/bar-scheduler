@@ -11,10 +11,10 @@ Grip = str
 SessionType = Literal["S", "H", "E", "T", "TEST"]
 
 
-def _reject_negative(**values: float | None) -> None:
-    """Raise ValueError for any named value that is present and < 0."""
-    for name, value in values.items():
-        if value is not None and value < 0:
+def _reject_negative(**fields: float | None) -> None:
+    """Raise ValueError for any named field that is present and < 0."""
+    for name, amount in fields.items():
+        if amount is not None and amount < 0:
             raise ValueError(f"{name} must be non-negative")
 
 

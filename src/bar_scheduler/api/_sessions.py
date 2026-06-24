@@ -47,8 +47,12 @@ def _cache_metrics(exercise_id: str, session_obj: SessionResult) -> None:
     snapshot = session_obj.equipment_snapshot
     assistance_kg = snapshot.assistance_kg if snapshot else 0.0
     leff_reps = [
-        (compute_leff(ex.bw_fraction, session_obj.bodyweight_kg, cs.added_weight_kg, assistance_kg),
-         cs.actual_reps)
+        (
+            compute_leff(
+                ex.bw_fraction, session_obj.bodyweight_kg, cs.added_weight_kg, assistance_kg
+            ),
+            cs.actual_reps,
+        )
         for cs in session_obj.completed_sets
         if cs.actual_reps
     ]

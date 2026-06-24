@@ -74,12 +74,12 @@ def get_progress_data(data_dir: Path, exercise_id: str, trajectory_types: str = 
     """
     inputs = _load_progress(data_dir, exercise_id)
     traj_types = set(trajectory_types.lower())
-    result = {
+    payload = {
         "data_points": _data_points(inputs.test_sessions),
         "trajectory_z": None,
         "trajectory_g": None,
         "trajectory_m": None,
     }
     if traj_types and inputs.test_sessions:
-        result.update(_trajectories(inputs, traj_types))
-    return result
+        payload.update(_trajectories(inputs, traj_types))
+    return payload

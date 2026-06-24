@@ -15,6 +15,7 @@ from bar_scheduler.core.math.training_max import training_max_from_baseline
 
 _session_max_reps = history_queries.session_max_reps
 _HORIZON_WEEKS = 104
+_EPLEY_REP_DENOM = 30  # reps term in the Epley 1RM relation
 
 _BasePoints = list[tuple[datetime, float]]
 
@@ -29,8 +30,8 @@ def _safe_target(store, exercise_id: str):
 
 def _weighted_traj_target(bw_load: float, target) -> int:
     full_load = bw_load + target.weight_kg
-    one_rm = full_load * (1 + target.reps / 30)
-    reps_at_bw = 30 * (one_rm / bw_load - 1)
+    one_rm = full_load * (1 + target.reps / _EPLEY_REP_DENOM)
+    reps_at_bw = _EPLEY_REP_DENOM * (one_rm / bw_load - 1)
     return max(int(round(reps_at_bw)), 1)
 
 
@@ -46,7 +47,9 @@ def _load_trajectory_target(
     return _weighted_traj_target(bw_load, target), target.weight_kg
 
 
-def _project_tm(start_dt: datetime, initial_tm: float, tm_target: int) -> tuple[_BasePoints, datetime]:
+def _project_tm(
+    start_dt: datetime, initial_tm: float, tm_target: int
+) -> tuple[_BasePoints, datetime]:
     """Climb TM toward tm_target one week at a time; return points + end date."""
     points: _BasePoints = []
     cur_dt = start_dt

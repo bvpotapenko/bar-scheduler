@@ -5,6 +5,9 @@ Inverts a Leff 1RM estimate for the session's target reps:
 added weight = leff_target - bodyweight_share; assistance = bodyweight_share - leff_target.
 """
 
+from collections.abc import Mapping
+from types import MappingProxyType
+
 from bar_scheduler.core.math.leff import (
     estimate_effective_leff_onerm,
     last_test_weight,
@@ -20,11 +23,14 @@ from bar_scheduler.core.math.snapping import (
 from bar_scheduler.domain.context import PrescriptionContext
 
 # Target reps per session type, used to invert the Epley formula.
-DEFAULT_SESSION_TARGET_REPS: dict[str, int] = {"S": 5, "H": 8, "E": 12, "T": 6, "TEST": 1}
+DEFAULT_SESSION_TARGET_REPS: Mapping[str, int] = MappingProxyType(
+    {"S": 5, "H": 8, "E": 12, "T": 6, "TEST": 1}
+)
+_EPLEY_REP_DENOM = 30
 
 
 def _epley_invert(leff_onerm: float, target_reps: int, tm_factor: float) -> float:
-    return leff_onerm * tm_factor / (1 + target_reps / 30)
+    return leff_onerm * tm_factor / (1 + target_reps / _EPLEY_REP_DENOM)
 
 
 def _carry_weight(ctx: PrescriptionContext) -> float:
@@ -45,7 +51,7 @@ def _added_external_zero_bw(
     ctx: PrescriptionContext, tm_factor: float, target: int
 ) -> float | None:
     """Purely external load (e.g. incline DB press); None falls through to carry."""
-    if ctx.exercise.bw_fraction != 0.0:
+    if ctx.exercise.bw_fraction:  # only purely-external (bw_fraction == 0) qualifies
         return None
     leff_onerm = estimate_effective_leff_onerm(ctx.history, 0.0)
     if not leff_onerm:
@@ -90,7 +96,7 @@ def _variable_assistance(
         0.0,
     )
     needed = max(0.0, bw_contrib - _epley_invert(leff_onerm, target, tm_factor))
-    if needed <= 0.0:
+    if needed <= 0:
         return 0.0
     return ceiling_snap_assistance(needed, list(available))
 
@@ -98,12 +104,9 @@ def _variable_assistance(
 class LoadCalculator:
     """Prescribes added weight and machine/band assistance for a session."""
 
-    def __init__(self, tm_factor: float, session_target_reps: dict[str, int]) -> None:
+    def __init__(self, tm_factor: float, session_target_reps: Mapping[str, int]) -> None:
         self._tm_factor = tm_factor
         self._targets = session_target_reps
-
-    def _target(self, session_type: str) -> int:
-        return self._targets.get(session_type, 8)
 
     def added_weight(self, ctx: PrescriptionContext) -> float:
         """Added weight for this session (0.0 below the weight threshold)."""
@@ -139,3 +142,6 @@ class LoadCalculator:
         leff_target = _epley_invert(leff_onerm, at_reps, self._tm_factor)
         added = max(0.0, apply_cap(leff_target - bw_contrib, exercise.max_added_weight_kg))
         return snap_added(added, ctx.equipment.available_weights_kg, exercise.dual_dumbbell)
+
+    def _target(self, session_type: str) -> int:
+        return self._targets.get(session_type, 8)

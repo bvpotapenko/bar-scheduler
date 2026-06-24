@@ -46,11 +46,11 @@ class SessionInput:
             raise ValueError("SessionInput.bodyweight_kg must be > 0")
 
 
-def _inherit_list(value, prev, attr):
+def _inherit_list(provided, prev, attr):
     """None inherits the previous list; [] clears; a list replaces."""
-    if value is None:
+    if provided is None:
         return list(getattr(prev, attr)) if prev else []
-    return list(value)
+    return list(provided)
 
 
 @dataclass

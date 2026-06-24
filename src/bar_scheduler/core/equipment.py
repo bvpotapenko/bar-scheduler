@@ -197,13 +197,19 @@ def bss_is_degraded(state: EquipmentState) -> bool:
     return "ELEVATION_SURFACE" not in state.available_items
 
 
+_LEFF_INCREASE_THRESHOLD = 1.1  # >= -> reduce reps as a safety buffer
+_LEFF_DECREASE_THRESHOLD = 0.9  # <= -> increase reps to maintain stimulus
+_REP_SAFETY_FACTOR = 0.8  # reps multiplier when load jumps
+_PERCENT = 100
+
+
 def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
     """
     Compute rep adjustment factor when effective load changes between equipment.
 
     Rules:
-      new/old ≥ 1.10 -> reduce reps 20% (safety buffer for load increase)
-      new/old ≤ 0.90 -> increase reps proportionally (maintain stimulus)
+      new/old ≥ 1.1 -> reduce reps 20% (safety buffer for load increase)
+      new/old ≤ 0.9 -> increase reps proportionally (maintain stimulus)
       otherwise      -> no adjustment
 
     Args:
@@ -218,19 +224,19 @@ def compute_equipment_adjustment(old_leff: float, new_leff: float) -> dict:
 
     ratio = new_leff / old_leff
 
-    if ratio >= 1.10:
-        pct = round((ratio - 1) * 100)
+    if ratio >= _LEFF_INCREASE_THRESHOLD:
+        pct = round((ratio - 1) * _PERCENT)
         return {
-            "reps_factor": 0.80,
+            "reps_factor": _REP_SAFETY_FACTOR,
             "description": f"Leff increased ~{pct}% -> reducing reps by 20% as safety buffer",
         }
-    elif ratio <= 0.90:
+    elif ratio <= _LEFF_DECREASE_THRESHOLD:
         factor = round(1.0 / ratio, 2)
-        pct = round((factor - 1) * 100)
+        pct = round((factor - 1) * _PERCENT)
         return {
             "reps_factor": factor,
             "description": (
-                f"Leff decreased ~{round((1 - ratio) * 100)}%"
+                f"Leff decreased ~{round((1 - ratio) * _PERCENT)}%"
                 f" -> increasing reps ~{pct}% to maintain stimulus"
             ),
         }

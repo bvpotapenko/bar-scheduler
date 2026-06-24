@@ -12,15 +12,15 @@ from bar_scheduler.api._common import _assistance_for_item
 def _equip_decision(exercise_id, ustate, session_type, eq_state):
     """Return (recommended_item, prescription context) for the current state."""
     ex = get_exercise(exercise_id)
-    current_tm = container.training_state().status(
-        ustate.history, ustate.profile.bodyweight_kg
-    ).training_max
+    current_tm = (
+        container.training_state().status(ustate.history, ustate.profile.bodyweight_kg).training_max
+    )
     active_item = recommend_equipment_item(eq_state.available_items, ex, current_tm)
     ctx = PrescriptionContext(
         exercise=ex,
         training_max=current_tm,
         bodyweight_kg=ustate.profile.bodyweight_kg,
-        history=tuple(s for s in ustate.history if s.exercise_id == exercise_id),
+        history=tuple(sess for sess in ustate.history if sess.exercise_id == exercise_id),
         session_type=session_type,
         equipment=EquipmentConstraints.from_state(eq_state),
     )

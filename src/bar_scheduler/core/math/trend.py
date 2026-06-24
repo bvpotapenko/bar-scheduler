@@ -12,10 +12,9 @@ def _ols(xs: list[int], ys: list[int]) -> tuple[float, float]:
     """Ordinary least squares (>= 2 points); returns (intercept, slope)."""
     mean_x = statistics.fmean(xs)
     mean_y = statistics.fmean(ys)
-    var_x = statistics.variance(xs)
-    if var_x < 1e-10:
+    if len(set(xs)) <= 1:  # no spread in x -> flat trend (avoids /0)
         return (mean_y, 0.0)
-    slope = statistics.covariance(xs, ys) / var_x
+    slope = statistics.covariance(xs, ys) / statistics.variance(xs)
     return (mean_y - slope * mean_x, slope)
 
 

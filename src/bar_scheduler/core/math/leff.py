@@ -24,7 +24,7 @@ def _set_leff_onerm(
 
 def _session_leff_onerms(session: SessionResult, bw_fraction: float) -> list[float]:
     snap = session.equipment_snapshot
-    assistance = snap.assistance_kg if snap is not None else 0.0
+    assistance = 0.0 if snap is None else snap.assistance_kg
     estimates: list[float] = []
     for sr in session.completed_sets:
         est = _set_leff_onerm(session, sr, bw_fraction, assistance)

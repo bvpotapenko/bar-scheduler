@@ -71,7 +71,7 @@ from bar_scheduler.api._equipment import (
 )
 
 # Utils
-from bar_scheduler.api._utils import (
+from bar_scheduler.api._public import (
     get_data_dir,
     parse_sets_string,
     parse_compact_sets,

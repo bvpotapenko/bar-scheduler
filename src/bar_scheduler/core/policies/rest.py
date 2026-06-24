@@ -10,7 +10,7 @@ _HIGH_DROP_OFF = 15
 _USER_SHORT = -20
 _USER_LONG = 20
 _SHORT_BOUND = 0.85
-_LONG_BOUND = 1.10
+_LONG_BOUND = 1.1
 
 
 def _analyze_rir(sets: list[SetResult], rest: int) -> int:

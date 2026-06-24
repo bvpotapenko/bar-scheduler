@@ -4,19 +4,23 @@ Compares how compressed the last 7 days of training are against the user's
 planned frequency. Unlogged days count as rest -- no explicit REST records.
 """
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta
+from types import MappingProxyType
 
 from bar_scheduler.domain.models import SessionResult
 
 _WINDOW_DAYS = 7
 
-_ZERO_STATS = {
-    "level": 0,
-    "sessions": 0,
-    "span_days": 0,
-    "extra_rest_days": 0,
-    "description": "",
-}
+_ZERO_STATS: Mapping[str, object] = MappingProxyType(
+    {
+        "level": 0,
+        "sessions": 0,
+        "span_days": 0,
+        "extra_rest_days": 0,
+        "description": "",
+    }
+)
 
 
 def _parse(session: SessionResult) -> datetime:
@@ -35,9 +39,8 @@ class OvertrainingDetector:
         """Severity dict: ``level`` 0-3, ``sessions``, ``span_days``, extras, text."""
         if not history:
             return dict(_ZERO_STATS)
-        ref = (reference_date or datetime.now()).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        anchor = reference_date or datetime.now()
+        ref = anchor.replace(hour=0, minute=0, second=0, microsecond=0)
         dates = self._recent_dates(history, ref)
         if len(dates) < 2:
             return dict(_ZERO_STATS)

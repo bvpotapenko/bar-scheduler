@@ -29,8 +29,8 @@ def default_user_exercises_dir() -> Path:
     return home / ".bar-scheduler" / "exercises"
 
 
-def _is_strictly_ascending(values: list[int]) -> bool:
-    pairs = zip(values, values[1:])
+def _is_strictly_ascending(thresholds: list[int]) -> bool:
+    pairs = zip(thresholds, thresholds[1:])
     return all(lower < upper for lower, upper in pairs)
 
 

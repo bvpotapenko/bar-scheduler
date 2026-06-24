@@ -50,7 +50,7 @@ def _set_load(
         bodyweight_kg=session.bodyweight_kg,
         bw_fraction=ctx.bw_fraction,
         added_load_kg=sr.added_weight_kg,
-        assistance_kg=snap.assistance_kg if snap is not None else 0.0,
+        assistance_kg=0.0 if snap is None else snap.assistance_kg,
     )
     hard = set_hard_reps(sr.actual_reps, sr.rir_reported, estimated_max, cfg.A_RIR)
     s_load = load_stress_multiplier(spec, ctx.reference_bodyweight_kg, cfg.GAMMA_LOAD)

@@ -14,6 +14,7 @@ from bar_scheduler.domain.models import SessionResult, SetResult
 from bar_scheduler.domain.results import TrainingState
 
 History = list[SessionResult]
+_TEST_REST_SECONDS = 180
 
 
 def _history_by_type(history: History) -> dict[str, History]:
@@ -29,7 +30,7 @@ def _baseline_set(baseline_max: int) -> SetResult:
     return SetResult(
         target_reps=baseline_max,
         actual_reps=baseline_max,
-        rest_seconds_before=180,
+        rest_seconds_before=_TEST_REST_SECONDS,
         added_weight_kg=0.0,
         rir_target=0,
         rir_reported=0,

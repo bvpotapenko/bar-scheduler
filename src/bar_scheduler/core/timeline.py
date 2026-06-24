@@ -75,7 +75,7 @@ def _compute_track_b(matched: SessionResult | None) -> dict | None:
         [cs.rest_seconds_before for cs in valid],
         [cs.rir_reported for cs in valid],
     )
-    return asdict(estimate) if estimate is not None else None
+    return None if estimate is None else asdict(estimate)
 
 
 class _TimelineBuilder:
@@ -147,8 +147,6 @@ class _TimelineBuilder:
         )
 
 
-def build_timeline(
-    plans: list[SessionPlan], history: list[SessionResult]
-) -> list[TimelineEntry]:
+def build_timeline(plans: list[SessionPlan], history: list[SessionResult]) -> list[TimelineEntry]:
     """Merge plan + history into a unified, date-sorted timeline."""
     return _TimelineBuilder(plans, history).build()

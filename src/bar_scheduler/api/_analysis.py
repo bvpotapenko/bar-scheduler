@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 
 from bar_scheduler.containers import container
 from bar_scheduler.core.exercises.registry import get_exercise
@@ -10,13 +11,15 @@ from bar_scheduler.core.equipment import compute_leff
 from bar_scheduler.core.math import formulas, onerm
 from bar_scheduler.api._common import _require_store
 
-_EMPTY_GOAL = {
-    "goal_reps": None,
-    "goal_weight_kg": None,
-    "goal_leff": None,
-    "estimated_1rm": None,
-    "volume_set": None,
-}
+_EMPTY_GOAL = MappingProxyType(
+    {
+        "goal_reps": None,
+        "goal_weight_kg": None,
+        "goal_leff": None,
+        "estimated_1rm": None,
+        "volume_set": None,
+    }
+)
 
 
 def get_training_status(data_dir: Path, exercise_id: str) -> dict:
@@ -28,9 +31,7 @@ def get_training_status(data_dir: Path, exercise_id: str) -> dict:
     """
     store = _require_store(data_dir, exercise_id)
     user_state = store.load_user_state(exercise_id)
-    status = container.training_state().status(
-        user_state.history, user_state.profile.bodyweight_kg
-    )
+    status = container.training_state().status(user_state.history, user_state.profile.bodyweight_kg)
     ff = status.fitness_fatigue_state
     return {
         "training_max": status.training_max,

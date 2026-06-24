@@ -75,7 +75,7 @@ def _build_endurance_sets(num_sets: int, target_reps: int, shape: _SetShape) -> 
     """Endurance: descending-ladder reps, floored at reps_min."""
     out: list[PlannedSet] = []
     current = target_reps
-    for _slot in range(num_sets):
+    for _ in range(num_sets):
         out.append(
             PlannedSet(
                 target_reps=max(shape.reps_min, current),

@@ -14,12 +14,16 @@ from omegaconf import OmegaConf
 from bar_scheduler.config.schema import ModelConfig
 
 
+def _bundled_resource_path() -> Path | None:
+    ref = importlib_resources.files("bar_scheduler").joinpath("exercises.yaml")
+    with importlib_resources.as_file(ref) as path:
+        return path if path.exists() else None
+
+
 def default_bundled_config_path() -> Path | None:
     """Path to the bundled ``exercises.yaml`` shipped with the package."""
     try:
-        ref = importlib_resources.files("bar_scheduler").joinpath("exercises.yaml")
-        with importlib_resources.as_file(ref) as path:
-            return path if path.exists() else None
+        return _bundled_resource_path()
     except ModuleNotFoundError, FileNotFoundError:
         candidate = Path(__file__).parent.parent / "exercises.yaml"
         return candidate if candidate.exists() else None

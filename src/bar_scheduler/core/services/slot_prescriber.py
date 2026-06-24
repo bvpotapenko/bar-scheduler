@@ -11,13 +11,15 @@ from bar_scheduler.domain.models import PlannedSet, SessionPlan
 
 _Slot = tuple
 _RECENT = 5  # same-type sessions fed to adaptive rest
+_MILD_REST_BOOST_S = 30  # overtraining level 1
+_HARD_REST_BOOST_S = 60  # overtraining level >= 2
 
 
 def _overtraining_adjust(
     sets: list[PlannedSet], sparams: SessionTypeParams, level: int
 ) -> list[PlannedSet]:
     """Graduated density reduction: longer rest, fewer reps, drop a set."""
-    rest_boost = 30 if level == 1 else 60
+    rest_boost = _MILD_REST_BOOST_S if level == 1 else _HARD_REST_BOOST_S
     rep_deduct = 1 if level >= 3 else 0
     adjusted = [
         replace(

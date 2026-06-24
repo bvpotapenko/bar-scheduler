@@ -11,18 +11,19 @@ from bar_scheduler.domain.results import MaxEstimate
 _Valid = tuple[int, int, int | None]  # (reps, rest, rir)
 IntList = list[int]
 RirList = list[int | None]
+_DEFAULT_REST_SECONDS = 180
 
 
 def _padded(seq: list, length: int, default) -> list:
     """Pad ``seq`` to ``length`` with ``default`` (longer sequences truncated by zip)."""
-    pad = [default] * (length - len(seq))
+    pad = [default for _ in range(length - len(seq))]
     return list(seq) + pad
 
 
 def _valid_sets(reps_per_set: IntList, rests: IntList, rirs: RirList) -> list[_Valid]:
     """(reps, rest, rir) for sets with reps > 0; defaults rest 180, rir None."""
     count = len(reps_per_set)
-    padded_rests = _padded(rests, count, 180)
+    padded_rests = _padded(rests, count, _DEFAULT_REST_SECONDS)
     padded_rirs = _padded(rirs, count, None)
     rows = zip(reps_per_set, padded_rests, padded_rirs)
     return [row for row in rows if row[0] > 0]

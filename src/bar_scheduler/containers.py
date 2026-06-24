@@ -24,7 +24,8 @@ class Container(containers.DeclarativeContainer):
     load_calculator = providers.Singleton(
         policies.LoadCalculator,
         tm_factor=config.provided.progression.TM_FACTOR,
-        session_target_reps=policies.DEFAULT_SESSION_TARGET_REPS,
+        # dict() copy: dependency-injector can't deep-copy the MappingProxyType constant.
+        session_target_reps=dict(policies.DEFAULT_SESSION_TARGET_REPS),
     )
     autoregulation = providers.Singleton(
         policies.AutoregulationPolicy,

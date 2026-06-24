@@ -23,6 +23,7 @@ from bar_scheduler.domain.models import FitnessFatigueState, SessionResult
 BuildResult = tuple[FitnessFatigueState, list[tuple[str, float]]]
 _READINESS_SMOOTHING = 0.1
 _INITIAL_READINESS_VAR = 10.0  # wide, to avoid extreme early z-scores
+_MIN_VARIANCE = 0.01  # floor on max-estimate variance to keep sigma positive
 
 
 def _ewma(prev: float, sample: float, alpha: float) -> float:
@@ -65,8 +66,10 @@ def _updated(
     new_fat = _decay_impulse(state.fatigue, ff.TAU_FATIGUE, ff.K_FATIGUE, load)
     readiness = new_fit - new_fat
     mean = _ewma(state.readiness_mean, readiness, _READINESS_SMOOTHING)
-    var = _ewma(state.readiness_var, (readiness - mean) ** 2, _READINESS_SMOOTHING)
-    return replace(state, fitness=new_fit, fatigue=new_fat, readiness_mean=mean, readiness_var=var)
+    variance = _ewma(state.readiness_var, (readiness - mean) ** 2, _READINESS_SMOOTHING)
+    return replace(
+        state, fitness=new_fit, fatigue=new_fat, readiness_mean=mean, readiness_var=variance
+    )
 
 
 def _with_max(
@@ -75,7 +78,7 @@ def _with_max(
     residual_sq = (observed - state.m_hat) ** 2
     new_m_hat = _ewma(state.m_hat, observed, ewma.ALPHA_MHAT)
     new_var = _ewma(state.sigma_m**2, residual_sq, ewma.BETA_SIGMA)
-    return replace(state, m_hat=new_m_hat, sigma_m=math.sqrt(max(0.01, new_var)))
+    return replace(state, m_hat=new_m_hat, sigma_m=math.sqrt(max(_MIN_VARIANCE, new_var)))
 
 
 class FitnessFatigueModel:
@@ -107,6 +110,10 @@ class FitnessFatigueModel:
             prev_date = datetime.strptime(session.date, "%Y-%m-%d")
         return state, loads
 
+    def predicted_max(self, base_max: float, readiness: float, mean_readiness: float) -> float:
+        """M_pred = M_base * (1 + c_R * (R - R_bar))."""
+        return base_max * (1 + self._ff.C_READINESS * (readiness - mean_readiness))
+
     def _advance(
         self,
         state: FitnessFatigueState,
@@ -129,7 +136,3 @@ class FitnessFatigueModel:
     ) -> FitnessFatigueState:
         observed = session_max_reps(session)
         return _with_max(state, observed, self._ewma) if observed > 0 else state
-
-    def predicted_max(self, base_max: float, readiness: float, mean_readiness: float) -> float:
-        """M_pred = M_base * (1 + c_R * (R - R_bar))."""
-        return base_max * (1 + self._ff.C_READINESS * (readiness - mean_readiness))

@@ -11,19 +11,21 @@ from bar_scheduler.domain.models import SessionResult, SetResult
 
 # Best 1RM as (epley_estimate, session, set, effective_load_kg).
 _BestSet = tuple[float, SessionResult, SetResult, float]
+_BLENDED_MAX_REPS = 20
+_FORMULA_VALID_MAX_REPS = 37  # Brzycki/Lander diverge at/above this rep count
 
 
 def _session_assistance(session: SessionResult) -> float:
     """Assistance kg recorded on the session's equipment snapshot (0.0 if none)."""
     snap = session.equipment_snapshot
-    return snap.assistance_kg if snap is not None else 0.0
+    return 0.0 if snap is None else snap.assistance_kg
 
 
 def _recommended_formula(reps: int) -> str:
     """Name of the most accurate 1RM formula for the given rep count."""
     if reps <= 10:
         return "brzycki+lander"
-    if reps <= 20:
+    if reps <= _BLENDED_MAX_REPS:
         return "blended"
     return "epley (unreliable above 20 reps)"
 
@@ -60,8 +62,12 @@ def _formula_breakdown(eff_load: float, reps: int, est: float) -> dict:
     blended_added = blended_onerm_added(eff_load, reps)
     return {
         "epley": round(est, 1),
-        "brzycki": round(brzycki_onerm(eff_load, reps), 1) if reps < 37 else None,
-        "lander": round(lander_onerm(eff_load, reps), 1) if reps < 37 else None,
+        "brzycki": round(brzycki_onerm(eff_load, reps), 1)
+        if reps < _FORMULA_VALID_MAX_REPS
+        else None,
+        "lander": round(lander_onerm(eff_load, reps), 1)
+        if reps < _FORMULA_VALID_MAX_REPS
+        else None,
         "lombardi": round(lombardi_onerm(eff_load, reps), 1),
         "blended": None if blended_added is None else round(eff_load + blended_added, 1),
     }

@@ -25,9 +25,7 @@ def get_plan(
     - ``overtraining``   -- overtraining severity dict (level, description, …)
     """
     inputs = _load_plan_inputs(data_dir, exercise_id)
-    ot_severity = container.overtraining().severity(
-        inputs.user_state.history, inputs.days_per_week
-    )
+    ot_severity = container.overtraining().severity(inputs.user_state.history, inputs.days_per_week)
     plans = _resolve_plans(inputs, weeks_ahead, ot_severity["level"])
     timeline = build_timeline(plans, inputs.user_state.history)
     return _plan_response(inputs, ot_severity, timeline)

@@ -18,22 +18,28 @@ def bundled_path() -> Path:
 def test_schema_defaults_when_no_files():
     """With no YAML sources the structured-schema defaults are returned."""
     cfg = load_model_config(bundled_path=NOWHERE, user_path=NOWHERE)
-    assert cfg.progression.TM_FACTOR == 0.90
+    assert cfg.progression.TM_FACTOR == pytest.approx(0.9)
     assert cfg.progression.TARGET_MAX_REPS == 30
     assert cfg.rest_normalization.REST_REF_SECONDS == 180
     assert cfg.autoregulation.MIN_SESSIONS_FOR_AUTOREG == 3
     assert cfg.schedule.DAY_SPACING["T"] == 0
 
 
-def test_bundled_values_loaded(bundled_path):
-    """The bundled exercises.yaml overrides schema defaults section-by-section."""
+def test_bundled_scalar_values(bundled_path):
+    """The bundled exercises.yaml overrides scalar schema defaults."""
     cfg = load_model_config(bundled_path=bundled_path, user_path=NOWHERE)
-    assert cfg.progression.TM_FACTOR == 0.90
-    assert cfg.fitness_fatigue.TAU_FATIGUE == 7.0
-    assert cfg.fitness_fatigue.TAU_FITNESS == 42.0
-    assert cfg.readiness.READINESS_Z_LOW == -0.5
+    assert cfg.progression.TM_FACTOR == pytest.approx(0.9)
+    assert cfg.fitness_fatigue.TAU_FATIGUE == pytest.approx(7.0)
+    assert cfg.fitness_fatigue.TAU_FITNESS == pytest.approx(42.0)
+    assert cfg.readiness.READINESS_Z_LOW == pytest.approx(-0.5)
+
+
+def test_bundled_schedule_values(bundled_path):
+    """The bundled exercises.yaml supplies the schedule sequences and spacing."""
+    cfg = load_model_config(bundled_path=bundled_path, user_path=NOWHERE)
+    expected_spacing = {"S": 1, "H": 1, "E": 1, "T": 0, "TEST": 1}
     assert cfg.schedule.SCHEDULE_4_DAYS == ["S", "H", "T", "E"]
-    assert cfg.schedule.DAY_SPACING == {"S": 1, "H": 1, "E": 1, "T": 0, "TEST": 1}
+    assert cfg.schedule.DAY_SPACING == expected_spacing
 
 
 def test_user_override_deep_merges(bundled_path, tmp_path):
@@ -43,7 +49,7 @@ def test_user_override_deep_merges(bundled_path, tmp_path):
 
     cfg = load_model_config(bundled_path=bundled_path, user_path=user)
 
-    assert cfg.progression.TM_FACTOR == 0.85  # overridden
+    assert cfg.progression.TM_FACTOR == pytest.approx(0.85)  # overridden
     assert cfg.progression.TARGET_MAX_REPS == 30  # sibling preserved (deep merge)
     assert cfg.rest_normalization.REST_REF_SECONDS == 180  # other section untouched
 

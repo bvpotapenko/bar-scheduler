@@ -26,13 +26,13 @@ class ProgressionPolicy:
         """Estimate weeks to reach target by iterating the weekly rate."""
         if current_max >= target:
             return 0
-        value = float(current_max)
+        projected = float(current_max)
         weeks = 0
-        while value < target and weeks < _MAX_PROJECTION_WEEKS:
-            rate = self.reps_per_week(int(value), target)
+        while projected < target and weeks < _MAX_PROJECTION_WEEKS:
+            rate = self.reps_per_week(int(projected), target)
             if rate <= 0:
                 break
-            value += rate
+            projected += rate
             weeks += 1
         return min(weeks, _MAX_PROJECTION_WEEKS)
 

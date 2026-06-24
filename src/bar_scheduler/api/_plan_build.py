@@ -67,7 +67,7 @@ def _resolve_plans(inputs: _PlanInputs, weeks_ahead: int, ot_level: int) -> list
     if cache and cache.get("generated_at", 0.0) >= store._input_files_mtime(inputs.exercise_id):
         return [dict_to_session_plan(plan_dict) for plan_dict in cache["plans"]]
     plans = container.planning_service().generate(_plan_request(inputs, total_weeks, ot_level))
-    store.save_plan_result_cache(inputs.exercise_id, [session_plan_to_dict(p) for p in plans])
+    store.save_plan_result_cache(inputs.exercise_id, [session_plan_to_dict(plan) for plan in plans])
     return plans
 
 

@@ -29,9 +29,11 @@ def update_equipment(data_dir: Path, exercise_id: str, equipment: EquipmentInput
 
 def _recommended_assistance(ex, state, user_state) -> tuple[str, float]:
     """Recommended item plus its prescribed assistance (H-session reference)."""
-    current_tm = container.training_state().status(
-        user_state.history, user_state.profile.bodyweight_kg
-    ).training_max
+    current_tm = (
+        container.training_state()
+        .status(user_state.history, user_state.profile.bodyweight_kg)
+        .training_max
+    )
     from bar_scheduler.core.equipment import recommend_equipment_item
 
     recommended = recommend_equipment_item(state.available_items, ex, current_tm)
@@ -39,7 +41,7 @@ def _recommended_assistance(ex, state, user_state) -> tuple[str, float]:
         exercise=ex,
         training_max=current_tm,
         bodyweight_kg=user_state.profile.bodyweight_kg,
-        history=tuple(s for s in user_state.history if s.exercise_id == state.exercise_id),
+        history=tuple(sess for sess in user_state.history if sess.exercise_id == state.exercise_id),
         session_type="H",
         equipment=EquipmentConstraints.from_state(state),
     )

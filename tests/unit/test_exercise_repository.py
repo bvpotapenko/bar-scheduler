@@ -19,9 +19,13 @@ def test_get_loads_typed_definition(repo):
     pull_up = repo.get("pull_up")
     assert isinstance(pull_up, ExerciseDefinition)
     assert pull_up.exercise_id == "pull_up"
-    assert pull_up.bw_fraction == 1.0
+    assert pull_up.bw_fraction == pytest.approx(1.0)
     assert pull_up.load_type == "bw_plus_external"
     assert pull_up.weight_tm_threshold == 9
+
+
+def test_get_loads_levels_and_session_params(repo):
+    pull_up = repo.get("pull_up")
     assert pull_up.level_thresholds == [4, 13, 24]
     assert pull_up.session_params["S"].reps_min == 4
     assert pull_up.session_params["S"].sets_by_level == [1, 2, 3, 4]
@@ -44,8 +48,8 @@ def test_user_override_deep_merges(tmp_path):
     repo = ExerciseRepository(bundled_dir=BUNDLED, user_dir=user)
     pull_up = repo.get("pull_up")
 
-    assert pull_up.target_value == 25.0  # overridden by user file
-    assert pull_up.bw_fraction == 1.0  # bundled value preserved (deep merge)
+    assert pull_up.target_value == pytest.approx(25.0)  # overridden by user file
+    assert pull_up.bw_fraction == pytest.approx(1.0)  # bundled value preserved (deep merge)
 
 
 def test_non_ascending_level_thresholds_rejected(tmp_path):
