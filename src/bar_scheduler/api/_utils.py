@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from bar_scheduler.core.math.training_max import training_max_from_baseline
+
+__all__ = ["get_data_dir", "parse_sets_string", "parse_compact_sets", "training_max_from_baseline"]
+
 
 def get_data_dir() -> Path:
     """Return the default data directory: ``~/.bar-scheduler``."""

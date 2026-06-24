@@ -8,110 +8,48 @@ from bar_scheduler.containers import container
 from bar_scheduler.core.exercises.registry import get_exercise
 from bar_scheduler.domain.context import EquipmentConstraints, PrescriptionContext
 from bar_scheduler.api._common import _assistance_for_item, _require_store
+from bar_scheduler.api.types import EquipmentInput
 
 
-def update_equipment(
-    data_dir: Path,
-    exercise_id: str,
-    *,
-    available_items: list[str],
-    available_weights_kg: list[float] | None = None,
-    available_machine_assistance_kg: list[float] | None = None,
-    available_band_assistance_kg: list[float] | None = None,
-) -> None:
+def update_equipment(data_dir: Path, exercise_id: str, equipment: EquipmentInput) -> None:
     """
     Update the equipment available for an exercise.
 
-    The planner auto-selects the appropriate item from ``available_items``
-    based on the user's current training level — no manual ``active_item``
-    required.
-
-    ``available_weights_kg`` is an optional list of discrete dumbbell / plate
-    weights (in kg) the user owns for this exercise.  When set, the planner
-    floor-snaps weight prescriptions to the largest available weight ≤ the
-    computed ideal.  Pass ``[]`` to clear.  Pass ``None`` (default) to inherit
-    from the previous entry.
-
-    ``available_machine_assistance_kg`` is a list of discrete assistance levels
-    the user can set on their assisted pull-up / dip machine (e.g.
-    ``[10, 15, 20, 25, 30]``).  The planner ceiling-snaps the computed ideal
-    assistance to the smallest available level ≥ that value.  Pass ``[]`` to
-    clear.  Pass ``None`` (default) to inherit from the previous entry.
-
-    ``available_band_assistance_kg`` is a list of the user's actual band
-    resistance values in kg (e.g. ``[10, 20, 30]``).  Same ceiling-snap model
-    as ``available_machine_assistance_kg``.  Pass ``[]`` to clear.  Pass
-    ``None`` (default) to inherit from the previous entry.
+    ``equipment`` is an :class:`EquipmentInput`. The planner auto-selects the
+    appropriate item from ``available_items`` based on the user's current
+    training level. For each kg list, ``None`` inherits the previous value,
+    ``[]`` clears it, and a list floor/ceiling-snaps prescriptions to it.
 
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
-    from bar_scheduler.domain.models import EquipmentState
-
     store = _require_store(data_dir, exercise_id)
     prev = store.load_current_equipment(exercise_id)
-
-    if available_weights_kg is None:
-        inherited_weights = prev.available_weights_kg if prev else []
-    else:
-        inherited_weights = list(available_weights_kg)
-
-    if available_machine_assistance_kg is None:
-        inherited_machine = prev.available_machine_assistance_kg if prev else []
-    else:
-        inherited_machine = list(available_machine_assistance_kg)
-
-    if available_band_assistance_kg is None:
-        inherited_band = prev.available_band_assistance_kg if prev else []
-    else:
-        inherited_band = list(available_band_assistance_kg)
-
-    state = EquipmentState(
-        exercise_id=exercise_id,
-        available_items=list(available_items),
-        available_weights_kg=inherited_weights,
-        available_machine_assistance_kg=inherited_machine,
-        available_band_assistance_kg=inherited_band,
-    )
-    store.update_equipment(state)
+    store.update_equipment(equipment.to_state(exercise_id, prev))
 
 
-def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
-    """
-    Return the currently configured equipment for an exercise as a plain dict.
-
-    Returns ``None`` if no equipment has been configured.  The dict includes
-    computed fields: ``recommended_item`` (auto-selected from available_items
-    based on current training level), ``assistance_kg`` (from catalog),
-    ``recommended_assistance_kg`` (machine assistance prescribed for the next
-    session; 0.0 when not applicable), and ``is_bss_degraded`` (True when
-    ``ELEVATION_SURFACE`` is absent from ``available_items``).
-    Raises ``ProfileNotFoundError`` if the profile has not been initialised.
-    """
-    from bar_scheduler.core.equipment import (
-        get_assistance_kg as _get_assistance_kg,
-        recommend_equipment_item,
-    )
-
-    store = _require_store(data_dir, exercise_id)
-    state = store.load_current_equipment(exercise_id)
-    if state is None:
-        return None
-    ex = get_exercise(exercise_id)
-    user_state = store.load_user_state(exercise_id)
+def _recommended_assistance(ex, state, user_state) -> tuple[str, float]:
+    """Recommended item plus its prescribed assistance (H-session reference)."""
     current_tm = container.training_state().status(
         user_state.history, user_state.profile.bodyweight_kg
     ).training_max
+    from bar_scheduler.core.equipment import recommend_equipment_item
+
     recommended = recommend_equipment_item(state.available_items, ex, current_tm)
-    # Recommended assistance uses H-session target reps as the reference.
     ctx = PrescriptionContext(
         exercise=ex,
         training_max=current_tm,
         bodyweight_kg=user_state.profile.bodyweight_kg,
-        history=tuple(s for s in user_state.history if s.exercise_id == exercise_id),
+        history=tuple(s for s in user_state.history if s.exercise_id == state.exercise_id),
         session_type="H",
         equipment=EquipmentConstraints.from_state(state),
     )
-    recommended_assistance_kg = _assistance_for_item(recommended, state, ctx) or 0.0
+    return recommended, _assistance_for_item(recommended, state, ctx) or 0.0
+
+
+def _equipment_dict(state, recommended: str, recommended_assistance_kg: float) -> dict:
+    """Assemble the get_current_equipment response dict."""
+    from bar_scheduler.core.equipment import get_assistance_kg as _get_assistance_kg
+
     return {
         "exercise_id": state.exercise_id,
         "recommended_item": recommended,
@@ -127,6 +65,27 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
         "recommended_assistance_kg": recommended_assistance_kg,
         "is_bss_degraded": "ELEVATION_SURFACE" not in state.available_items,
     }
+
+
+def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
+    """
+    Return the currently configured equipment for an exercise as a plain dict.
+
+    Returns ``None`` if no equipment has been configured.  The dict includes
+    computed fields: ``recommended_item`` (auto-selected from available_items
+    based on current training level), ``assistance_kg`` (from catalog),
+    ``recommended_assistance_kg`` (machine assistance prescribed for the next
+    session; 0.0 when not applicable), and ``is_bss_degraded`` (True when
+    ``ELEVATION_SURFACE`` is absent from ``available_items``).
+    Raises ``ProfileNotFoundError`` if the profile has not been initialised.
+    """
+    store = _require_store(data_dir, exercise_id)
+    state = store.load_current_equipment(exercise_id)
+    if state is None:
+        return None
+    user_state = store.load_user_state(exercise_id)
+    recommended, assistance = _recommended_assistance(get_exercise(exercise_id), state, user_state)
+    return _equipment_dict(state, recommended, assistance)
 
 
 def compute_leff(
