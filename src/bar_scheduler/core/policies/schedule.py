@@ -1,6 +1,8 @@
 """Calendar placement of session slots across a plan."""
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta
+from types import MappingProxyType
 
 from bar_scheduler.config.schedule_params import ScheduleConfig
 from bar_scheduler.domain.models import SessionResult
@@ -8,13 +10,15 @@ from bar_scheduler.domain.models import SessionResult
 _Slot = tuple[datetime, str]
 
 # Fixed day offsets within each 7-day week (ensure required rest between sessions).
-_DAY_OFFSETS: dict[int, list[int]] = {
-    1: [0],
-    2: [0, 3],
-    3: [0, 2, 4],
-    4: [0, 2, 4, 5],
-    5: [0, 1, 2, 4, 5],
-}
+_DAY_OFFSETS: Mapping[int, tuple[int, ...]] = MappingProxyType(
+    {
+        1: (0,),
+        2: (0, 3),
+        3: (0, 2, 4),
+        4: (0, 2, 4, 5),
+        5: (0, 1, 2, 4, 5),
+    }
+)
 
 
 def shift(date: datetime, days: int) -> datetime:

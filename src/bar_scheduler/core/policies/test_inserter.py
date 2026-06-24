@@ -8,7 +8,9 @@ from bar_scheduler.domain.models import SessionResult
 _Slot = tuple[datetime, str]
 
 
-def _find_last_test(history: list[SessionResult], plan_start: datetime, freq_weeks: int) -> datetime:
+def _find_last_test(
+    history: list[SessionResult], plan_start: datetime, freq_weeks: int
+) -> datetime:
     """Most recent TEST date, or a synthetic baseline that triggers a test at week 1."""
     tests = [sess for sess in history if sess.session_type == "TEST"]
     if tests:
@@ -54,7 +56,9 @@ class TestSessionInserter:
         pushed = self._push_after_historical(marked, last_test if has_history_test else None)
         return self._space_in_plan(pushed)
 
-    def _push_after_historical(self, schedule: list[_Slot], historical: datetime | None) -> list[_Slot]:
+    def _push_after_historical(
+        self, schedule: list[_Slot], historical: datetime | None
+    ) -> list[_Slot]:
         """Push early plan sessions that fall too soon after a historical TEST."""
         if historical is None:
             return schedule

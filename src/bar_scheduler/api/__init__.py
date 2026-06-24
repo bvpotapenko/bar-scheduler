@@ -1,20 +1,16 @@
 """bar-scheduler public API."""
 
-from __future__ import annotations
-
-# Exceptions
-from bar_scheduler.api._common import (
+# Exceptions (ValidationError re-exported from the io layer via _errors)
+from bar_scheduler.api._errors import (
+    ValidationError,
     ProfileNotFoundError,
     HistoryNotFoundError,
     SessionNotFoundError,
     ProfileAlreadyExistsError,
 )
 
-# ValidationError from io layer
-from bar_scheduler.io.serializers import ValidationError
-
 # Types
-from bar_scheduler.api.types import SessionType, SessionInput, SetInput
+from bar_scheduler.api.types import EquipmentInput, SessionType, SessionInput, SetInput
 
 # Profile
 from bar_scheduler.api._profile import (
@@ -27,10 +23,12 @@ from bar_scheduler.api._profile import (
 )
 
 # Exercises
-from bar_scheduler.api._exercises import (
+from bar_scheduler.api._catalog import (
     list_exercises,
     get_exercise_info,
     get_equipment_catalog,
+)
+from bar_scheduler.api._exercises import (
     set_exercise_target,
     set_exercise_days,
     enable_exercise,
@@ -57,12 +55,11 @@ from bar_scheduler.api._plan import (
 from bar_scheduler.api._analysis import (
     get_training_status,
     get_onerepmax_data,
-    get_volume_data,
-    get_progress_data,
     get_overtraining_status,
     get_goal_metrics,
-    training_max_from_baseline,
 )
+from bar_scheduler.api._volume import get_volume_data
+from bar_scheduler.api._progress import get_progress_data
 
 # Equipment
 from bar_scheduler.api._equipment import (
@@ -74,10 +71,11 @@ from bar_scheduler.api._equipment import (
 )
 
 # Utils
-from bar_scheduler.api._utils import (
+from bar_scheduler.api._public import (
     get_data_dir,
     parse_sets_string,
     parse_compact_sets,
+    training_max_from_baseline,
 )
 
 __all__ = [
@@ -91,6 +89,7 @@ __all__ = [
     "SessionType",
     "SessionInput",
     "SetInput",
+    "EquipmentInput",
     # Profile
     "init_profile",
     "get_profile",

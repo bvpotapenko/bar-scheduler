@@ -25,7 +25,7 @@ def weekly_compliance(history: list[SessionResult], weeks_back: int = 1) -> floa
         return 1.0
     latest = datetime.strptime(history[-1].date, "%Y-%m-%d")
     cutoff = latest - timedelta(days=weeks_back * 7)
-    recent = [s for s in history if datetime.strptime(s.date, "%Y-%m-%d") >= cutoff]
+    recent = [sess for sess in history if datetime.strptime(sess.date, "%Y-%m-%d") >= cutoff]
     if not recent:
         return 1.0
     ratios = [session_compliance(sess) for sess in recent]

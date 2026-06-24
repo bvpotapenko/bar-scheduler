@@ -51,7 +51,7 @@ def test_equipment_constraints_from_none():
 def test_progression_goal_from_target_weighted():
     goal = ProgressionGoal.from_target(ExerciseTarget(reps=12, weight_kg=40.0), default_reps=30)
     assert goal.reps == 12
-    assert goal.weight_kg == 40.0
+    assert goal.weight_kg == pytest.approx(40.0)
     assert goal.is_weighted is True
 
 

@@ -4,6 +4,51 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **Top-to-bottom planner redesign** — every behavioral rule is now an injectable, unit-tested
+  component. The monolithic `core/planner/`, `core/metrics.py`, `core/physiology.py`, and
+  `core/adaptation.py` are replaced by `core/math/` (pure formulas), `core/policies/` (behavior:
+  load, sets, rest, autoregulation, progression, plateau, fatigue, max_estimation, grip, schedule,
+  test_inserter), and `core/services/` (orchestration: planning_service, training_state,
+  overtraining, plan_calendar, …). `PlanningService` sequences the policies and holds no rules.
+  Dependencies are wired by `dependency_injector` (`containers.py`); config is typed via
+  `omegaconf`. Value objects live in `domain/`. Plan outputs are unchanged.
+- **`update_equipment(data_dir, exercise_id, equipment)` now takes an `EquipmentInput` value
+  object** (breaking) instead of keyword arguments. `EquipmentInput.to_state()` owns the
+  inherit/clear/replace semantics (`None` inherits the previous entry, `[]` clears, a list
+  replaces). `EquipmentInput` is exported from `bar_scheduler.api`.
+- **Config moved to a typed OmegaConf schema** (`config/{model_params,planning_params,
+  schedule_params}`) — model constants are dataclass defaults, overridable via
+  `~/.bar-scheduler/exercises.yaml`. Per-exercise definitions load lazily from
+  `src/bar_scheduler/exercises/<id>.yaml` (user override `~/.bar-scheduler/exercises/<id>.yaml`)
+  via `ExerciseRepository`; the per-exercise Python-constant fallbacks were removed.
+- **`io/serializers.py` is now the `io/serializers/` package** (validators/profile/sessions/
+  equipment/sets/compact/parsers); import path unchanged.
+
+### Removed
+- **`plan_changes` diff** removed from `get_plan()` output and the plan-cache change-detection
+  path — plans are recomputed deterministically from history each call, so a diff added no value.
+- **`get_plan_cache_entry`** removed from the public API.
+- Internal: `api/_utils.py` renamed to `api/_public.py`; `core/planner/*`, `core/metrics.py`,
+  `core/physiology.py`, `core/adaptation.py`, and `domain/policies.py` deleted (their logic moved
+  into `core/math`, `core/policies`, and `core/services`).
+
+### Docs
+- Consolidated the seven overlapping formula/model documents (`formulas_reference`,
+  `core_training_formulas_fatigue`, `training_model`, `1rm_formulas`, `max_estimation`,
+  `performance-formulas`, `adaptation_guide`) into a single source of truth,
+  [`docs/model.md`](docs/model.md). Updated `api_info.md`, `features.md`, `exercise-structure.md`,
+  and the `CLAUDE.md` files to the new architecture.
+
+### Internal
+- `flake8 .` (full wemake-python-styleguide) is clean across `src` and `tests` — production code
+  strict, tests relaxed via documented per-file ignores. The test suite is plain pytest under
+  `tests/unit/` (one focused file per concern; each ≤ 7 module members).
+
+---
+
 ## [0.7.1] - 2026-06-09
 
 ### Removed

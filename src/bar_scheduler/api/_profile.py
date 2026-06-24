@@ -10,10 +10,8 @@ from bar_scheduler.io.serializers import (
     dict_to_user_profile,
     user_profile_to_dict,
 )
-from bar_scheduler.api._common import (
-    ProfileAlreadyExistsError,
-    _require_profile_store,
-)
+from bar_scheduler.api._common import _require_profile_store
+from bar_scheduler.api._errors import ProfileAlreadyExistsError
 
 
 def init_profile(
@@ -100,6 +98,23 @@ def update_height(data_dir: Path, *, height_cm: int) -> dict:
     return update_profile(data_dir, height_cm=height_cm)
 
 
+def _apply_updates(
+    raw: dict,
+    height_cm: int | None,
+    bodyweight_kg: float | None,
+    language: str | None,
+) -> None:
+    """Apply the provided fields onto the raw profile dict in place."""
+    if height_cm is not None:
+        raw["height_cm"] = height_cm
+    if bodyweight_kg is not None:
+        raw["current_bodyweight_kg"] = bodyweight_kg
+    if language == "en":
+        raw.pop("language", None)  # "en" is the omitted default
+    elif language is not None:
+        raw["language"] = language
+
+
 def update_profile(
     data_dir: Path,
     *,
@@ -128,16 +143,7 @@ def update_profile(
     with open(store.profile_path) as fp:
         raw = json.load(fp)
 
-    if height_cm is not None:
-        raw["height_cm"] = height_cm
-    if bodyweight_kg is not None:
-        raw["current_bodyweight_kg"] = bodyweight_kg
-    if language is not None:
-        if language == "en":
-            raw.pop("language", None)
-        else:
-            raw["language"] = language
-
+    _apply_updates(raw, height_cm, bodyweight_kg, language)
     dict_to_user_profile(raw)  # validate -- raises ValidationError if inconsistent
 
     with open(store.profile_path, "w") as fp:

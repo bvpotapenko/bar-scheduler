@@ -13,6 +13,7 @@ from bar_scheduler.core.exercises.base import ExerciseDefinition
 from bar_scheduler.domain.models import (
     EquipmentState,
     ExerciseTarget,
+    FitnessFatigueState,
     SessionResult,
     UserState,
 )
@@ -80,6 +81,15 @@ class ProgressionGoal:
 
 
 @dataclass(frozen=True)
+class AthleteContext:
+    """Normalization context for fatigue/load math (reference BW, bw share, variants)."""
+
+    reference_bodyweight_kg: float
+    bw_fraction: float = 1.0
+    variant_factors: dict[str, float] | None = None
+
+
+@dataclass(frozen=True)
 class PrescriptionContext:
     """Everything a policy needs to prescribe load/sets for one session slot."""
 
@@ -89,6 +99,16 @@ class PrescriptionContext:
     history: tuple[SessionResult, ...]
     session_type: str
     equipment: EquipmentConstraints = EquipmentConstraints()
+
+
+@dataclass(frozen=True)
+class AdaptationSignals:
+    """Readiness/history signals that tune set/rest prescription for a slot."""
+
+    ff_state: FitnessFatigueState
+    history_sessions: int = 0
+    recent_same_type: tuple[SessionResult, ...] = ()
+    latest_test_max: int | None = None
 
 
 @dataclass(frozen=True)

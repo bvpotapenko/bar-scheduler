@@ -6,8 +6,8 @@ from dataclasses import dataclass
 @dataclass
 class RestNormalizationConfig:
     REST_REF_SECONDS: int = 180
-    GAMMA_REST: float = 0.20
-    F_REST_MIN: float = 0.80
+    GAMMA_REST: float = 0.2
+    F_REST_MIN: float = 0.8
     F_REST_MAX: float = 1.05
     REST_MIN_CLAMP: int = 30
 

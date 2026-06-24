@@ -5,14 +5,19 @@ This is pure computation -- no Rich, no Typer. The result is a list of
 TimelineEntry objects suitable for display by any client (CLI, Telegram, web).
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
-from bar_scheduler.core.max_estimator import estimate_max_reps_from_session
+from bar_scheduler.core.policies.max_estimation import MaxEstimator
 from bar_scheduler.domain.models import SessionPlan, SessionResult
 
+_MAX_ESTIMATOR = MaxEstimator()
+
 TimelineStatus = Literal["done", "missed", "next", "planned", "extra"]
+
+_Indexed = tuple[int, SessionResult]
+_Lookup = dict[str, list[_Indexed]]
 
 
 @dataclass
@@ -36,138 +41,112 @@ def _compute_first_monday(history: list[SessionResult]) -> datetime | None:
     return first_date - timedelta(days=first_date.weekday())
 
 
-def _build_history_lookup(
-    history: list[SessionResult],
-) -> dict[str, list[tuple[int, SessionResult]]]:
+def _build_history_lookup(history: list[SessionResult]) -> _Lookup:
     """Build a date -> [(orig_index, session)] mapping for fast plan matching."""
-    lookup: dict[str, list[tuple[int, SessionResult]]] = {}
+    lookup: _Lookup = {}
     for idx, sess in enumerate(history):
         lookup.setdefault(sess.date, []).append((idx, sess))
     return lookup
 
 
 def _match_plan_to_history(
-    plan: SessionPlan,
-    history_by_date: dict[str, list[tuple[int, SessionResult]]],
-    matched_indices: set[int],
-) -> tuple[SessionResult | None, int | None]:
-    """Find the best history session to pair with a plan entry."""
-    candidates = history_by_date.get(plan.date, [])
-    # Prefer same session type
-    for orig_i, cs in candidates:
-        if cs.session_type == plan.session_type and orig_i not in matched_indices:
-            return cs, orig_i
-    # Fall back to any session on that date
-    for orig_i, cs in candidates:
-        if orig_i not in matched_indices:
-            return cs, orig_i
+    plan: SessionPlan, lookup: _Lookup, matched: set[int]
+) -> _Indexed | tuple[None, None]:
+    """Find the best unmatched history session to pair with a plan entry."""
+    candidates = lookup.get(plan.date, [])
+    for orig_i, cand in candidates:
+        if cand.session_type == plan.session_type and orig_i not in matched:
+            return cand, orig_i
+    for orig_i, cand in candidates:
+        if orig_i not in matched:
+            return cand, orig_i
     return None, None
 
 
-def _plan_status(
-    matched: SessionResult | None,
-    plan_date: str,
-    today: str,
-) -> TimelineStatus:
-    if matched is None:
-        return "missed" if plan_date < today else "planned"
-    return "done"
-
-
 def _compute_track_b(matched: SessionResult | None) -> dict | None:
-    """Compute Track B max estimate for non-TEST sessions with ≥2 sets."""
+    """Compute Track B max estimate for non-TEST S/H sessions with ≥2 sets."""
     if matched is None or matched.session_type not in ("S", "H"):
         return None
-    valid_sets = [
-        cs for cs in matched.completed_sets if cs.actual_reps is not None and cs.actual_reps > 0
-    ]
-    if len(valid_sets) < 2:
+    valid = [cs for cs in matched.completed_sets if cs.actual_reps]
+    if len(valid) < 2:
         return None
-    return estimate_max_reps_from_session(
-        [cs.actual_reps for cs in valid_sets],  # type: ignore[misc]
-        [cs.rest_seconds_before for cs in valid_sets],
-        [cs.rir_reported for cs in valid_sets],
+    estimate = _MAX_ESTIMATOR.estimate(
+        [cs.actual_reps for cs in valid],
+        [cs.rest_seconds_before for cs in valid],
+        [cs.rir_reported for cs in valid],
     )
+    return None if estimate is None else asdict(estimate)
 
 
-def _assign_next_status(entries: list[TimelineEntry], today: str) -> None:
-    """Mark the first upcoming/missed entry as 'next'."""
-    for tl_entry in entries:
-        if tl_entry.status in ("planned", "missed") and tl_entry.date >= today:
-            tl_entry.status = "next"
-            return
-    # All future entries are done/missed; mark first planned as next
-    for tl_entry in entries:
-        if tl_entry.status == "planned":
-            tl_entry.status = "next"
-            return
+class _TimelineBuilder:
+    """Assemble the merged timeline, carrying match state across plan entries."""
 
+    def __init__(self, plans: list[SessionPlan], history: list[SessionResult]) -> None:
+        self._plans = plans
+        self._history = history
+        self._today = datetime.now().strftime("%Y-%m-%d")
+        self._lookup = _build_history_lookup(history)
+        self._matched: set[int] = set()
+        self._entries: list[TimelineEntry] = []
 
-def _add_extra_sessions(
-    entries: list[TimelineEntry],
-    history: list[SessionResult],
-    matched_indices: set[int],
-    first_monday: datetime | None,
-) -> None:
-    """Append unmatched history sessions as 'extra' (unplanned) entries."""
-    for orig_i, sess in enumerate(history):
-        if orig_i not in matched_indices:
-            sess_dt = datetime.strptime(sess.date, "%Y-%m-%d")
-            week_num = (sess_dt - first_monday).days // 7 + 1 if first_monday else 0
-            entries.append(
-                TimelineEntry(
-                    date=sess.date,
-                    week_number=week_num,
-                    planned=None,
-                    actual=sess,
-                    status="done",
-                    actual_id=orig_i + 1,
-                )
-            )
+    def build(self) -> list[TimelineEntry]:
+        """Pair plans with history, mark the next session, append extras, sort."""
+        self._entries = [self._entry_for_plan(plan) for plan in self._plans]
+        self._assign_next()
+        self._add_extra(_compute_first_monday(self._history))
+        self._entries.sort(key=lambda tl_entry: tl_entry.date)
+        return self._entries
 
-
-def build_timeline(
-    plans: list[SessionPlan],
-    history: list[SessionResult],
-) -> list[TimelineEntry]:
-    """
-    Merge plan + history into a unified chronological timeline.
-
-    Matching: a history session is matched to a plan entry if dates are
-    within 1 day of each other and session types agree, or if dates match
-    exactly regardless of type.
-
-    Args:
-        plans: Generated plan entries (may include past dates)
-        history: Logged sessions
-
-    Returns:
-        Sorted list of TimelineEntry
-    """
-    today = datetime.now().strftime("%Y-%m-%d")
-    first_monday = _compute_first_monday(history)
-    history_by_date = _build_history_lookup(history)
-    matched_indices: set[int] = set()
-    entries: list[TimelineEntry] = []
-
-    for plan in plans:
-        matched, matched_idx = _match_plan_to_history(plan, history_by_date, matched_indices)
+    def _entry_for_plan(self, plan: SessionPlan) -> TimelineEntry:
+        matched, matched_idx = _match_plan_to_history(plan, self._lookup, self._matched)
         if matched_idx is not None:
-            matched_indices.add(matched_idx)
-
-        entries.append(
-            TimelineEntry(
-                date=plan.date,
-                week_number=plan.week_number,
-                planned=plan,
-                actual=matched,
-                status=_plan_status(matched, plan.date, today),
-                actual_id=None if matched_idx is None else matched_idx + 1,
-                track_b=_compute_track_b(matched),
-            )
+            self._matched.add(matched_idx)
+        return TimelineEntry(
+            date=plan.date,
+            week_number=plan.week_number,
+            planned=plan,
+            actual=matched,
+            status=self._plan_status(matched, plan.date),
+            actual_id=None if matched_idx is None else matched_idx + 1,
+            track_b=_compute_track_b(matched),
         )
 
-    _assign_next_status(entries, today)
-    _add_extra_sessions(entries, history, matched_indices, first_monday)
-    entries.sort(key=lambda tl_entry: tl_entry.date)
-    return entries
+    def _plan_status(self, matched: SessionResult | None, plan_date: str) -> TimelineStatus:
+        if matched is None:
+            return "missed" if plan_date < self._today else "planned"
+        return "done"
+
+    def _assign_next(self) -> None:
+        """Mark the first upcoming/missed entry (or first planned) as 'next'."""
+        for tl_entry in self._entries:
+            if tl_entry.status in ("planned", "missed") and tl_entry.date >= self._today:
+                tl_entry.status = "next"
+                return
+        for tl_entry in self._entries:
+            if tl_entry.status == "planned":
+                tl_entry.status = "next"
+                return
+
+    def _add_extra(self, first_monday: datetime | None) -> None:
+        for orig_i, sess in enumerate(self._history):
+            if orig_i not in self._matched:
+                self._entries.append(self._extra_entry(orig_i, sess, first_monday))
+
+    def _extra_entry(
+        self, orig_i: int, sess: SessionResult, first_monday: datetime | None
+    ) -> TimelineEntry:
+        sess_dt = datetime.strptime(sess.date, "%Y-%m-%d")
+        week_num = (sess_dt - first_monday).days // 7 + 1 if first_monday else 0
+        return TimelineEntry(
+            date=sess.date,
+            week_number=week_num,
+            planned=None,
+            actual=sess,
+            status="done",
+            actual_id=orig_i + 1,
+        )
+
+
+def build_timeline(plans: list[SessionPlan], history: list[SessionResult]) -> list[TimelineEntry]:
+    """Merge plan + history into a unified, date-sorted timeline."""
+    return _TimelineBuilder(plans, history).build()
