@@ -12,7 +12,7 @@ from bar_scheduler.api import (
     SessionNotFoundError, ValidationError,
     # Profile & user
     init_profile, get_profile, update_profile,
-    update_bodyweight, update_language,
+    update_bodyweight, update_height, update_language,
     # Equipment
     update_equipment,
     # Exercises
@@ -22,7 +22,7 @@ from bar_scheduler.api import (
     # Sessions
     log_session, delete_session, get_history,
     # Planning
-    get_plan, refresh_plan,
+    get_plan,
     # Plan configuration
     set_plan_start_date, get_plan_weeks, set_plan_weeks,
     # Analysis
@@ -37,9 +37,9 @@ from bar_scheduler.api import (
     get_data_dir, training_max_from_baseline,
     # Input parsers
     parse_sets_string, parse_compact_sets,
+    # Input types
+    SessionInput, SetInput, SessionType, EquipmentInput,
 )
-# Input types (required for session logging)
-from bar_scheduler.api.types import SessionInput, SetInput, SessionType
 ```
 
 Everything you need is in `bar_scheduler.api`.
@@ -169,45 +169,51 @@ catalog = get_equipment_catalog("pull_up")
 # requires_weight_declaration: True means the client must prompt the user for specific
 # kg values (band resistances, machine levels, dumbbell weights) before this item is usable.
 
-# Set or update equipment
-# No active_item — the planner auto-selects the right item each session
-# None = inherit from previous entry; [] = clear; list = set explicitly
+# Set or update equipment — pass an EquipmentInput value object.
+# No active_item — the planner auto-selects the right item each session.
+# Per kg list: None = inherit from previous entry; [] = clear; list = set explicitly.
 update_equipment(
     data_dir, "pull_up",
-    available_items=["BAR_ONLY", "BAND_SET", "WEIGHT_BELT"],
+    EquipmentInput(available_items=["BAR_ONLY", "BAND_SET", "WEIGHT_BELT"]),
 )
 
-# For resistance bands — declare the user's actual band resistance values in kg.
+# Resistance bands — declare the user's actual band resistances in kg.
 # The planner ceiling-snaps the computed ideal to the smallest available value ≥ ideal.
 update_equipment(
     data_dir, "pull_up",
-    available_items=["BAND_SET", "BAR_ONLY"],
-    available_band_assistance_kg=[10.0, 20.0, 30.0],
+    EquipmentInput(
+        available_items=["BAND_SET", "BAR_ONLY"],
+        available_band_assistance_kg=[10.0, 20.0, 30.0],
+    ),
 )
 
-# For an assisted pull-up / dip machine — configure the available assistance settings.
-# Same ceiling-snap model as bands.
+# Assisted pull-up / dip machine — configure available assistance settings (same ceiling-snap).
 update_equipment(
     data_dir, "pull_up",
-    available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
-    available_machine_assistance_kg=[10.0, 15.0, 20.0, 25.0, 30.0],
+    EquipmentInput(
+        available_items=["MACHINE_ASSISTED", "BAR_ONLY"],
+        available_machine_assistance_kg=[10.0, 15.0, 20.0, 25.0, 30.0],
+    ),
 )
 
-# For dumbbell exercises -- set available dumbbell weights the user owns.
+# Dumbbell exercises -- set available dumbbell weights the user owns.
 update_equipment(
     data_dir, "incline_db_press",
-    available_items=["DUMBBELLS"],
-    available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0],
-    # incline_db_press: one DB per hand -> prescription = per-hand weight
+    EquipmentInput(
+        available_items=["DUMBBELLS"],
+        available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0],
+    ),
+    # incline_db_press: one DB per hand -> prescription = per-hand weight;
     # planner floor-snaps to the largest available weight ≤ ideal
 )
 update_equipment(
     data_dir, "bss",
-    available_items=["DUMBBELLS"],
-    available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0],
-    # bss: one or two DBs total -> prescription = total external weight
-    # planner expands available weights into all achievable single + pair totals
-    # e.g. [8, 10, 16] -> [8, 10, 16, 18, 20, 24, 26, 32] before snapping
+    EquipmentInput(
+        available_items=["DUMBBELLS"],
+        available_weights_kg=[4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0],
+    ),
+    # bss: dual_dumbbell -> planner expands to all single + pair totals before snapping
+    # e.g. [8, 10, 16] -> [8, 10, 16, 18, 20, 24, 26, 32]
 )
 
 # Read current equipment state (None if never configured)
@@ -354,16 +360,6 @@ plan["overtraining"]["description"]     # str
 plan["overtraining"]["extra_rest_days"] # int
 ```
 
-### Refresh plan anchor
-
-```python
-result = refresh_plan(data_dir, "pull_up")
-result["plan_start_date"]   # "YYYY-MM-DD" -- new anchor (today)
-result["next_session"]      # {"date": ..., "session_type": ..., "grip": ...} | None
-```
-
-Call after a break when unlogged sessions have accumulated in the past.
-
 ### Plan configuration
 
 ```python
@@ -432,7 +428,7 @@ for pt in (progress["trajectory_m"] or []):
 ## 9. Performance Metrics (volume and 1RM)
 
 Volume and 1RM metrics for goals, history sessions, and plan prescriptions.
-See `docs/performance-formulas.md` for full formula reference.
+See [docs/model.md](model.md) for the full formula reference.
 
 ```python
 # Goal metrics — what would performance look like if the goal were achieved?

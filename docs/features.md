@@ -1,6 +1,6 @@
 # bar-scheduler -- Feature List
 
-All features are accessible through the public Python API (`bar_scheduler.api.api`). See [api_info.md](api_info.md) for function signatures and return shapes.
+All features are accessible through the public Python API (`from bar_scheduler.api import ...`). See [api_info.md](api_info.md) for function signatures and return shapes, and [model.md](model.md) for the underlying formulas.
 
 ---
 
@@ -8,7 +8,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 | # | Feature | API function |
 |---|---------|-------------|
-| 1.1 | Create bare user profile (height, bodyweight, language, rest preference); exercises added separately via `enable_exercise` | `init_profile` |
+| 1.1 | Create bare user profile (height, bodyweight, language); exercises added separately via `enable_exercise` | `init_profile` |
 | 1.2 | Read profile as dict (all fields + current bodyweight) | `get_profile` |
 | 1.3 | Update any subset of profile fields surgically (preserves plan anchors, equipment, other internal keys) | `update_profile` |
 | 1.4 | Update current bodyweight | `update_bodyweight` |
@@ -41,8 +41,8 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 3.6 | Current equipment state as a dict (exercise_id, recommended_item, available_items, available_machine_assistance_kg, recommended_assistance_kg, assistance_kg, is_bss_degraded); recommended_item auto-selected from available_items by planner | `get_current_equipment` |
 | 3.7 | Equipment adjustment factor when switching bands (reps_factor, description) | `compute_equipment_adjustment` |
 | 3.8 | Assistance kg for any item | `get_assistance_kg` |
-| 3.9 | Per-exercise discrete weight set stored in profile (`available_weights_kg`); planner floor-snaps prescriptions to largest available weight ≤ ideal — no fractional or unavailable weights prescribed | `update_equipment(…, available_weights_kg=[…])` |
-| 3.10 | Per-exercise discrete machine assistance list (`available_machine_assistance_kg`); planner ceiling-snaps ideal assistance to smallest available ≥ ideal; prescribed level shown per session in `get_plan()["sessions"][]["prescribed_assistance_kg"]`; user configures once and the planner automatically reduces assistance as TM grows | `update_equipment(…, available_machine_assistance_kg=[…])` |
+| 3.9 | Per-exercise discrete weight set stored in profile (`available_weights_kg`); planner floor-snaps prescriptions to largest available weight ≤ ideal — no fractional or unavailable weights prescribed | `update_equipment(…, EquipmentInput(available_weights_kg=[…]))` |
+| 3.10 | Per-exercise discrete machine assistance list (`available_machine_assistance_kg`); planner ceiling-snaps ideal assistance to smallest available ≥ ideal; prescribed level shown per session in `get_plan()["sessions"][]["prescribed_assistance_kg"]`; user configures once and the planner automatically reduces assistance as TM grows | `update_equipment(…, EquipmentInput(available_machine_assistance_kg=[…]))` |
 
 ## 4. Training Log (Session Logging)
 
@@ -63,7 +63,7 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | # | Feature | Notes |
 |---|---------|-------|
 | 5.1 | Unified timeline -- past (actual) and future (planned) sessions in one chronological list | `get_plan` -> `sessions` |
-| 5.2 | Prescription stability invariant: `prescription(D) = f(history date < D, profile)` | `_plan_core` in planner |
+| 5.2 | Prescription stability invariant: `prescription(D) = f(history date < D, profile)` | `PlanningService.generate` |
 | 5.3 | Multi-week plan with configurable horizon | `get_plan(weeks_ahead=N)` |
 | 5.4 | Session rotation: S (1-day); S->H (2-day); S->H->E (3-day); S->H->T->E (4-day); S->H->T->E->S (5-day) | automatic |
 | 5.5 | Training max (TM) = floor(0.9 × latest TEST max) | automatic |
@@ -77,14 +77,12 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 | 5.23 | Level-based adaptive set counts -- user level classified from latest test max against per-exercise `level_thresholds`; `sets_by_level` maps level (0–3) to set count for S/H/T/E sessions | automatic |
 | 5.24 | Intra-session rep decay -- each set's target reps is multiplied by a per-exercise `set_fatigue_curve` factor (e.g. 100%→85%→75%→68%→63%), modelling empirical rep drop-off; TEST sessions unaffected | automatic |
 | 5.13 | Deload detection: plateau + low readiness, underperformance, or low compliance | automatic |
-| 5.14 | Plan change diff vs. last cached plan | `get_plan` -> `plan_changes` |
 | 5.16 | Cumulative week numbering anchored to first session in history | automatic |
 | 5.17 | Overtraining detection -- graduated warning (levels 0–3); volume/rest/rep reduction; plan start shifted forward at level ≥2 | `get_plan` -> `overtraining`; `get_overtraining_status` |
 | 5.18 | RIR feedback: RIR ≥4 sessions accumulate less fatigue (sub-neutral multiplier) | automatic |
 | 5.19 | Track B max estimators: FI method (Pekünlü 2013) + Nuzzo 2024 shown per past session | `get_plan` -> `sessions[].track_b` |
 | 5.20 | Persist and recall plan horizon in weeks | `set_plan_weeks`, `get_plan_weeks` |
 | 5.21 | Manually override plan start date per exercise | `set_plan_start_date` |
-| 5.22 | Look up cached plan prescription for a specific (date, session_type) | `get_plan_cache_entry` |
 
 ## 6. Analysis
 
@@ -109,11 +107,11 @@ All features are accessible through the public Python API (`bar_scheduler.api.ap
 
 | # | Feature | Notes |
 |---|---------|-------|
-| 9.1 | All model constants in `exercises.yaml` (bundled with package) | -- |
-| 9.2 | User override at `~/.bar-scheduler/exercises.yaml` (deep-merge with defaults) | file override |
-| 9.3 | YAML loader with graceful fallback to Python constants if PyYAML is absent | automatic |
+| 9.1 | Typed model constants (`config/` OmegaConf schema defaults); per-exercise defs in `exercises/*.yaml` | -- |
+| 9.2 | User override at `~/.bar-scheduler/exercises.yaml` (OmegaConf deep-merge over schema defaults) | file override |
+| 9.3 | Structured-schema defaults are the final fallback when a YAML key is absent | automatic |
 | 9.4 | Add a custom exercise by creating a new YAML entry | see `docs/exercise-structure.md` |
 
 ---
 
-*Last updated: 2026-06-09.*
+*Last updated: 2026-06-24.*

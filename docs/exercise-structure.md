@@ -1,57 +1,64 @@
 # Exercise Structure Reference
 
-This document describes how bar-scheduler exercises are defined, how the YAML
-loader works, and how to add a custom exercise or override existing values.
+How bar-scheduler exercises are defined, how the loader works, and how to add a
+custom exercise or override existing values.
 
 ---
 
 ## Where exercise definitions live
 
 ```
-src/bar_scheduler/exercises.yaml      ← bundled definitions (all three exercises)
-~/.bar-scheduler/exercises.yaml       ← optional user overrides (deep-merged)
+src/bar_scheduler/exercises/         ← bundled per-exercise YAML (one file each)
+  pull_up.yaml  dip.yaml  bss.yaml  incline_db_press.yaml
+~/.bar-scheduler/exercises/          ← optional user overrides (one file per id)
 src/bar_scheduler/core/exercises/
-  base.py        ← ExerciseDefinition + SessionTypeParams dataclasses
-  loader.py      ← YAML -> typed objects; falls back gracefully on failure
-  registry.py    ← EXERCISE_REGISTRY dict; get_exercise() lookup function
-  pull_up.py     ← Python constants (fallback if YAML unavailable)
-  dip.py
-  bss.py
+  base.py        ← ExerciseDefinition + SessionTypeParams (also the OmegaConf schema)
+  repository.py  ← ExerciseRepository: lazy, per-id load + deep-merge (OmegaConf)
+  registry.py    ← get_exercise(id), list_exercise_ids(), all_exercises()
 ```
 
-At import time `registry.py` calls `load_exercises_from_yaml()`. If the YAML
-is valid and PyYAML is installed, YAML values win. If anything fails, the
-Python constants in `pull_up.py` / `dip.py` / `bss.py` are used instead -- the
-application never crashes due to a bad YAML file.
+One exercise is loaded **on demand** from `<id>.yaml`. `ExerciseRepository`
+reads the bundled file, then deep-merges the user file (if present) over it via
+OmegaConf, coercing values against the `ExerciseDefinition` structured schema.
+`list_exercise_ids()` cheaply enumerates `*.yaml` stems without parsing every
+file. There is no per-exercise Python-constant fallback — the YAML is the source
+of truth.
+
+> Note: the separate `src/bar_scheduler/exercises.yaml` (no subdirectory) holds
+> the **model constants** (`config/loader.py`), not exercise definitions. See
+> [model.md §14](model.md#14-config-constants-config).
 
 ---
 
 ## ExerciseDefinition schema
 
-Every exercise block in `exercises.yaml` must contain these fields.
+Each `<id>.yaml` defines one exercise with these fields (top level, no wrapper).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `exercise_id` | `str` | Unique snake_case key (e.g. `pull_up`) |
-| `display_name` | `str` | Human-readable label shown in the UI |
-| `muscle_group` | `str` | Informational tag (e.g. `upper_pull`, `lower`) |
-| `bw_fraction` | `float` | Fraction of bodyweight that is the working load (1.0 = full BW, 0.71 = BSS lead-leg fraction) |
-| `load_type` | `str` | `bw_plus_external` -- weight belt / vest adds to BW load; `external_only` -- only dumbbell weight, not BW |
+| `exercise_id` | `str` | Unique snake_case key (must match the filename) |
+| `display_name` | `str` | Human-readable label |
+| `muscle_group` | `str` | Informational tag (e.g. `upper_pull`) |
+| `bw_fraction` | `float` | Fraction of bodyweight that is working load (1.0 = pull-up, 0.0 = external-only) |
+| `load_type` | `str` | `bw_plus_external` or `external_only` |
 | `variants` | `list[str]` | All valid movement variants |
 | `primary_variant` | `str` | Used for standardised testing (must be in `variants`) |
 | `variant_factors` | `dict[str, float]` | Relative difficulty per variant (1.0 = neutral) |
-| `has_variant_rotation` | `bool` | `true` = rotate through `grip_cycles`; `false` = always use `primary_variant` |
-| `grip_cycles` | `dict[str, list[str]]` | Per-session-type variant rotation order. **Omit or set to `{}`** when `has_variant_rotation: false` |
-| `session_params` | `dict[str, SessionTypeParams]` | Parameters per session type (see below) |
+| `session_params` | `dict[str, SessionTypeParams]` | Per session type (see below) |
 | `target_metric` | `str` | `max_reps` or `1rm_kg` |
-| `target_value` | `float` | User's long-term goal (e.g. `30` reps, `120` kg) |
-| `test_protocol` | `str` | Human-readable test instructions (use YAML literal block `\|`) |
+| `target_value` | `float` | Long-term goal (e.g. `30` reps) |
+| `test_protocol` | `str` | Human-readable test instructions (YAML literal block `\|`) |
 | `test_frequency_weeks` | `int` | Weeks between auto-inserted TEST sessions |
-| `onerm_includes_bodyweight` | `bool` | Whether the 1RM display adds BW to the effective load |
-| `onerm_explanation` | `str` | Shown by `bar-scheduler 1rm` |
-| `weight_increment_fraction` | `float` | Fraction of effective BW added per TM point above threshold |
-| `weight_tm_threshold` | `int` | TM must exceed this before added weight is prescribed (set to `999` to disable) |
+| `onerm_includes_bodyweight` | `bool` | Whether the 1RM display adds BW to effective load |
+| `onerm_explanation` | `str` | Shown by the 1RM endpoint |
+| `weight_increment_fraction` | `float` | Fraction of effective load per TM point above threshold |
+| `weight_tm_threshold` | `int` | TM must exceed this before added weight is prescribed |
 | `max_added_weight_kg` | `float` | Hard cap on prescribed added weight |
+| `level_thresholds` | `list[int]?` | Strictly-ascending test-max cutpoints; N thresholds → N+1 levels |
+| `set_fatigue_curve` | `list[float]` | Per-set rep-decay multipliers (set 1 = 1.0); last value reused past its length |
+| `equipment` | `dict[str, dict]` | Catalog: `item_id → {label, assistance_kg, requires_weight_declaration}` |
+| `default_item` | `str` | Equipment item pre-selected when the exercise is first added |
+| `dual_dumbbell` | `bool` | Two-dumbbell exercise — planner expands single + pair weight totals |
 
 ### Optional field defaults
 
@@ -59,208 +66,188 @@ Every exercise block in `exercises.yaml` must contain these fields.
 |-------|---------|
 | `has_variant_rotation` | `true` |
 | `grip_cycles` | `{}` (no rotation) |
+| `level_thresholds` | `None` (level-based set counts disabled → midpoint set count) |
+| `set_fatigue_curve` | `[1.0]` (no intra-session decay) |
+| `equipment` / `default_item` / `dual_dumbbell` | `{}` / `""` / `false` |
 
 ---
 
 ## SessionTypeParams sub-schema
 
 Each key under `session_params` maps a session type (`S`, `H`, `E`, `T`, `TEST`)
-to the following nine required fields:
+to:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `reps_fraction_low` | `float` | Lower fraction of TM for rep target |
-| `reps_fraction_high` | `float` | Upper fraction of TM for rep target |
-| `reps_min` | `int` | Absolute floor on reps per set |
-| `reps_max` | `int` | Absolute ceiling on reps per set |
-| `sets_min` | `int` | Minimum sets prescribed |
-| `sets_max` | `int` | Maximum sets prescribed |
-| `rest_min` | `int` | Minimum rest between sets (seconds) |
-| `rest_max` | `int` | Maximum rest between sets (seconds) |
-| `rir_target` | `int` | Reps-in-reserve target for this session type |
+| Field | Type | Required? | Description |
+|-------|------|-----------|-------------|
+| `reps_fraction_low` / `reps_fraction_high` | `float` | yes | Rep target as a fraction of TM |
+| `reps_min` / `reps_max` | `int` | yes | Absolute rep floor / ceiling per set |
+| `rest_min` / `rest_max` | `int` | yes | Rest between sets (seconds) |
+| `rir_target` | `int` | yes | Reps-in-reserve target |
+| `sets_min` / `sets_max` | `int` | no (default 1 / 10) | Set-count bounds (midpoint used when levels undefined) |
+| `sets_by_level` | `list[int]?` | no | Set count per level index (0 = lowest); pairs with `level_thresholds` |
 
 ---
 
 ## grip_cycles rules
 
-`grip_cycles` is a mapping from session-type string to an ordered list of
-variant names. The planner keeps a per-session-type counter and picks the
-variant at position `(count % len(cycle))`:
+`grip_cycles` maps a session-type string to an ordered variant list; the planner
+keeps a per-type counter and picks position `count % len(cycle)`:
 
 ```yaml
 grip_cycles:
   S: [pronated, neutral, supinated]   # cycles every 3 S sessions
   H: [pronated, neutral, supinated]
-  T: [pronated, neutral]              # shorter cycle for technique sessions
-  E: [pronated]                       # endurance always pronated
-  TEST: [pronated]                    # tests always pronated
+  T: [pronated, neutral]
+  E: [pronated]
+  TEST: [pronated]
 ```
 
-When `has_variant_rotation: false`, the planner ignores `grip_cycles`
-entirely and always uses `primary_variant`. In that case, omit `grip_cycles`
-or set it to `{}` to keep the YAML tidy.
+When `has_variant_rotation: false`, `grip_cycles` is ignored and
+`primary_variant` is always used; omit it or set `{}`.
 
 ---
 
-## Validator behaviour
+## Validator behaviour (`repository.py`)
 
-`loader.py` validates both levels:
-
-1. **Missing required exercise field** -- raises `ValueError` listing the absent keys.
-   The registry catches this, emits a `warnings.warn`, and uses Python defaults.
-
-2. **Missing required SessionTypeParams field** -- same: `ValueError` -> warning -> fallback.
-
-3. **PyYAML not installed** -- `load_exercises_from_yaml()` returns `None` silently;
-   Python defaults are used. No crash.
-
-4. **YAML parse error** -- `_load_yaml_file()` returns `{}`, so `load_exercises_from_yaml()`
-   returns `None`; Python defaults are used.
-
-The application will always start successfully regardless of YAML state.
+- **Unknown exercise id** (no bundled or user file) → `ValueError("Unknown exercise …")`.
+- **`level_thresholds` not strictly ascending** → `ValueError(… "ascending" …)`.
+- **Type coercion & required fields** are enforced by the OmegaConf structured
+  schema (`ExerciseDefinition`); a malformed value raises at load time.
+- User files **deep-merge** over the bundled file per id, so a user override need
+  only list the keys it changes.
 
 ---
 
-## User override: `~/.bar-scheduler/exercises.yaml`
+## User override: `~/.bar-scheduler/exercises/<id>.yaml`
 
-You can override any exercise field without editing the source code. Create (or
-edit) `~/.bar-scheduler/exercises.yaml` and add an `exercises:` block. It is
-**deep-merged** per-exercise-id over the bundled definitions, so you only need
-to list the keys you want to change.
-
-Example -- raise the pull-up test frequency to every 4 weeks and lower the
-strength-session minimum rest to 2 minutes:
+Override any field without touching source. Create
+`~/.bar-scheduler/exercises/pull_up.yaml` with only the keys to change — it is
+deep-merged over the bundled `pull_up.yaml`:
 
 ```yaml
-exercises:
-  pull_up:
-    test_frequency_weeks: 4
-    session_params:
-      S:
-        rest_min: 120
+# ~/.bar-scheduler/exercises/pull_up.yaml
+test_frequency_weeks: 4
+session_params:
+  S:
+    rest_min: 120
 ```
 
 ---
 
-## Complete worked example: adding a new exercise "ring_row"
+## Complete worked example: adding a custom exercise "ring_row"
 
-### 1. Add the YAML block to `~/.bar-scheduler/exercises.yaml`
+### 1. Create `~/.bar-scheduler/exercises/ring_row.yaml`
 
 ```yaml
-exercises:
-  ring_row:
-    exercise_id: ring_row
-    display_name: "Ring Row"
-    muscle_group: upper_pull
+exercise_id: ring_row
+display_name: "Ring Row"
+muscle_group: upper_pull
 
-    bw_fraction: 0.60       # ~60% BW at 45-degree body angle
-    load_type: bw_plus_external
+bw_fraction: 0.60       # ~60% BW at 45-degree body angle
+load_type: bw_plus_external
 
-    variants: [horizontal, incline_45, incline_30]
-    primary_variant: horizontal
-    variant_factors:
-      horizontal: 1.00
-      incline_45: 0.85      # easier angle
-      incline_30: 0.70
+variants: [horizontal, incline_45, incline_30]
+primary_variant: horizontal
+variant_factors:
+  horizontal: 1.00
+  incline_45: 0.85
+  incline_30: 0.70
 
-    has_variant_rotation: true
-    grip_cycles:
-      S: [horizontal, incline_45, incline_30]
-      H: [horizontal, incline_45]
-      T: [horizontal]
-      E: [horizontal]
-      TEST: [horizontal]
+has_variant_rotation: true
+grip_cycles:
+  S: [horizontal, incline_45, incline_30]
+  H: [horizontal, incline_45]
+  T: [horizontal]
+  E: [horizontal]
+  TEST: [horizontal]
 
-    session_params:
-      S:
-        reps_fraction_low: 0.40
-        reps_fraction_high: 0.60
-        reps_min: 5
-        reps_max: 10
-        sets_min: 3
-        sets_max: 5
-        rest_min: 120
-        rest_max: 240
-        rir_target: 2
-      H:
-        reps_fraction_low: 0.60
-        reps_fraction_high: 0.80
-        reps_min: 8
-        reps_max: 15
-        sets_min: 3
-        sets_max: 5
-        rest_min: 90
-        rest_max: 150
-        rir_target: 2
-      E:
-        reps_fraction_low: 0.40
-        reps_fraction_high: 0.60
-        reps_min: 8
-        reps_max: 20
-        sets_min: 5
-        sets_max: 8
-        rest_min: 45
-        rest_max: 75
-        rir_target: 3
-      T:
-        reps_fraction_low: 0.25
-        reps_fraction_high: 0.45
-        reps_min: 3
-        reps_max: 6
-        sets_min: 4
-        sets_max: 8
-        rest_min: 60
-        rest_max: 120
-        rir_target: 4
-      TEST:
-        reps_fraction_low: 1.0
-        reps_fraction_high: 1.0
-        reps_min: 1
-        reps_max: 50
-        sets_min: 1
-        sets_max: 1
-        rest_min: 180
-        rest_max: 300
-        rir_target: 0
+level_thresholds: [6, 15, 25]
+set_fatigue_curve: [1.0, 0.85, 0.75, 0.68, 0.63]
 
-    target_metric: max_reps
-    target_value: 25.0
+session_params:
+  S:
+    reps_fraction_low: 0.40
+    reps_fraction_high: 0.60
+    reps_min: 5
+    reps_max: 10
+    rest_min: 120
+    rest_max: 240
+    rir_target: 2
+    sets_by_level: [2, 3, 4, 5]
+  H:
+    reps_fraction_low: 0.60
+    reps_fraction_high: 0.80
+    reps_min: 8
+    reps_max: 15
+    rest_min: 90
+    rest_max: 150
+    rir_target: 2
+    sets_by_level: [2, 3, 4, 5]
+  E:
+    reps_fraction_low: 0.40
+    reps_fraction_high: 0.60
+    reps_min: 8
+    reps_max: 20
+    sets_min: 5
+    sets_max: 8
+    rest_min: 45
+    rest_max: 75
+    rir_target: 3
+  T:
+    reps_fraction_low: 0.25
+    reps_fraction_high: 0.45
+    reps_min: 3
+    reps_max: 6
+    rest_min: 60
+    rest_max: 120
+    rir_target: 4
+  TEST:
+    reps_fraction_low: 1.0
+    reps_fraction_high: 1.0
+    reps_min: 1
+    reps_max: 50
+    sets_min: 1
+    sets_max: 1
+    rest_min: 180
+    rest_max: 300
+    rir_target: 0
 
-    test_protocol: |
-      RING ROW MAX REP TEST
-      Setup: rings at hip height, body at ~45 degrees.
-      Warm-up: 5 easy rows, rest 2 min.
-      Test: pull until chest touches rings, lower to full extension.
-      Count clean reps only.
-      Log as: --exercise ring_row --session-type TEST --sets 'N@0/180'
-    test_frequency_weeks: 3
+target_metric: max_reps
+target_value: 25.0
 
-    onerm_includes_bodyweight: true
-    onerm_explanation: >
-      Ring row 1RM uses 60% of bodyweight as the working load.
-      Formula: 1RM = (0.60 x BW + added_weight) x (1 + reps/30)  [Epley].
+test_protocol: |
+  RING ROW MAX REP TEST
+  Setup: rings at hip height, body at ~45 degrees.
+  Warm-up: 5 easy rows, rest 2 min.
+  Test: pull until chest touches rings, lower to full extension. Clean reps only.
+test_frequency_weeks: 3
 
-    weight_increment_fraction: 0.01
-    weight_tm_threshold: 10
-    max_added_weight_kg: 20.0
+onerm_includes_bodyweight: true
+onerm_explanation: >
+  Ring row 1RM uses 60% of bodyweight as the working load.
+
+weight_increment_fraction: 0.01
+weight_tm_threshold: 10
+max_added_weight_kg: 20.0
+
+default_item: BAR_ONLY
+equipment:
+  BAR_ONLY:
+    label: "Rings (bodyweight)"
+    assistance_kg: 0.0
+    requires_weight_declaration: false
 ```
 
-### 2. Enable the new exercise in your profile
+### 2. Enable it for a user (via the public API)
 
-```bash
-bar-scheduler init   # re-run; add ring_row to enabled exercises list
+```python
+from pathlib import Path
+from bar_scheduler import api
+
+data_dir = Path("~/.bar-scheduler").expanduser()
+api.enable_exercise(data_dir, "ring_row", days_per_week=3)
 ```
 
-Or manually edit `~/.bar-scheduler/profile.json`:
-```json
-"exercises_enabled": ["pull_up", "dip", "bss", "ring_row"]
-```
-
-### 3. Verify
-
-```bash
-bar-scheduler plan -e ring_row
-```
-
-The exercise will appear in the plan table with correct variant rotation and
-session parameters immediately -- no code changes required.
+`registry.get_exercise("ring_row")` and `api.get_plan(data_dir, "ring_row")` now
+work with full variant rotation and session parameters — no code changes
+required.

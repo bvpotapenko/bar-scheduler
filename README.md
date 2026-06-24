@@ -3,9 +3,9 @@
 Evidence-informed training planner for bodyweight and weighted strength exercises -- **Pull-Up**, **Parallel Bar Dip**, **Bulgarian Split Squat (DB)**, **Incline Dumbbell Press** - can be extended to more via YAML config.
 
 
-A Python library and planning engine. Suitable for direct use in scripts, bots, and web services. 
+A Python library and planning engine. Suitable for direct use in scripts, bots, and web services.
 
-For an interactive command-line interface see [cli_bar](https://github.com/bvpotapenko/cli_bar). 
+For an interactive command-line interface see [cli_bar](https://github.com/bvpotapenko/cli_bar).
 
 There is an aplpha in progres for a telegram bot -- stay tuned, more details on my telegram channel: [@RoboRice](https://t.me/roborice)!
 
@@ -43,11 +43,9 @@ data_dir = get_data_dir()   # ~/.bar-scheduler
 | [Python API](docs/api_info.md) | All public functions, signatures, and return-value shapes |
 | [FAQ](docs/FAQ.md) | How the planner works — session types, goals, bodyweight normalization, TEST recovery |
 | [Features](docs/features.md) | Complete feature inventory |
-| [Training Model](docs/training_model.md) | Adaptation and periodisation logic |
-| [Formula Reference](docs/formulas_reference.md) | All formulas with config knobs |
+| [Training Model](docs/model.md) | All formulas, fatigue model, progression, plateau/deload, and config knobs |
 | [Exercise Structure](docs/exercise-structure.md) | How to add a custom exercise |
-| [Plan Logic](docs/plan_logic.md) | Prescription stability invariant, plan anchor mechanics |
-| [Adaptation Guide](docs/adaptation_guide.md) | What to expect at each training stage |
+| [Assessment Protocols](docs/assessment_protocols.md) | Max-rep test protocols per exercise |
 | [References](REFERENCES.md) | The scientific publications and evidence-based sources used to design the training formulas, fatigue model, and progression rules in the planner core engine. |
 
 ## Running Tests
@@ -61,6 +59,6 @@ uv run pytest
 
 CC BY-NC 4.0 -- non-commercial use with attribution. See [LICENSE](LICENSE).
 
-Author: Potapenko Bogdan  
-*ML / AI Engineer @ Shenzhen, 2026*     
+Author: Potapenko Bogdan
+*ML / AI Engineer @ Shenzhen, 2026*
 Telegram: https://t.me/roborice
