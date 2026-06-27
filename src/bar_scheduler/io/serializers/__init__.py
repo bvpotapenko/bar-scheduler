@@ -12,6 +12,7 @@ from bar_scheduler.io.serializers.equipment import (
     equipment_snapshot_to_dict,
     equipment_state_to_dict,
 )
+from bar_scheduler.io.serializers.jsonl import sessions_from_jsonl
 from bar_scheduler.io.serializers.parsers import parse_sets_string
 from bar_scheduler.io.serializers.profile import (
     dict_to_exercise_target,
@@ -65,6 +66,7 @@ __all__ = [
     "dict_to_session_result",
     "session_to_json_line",
     "json_line_to_session",
+    "sessions_from_jsonl",
     "session_plan_to_dict",
     "dict_to_session_plan",
     "parse_compact_sets",
