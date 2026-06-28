@@ -14,25 +14,23 @@ from bar_scheduler.io.user_store import UserStore
 def _require_profile_store(data_dir: Path) -> UserStore:
     """Return a UserStore, raising ProfileNotFoundError if profile.json is missing."""
     store = UserStore(data_dir)
-    if not store.profile_path.exists():
-        raise ProfileNotFoundError(
-            f"Profile not found at {store.profile_path}. Call init_profile() first."
-        )
+    if not store.profile.exists():
+        path = store.profile.path
+        raise ProfileNotFoundError(f"Profile not found at {path}. Call init_profile() first.")
     return store
 
 
 def _require_store(data_dir: Path, exercise_id: str) -> UserStore:
     """Return a UserStore, raising typed errors when profile or history files are missing."""
     store = _require_profile_store(data_dir)
-    if not store.exists(exercise_id):
-        raise HistoryNotFoundError(
-            f"History file not found at {store.history_path(exercise_id)}. Call init_profile() first."
-        )
+    if not store.history.exists(exercise_id):
+        path = store.history.path(exercise_id)
+        raise HistoryNotFoundError(f"History file not found at {path}. Call init_profile() first.")
     return store
 
 
 def _resolve_plan_start(store: UserStore, exercise_id: str, history: list[SessionResult]) -> str:
-    plan_start = store.get_plan_start_date(exercise_id)
+    plan_start = store.plan.plan_start_date(exercise_id)
     if plan_start is None:
         if history:
             first_dt = datetime.strptime(history[0].date, "%Y-%m-%d")

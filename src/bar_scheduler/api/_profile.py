@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from bar_scheduler.io.user_store import UserStore
-from bar_scheduler.io.serializers import (
-    dict_to_user_profile,
-    user_profile_to_dict,
-)
+from bar_scheduler.io.serializers import user_profile_to_dict
 from bar_scheduler.api._common import _require_profile_store
 from bar_scheduler.api._errors import ProfileAlreadyExistsError
 
@@ -47,7 +43,7 @@ def init_profile(
 
     store = UserStore(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    store.save_profile(profile)
+    store.profile.save(profile)
 
     return get_profile(data_dir)
 
@@ -59,7 +55,7 @@ def get_profile(data_dir: Path) -> dict | None:
     The dict includes all UserProfile fields including ``current_bodyweight_kg``.
     """
     store = UserStore(data_dir)
-    profile = store.load_profile()
+    profile = store.profile.load()
     if profile is None:
         return None
     return user_profile_to_dict(profile)
@@ -70,7 +66,7 @@ def update_bodyweight(data_dir: Path, bodyweight_kg: float) -> None:
     if bodyweight_kg <= 0:
         raise ValueError("bodyweight_kg must be positive")
     store = _require_profile_store(data_dir)
-    store.update_bodyweight(bodyweight_kg)
+    store.profile.update_fields(bodyweight_kg=bodyweight_kg)
 
 
 def update_language(data_dir: Path, lang: str) -> None:
@@ -84,7 +80,7 @@ def update_language(data_dir: Path, lang: str) -> None:
     if not lang:
         raise ValueError("lang must be a non-empty string")
     store = _require_profile_store(data_dir)
-    store.update_language(lang)
+    store.profile.update_fields(language=lang)
 
 
 def update_height(data_dir: Path, *, height_cm: int) -> dict:
@@ -96,23 +92,6 @@ def update_height(data_dir: Path, *, height_cm: int) -> dict:
     Raises ``ValueError`` if ``height_cm`` is not positive.
     """
     return update_profile(data_dir, height_cm=height_cm)
-
-
-def _apply_updates(
-    raw: dict,
-    height_cm: int | None,
-    bodyweight_kg: float | None,
-    language: str | None,
-) -> None:
-    """Apply the provided fields onto the raw profile dict in place."""
-    if height_cm is not None:
-        raw["height_cm"] = height_cm
-    if bodyweight_kg is not None:
-        raw["current_bodyweight_kg"] = bodyweight_kg
-    if language == "en":
-        raw.pop("language", None)  # "en" is the omitted default
-    elif language is not None:
-        raw["language"] = language
 
 
 def update_profile(
@@ -140,13 +119,5 @@ def update_profile(
         raise ValueError("language must be a non-empty string")
 
     store = _require_profile_store(data_dir)
-    with open(store.profile_path) as fp:
-        raw = json.load(fp)
-
-    _apply_updates(raw, height_cm, bodyweight_kg, language)
-    dict_to_user_profile(raw)  # validate -- raises ValidationError if inconsistent
-
-    with open(store.profile_path, "w") as fp:
-        json.dump(raw, fp, indent=2)
-
+    store.profile.update_fields(height_cm=height_cm, bodyweight_kg=bodyweight_kg, language=language)
     return get_profile(data_dir)

@@ -22,7 +22,7 @@ _BasePoints = list[tuple[datetime, float]]
 
 def _safe_target(store, exercise_id: str):
     try:
-        profile = store.load_profile()
+        profile = store.profile.load()
     except Exception:
         return None
     return profile.target_for_exercise(exercise_id) if profile else None
