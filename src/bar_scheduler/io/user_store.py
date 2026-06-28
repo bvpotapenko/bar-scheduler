@@ -37,7 +37,8 @@ class UserStore:
         """
         profile = self.profile.load()
         if profile is None:
-            raise FileNotFoundError(f"Profile not found: {self.profile.path}. Run 'init' first.")
+            path = self.profile.path
+            raise FileNotFoundError(f"Profile not found: {path}. Run 'init' first.")
         return UserState(profile=profile, history=self.history.load(exercise_id))
 
     # -- TEMP migration delegators (Stage 9 -> deleted in Stage 11) ---------
