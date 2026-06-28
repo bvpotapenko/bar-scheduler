@@ -4,9 +4,22 @@ All notable changes to bar-scheduler are documented here.
 
 ---
 
-## [Unreleased]
+## [0.8.0] - 2026-06-28
 
 ### Changed
+- **`io/user_store.py` god class split into focused, DI-wired stores.** The 25-method
+  `UserStore` is now a thin composition facade over one store per concern, all sharing a single
+  `ProfileDocument` gateway to `profile.json`: `ProfileStore` (UserProfile fields),
+  `ExerciseRosterStore` (`exercises_enabled`/`exercise_days`/`exercise_targets`),
+  `PlanSettingsStore` (`plan_start_dates`/`plan_weeks`), `EquipmentStore` (the `equipment`
+  section), plus `HistoryStore` (`{id}_history.jsonl`) and `PlanCacheStore`
+  (`{id}_plan_cache.json` + `load_if_fresh` freshness). The facade keeps the single cross-store
+  read `load_user_state`. The repeated `open→json.load→mutate→json.dump` blocks (in `UserStore`
+  *and* hand-rolled inside `api/_exercises.py` and `api/_profile.py`) collapse to
+  `doc.mutate()` / store calls — **the api layer no longer touches `profile.json` directly**.
+  `UserStore` is registered as `providers.Factory` in `containers.py`; api resolves it via
+  `container.user_store(data_dir)` (overridable with fakes in tests). JSONL history parsing moved
+  to `io/serializers/jsonl.py` (`sessions_from_jsonl`). No public API signatures change.
 - **Top-to-bottom planner redesign** — every behavioral rule is now an injectable, unit-tested
   component. The monolithic `core/planner/`, `core/metrics.py`, `core/physiology.py`, and
   `core/adaptation.py` are replaced by `core/math/` (pure formulas), `core/policies/` (behavior:
@@ -34,6 +47,8 @@ All notable changes to bar-scheduler are documented here.
 - Internal: `api/_utils.py` renamed to `api/_public.py`; `core/planner/*`, `core/metrics.py`,
   `core/physiology.py`, `core/adaptation.py`, and `domain/policies.py` deleted (their logic moved
   into `core/math`, `core/policies`, and `core/services`).
+- Internal: three dead `UserStore` methods removed (`get_latest_session`, `get_sessions_after`,
+  `clear_history`) — no callers.
 
 ### Docs
 - Consolidated the seven overlapping formula/model documents (`formulas_reference`,
@@ -45,7 +60,8 @@ All notable changes to bar-scheduler are documented here.
 ### Internal
 - `flake8 .` (full wemake-python-styleguide) is clean across `src` and `tests` — production code
   strict, tests relaxed via documented per-file ignores. The test suite is plain pytest under
-  `tests/unit/` (one focused file per concern; each ≤ 7 module members).
+  `tests/unit/` (one focused file per concern; each ≤ 7 module members). The `io/` split is
+  covered by focused `tests/unit/test_io_*.py` plus a `container.user_store` DI-override test.
 
 ---
 
