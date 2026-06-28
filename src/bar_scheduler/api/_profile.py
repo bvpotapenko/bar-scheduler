@@ -29,22 +29,16 @@ def init_profile(
     """
     from bar_scheduler.domain.models import UserProfile
 
-    profile_path = data_dir / "profile.json"
-    if profile_path.exists():
+    store = UserStore(data_dir)
+    if store.profile.exists():
+        path = store.profile.path
         raise ProfileAlreadyExistsError(
-            f"Profile already exists at {profile_path}. Use update_profile() to change fields."
+            f"Profile already exists at {path}. Use update_profile() to change fields."
         )
 
-    profile = UserProfile(
-        height_cm=height_cm,
-        bodyweight_kg=bodyweight_kg,
-        language=language,
+    store.profile.save(
+        UserProfile(height_cm=height_cm, bodyweight_kg=bodyweight_kg, language=language)
     )
-
-    store = UserStore(data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    store.profile.save(profile)
-
     return get_profile(data_dir)
 
 

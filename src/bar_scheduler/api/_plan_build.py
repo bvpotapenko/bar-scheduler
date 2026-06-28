@@ -48,7 +48,7 @@ def _load_plan_inputs(data_dir: Path, exercise_id: str) -> _PlanInputs:
 
 
 def _plan_request(inputs: _PlanInputs, total_weeks: int, ot_level: int) -> PlanRequest:
-    eq_state = inputs.store.load_current_equipment(inputs.exercise_id)
+    eq_state = inputs.store.equipment.load(inputs.exercise_id)
     return PlanRequest(
         user_state=inputs.user_state,
         start_date=inputs.plan_start_date,
@@ -63,11 +63,12 @@ def _resolve_plans(inputs: _PlanInputs, weeks_ahead: int, ot_level: int) -> list
     """Return cached plans when still fresh, else generate and cache them."""
     store = inputs.store
     total_weeks = _total_weeks(inputs.plan_start_date, weeks_ahead)
-    cache = store.load_plan_result_cache(inputs.exercise_id)
-    if cache and cache.get("generated_at", 0.0) >= store._input_files_mtime(inputs.exercise_id):
+    input_paths = [store.profile.path, store.history.path(inputs.exercise_id)]
+    cache = store.plan_cache.load_if_fresh(inputs.exercise_id, input_paths)
+    if cache is not None:
         return [dict_to_session_plan(plan_dict) for plan_dict in cache["plans"]]
     plans = container.planning_service().generate(_plan_request(inputs, total_weeks, ot_level))
-    store.save_plan_result_cache(inputs.exercise_id, [session_plan_to_dict(plan) for plan in plans])
+    store.plan_cache.save(inputs.exercise_id, [session_plan_to_dict(plan) for plan in plans])
     return plans
 
 

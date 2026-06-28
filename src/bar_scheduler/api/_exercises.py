@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from bar_scheduler.core.exercises.registry import get_exercise
-from bar_scheduler.io.user_store import UserStore
-from bar_scheduler.io.serializers import exercise_target_to_dict
 from bar_scheduler.api._common import _require_profile_store
 
 
@@ -30,15 +27,7 @@ def set_exercise_target(
     target = ExerciseTarget(reps=reps, weight_kg=weight_kg)  # validates reps > 0, weight >= 0
 
     store = _require_profile_store(data_dir)
-    with open(store.profile_path) as fp:
-        raw = json.load(fp)
-
-    if "exercise_targets" not in raw:
-        raw["exercise_targets"] = {}
-    raw["exercise_targets"][exercise_id] = exercise_target_to_dict(target)
-
-    with open(store.profile_path, "w") as fp:
-        json.dump(raw, fp, indent=2)
+    store.roster.set_target(exercise_id, target)
 
 
 def set_exercise_days(
@@ -57,15 +46,7 @@ def set_exercise_days(
         raise ValueError(f"days_per_week must be 1–5, got {days_per_week}")
 
     store = _require_profile_store(data_dir)
-    with open(store.profile_path) as fp:
-        raw = json.load(fp)
-
-    if "exercise_days" not in raw:
-        raw["exercise_days"] = {}
-    raw["exercise_days"][exercise_id] = days_per_week
-
-    with open(store.profile_path, "w") as fp:
-        json.dump(raw, fp, indent=2)
+    store.roster.set_days(exercise_id, days_per_week)
 
 
 def enable_exercise(data_dir: Path, exercise_id: str, *, days_per_week: int) -> None:
@@ -81,23 +62,8 @@ def enable_exercise(data_dir: Path, exercise_id: str, *, days_per_week: int) -> 
         raise ValueError(f"days_per_week must be 1–5, got {days_per_week}")
 
     store = _require_profile_store(data_dir)
-
-    with open(store.profile_path) as fp:
-        raw = json.load(fp)
-
-    enabled = list(raw.get("exercises_enabled", []))
-    if exercise_id not in enabled:
-        enabled.append(exercise_id)
-        raw["exercises_enabled"] = enabled
-
-    if "exercise_days" not in raw:
-        raw["exercise_days"] = {}
-    raw["exercise_days"][exercise_id] = days_per_week
-
-    with open(store.profile_path, "w") as fp:
-        json.dump(raw, fp, indent=2)
-
-    UserStore(data_dir).init_exercise(exercise_id)  # create JSONL if missing (idempotent)
+    store.roster.enable(exercise_id, days_per_week)
+    store.history.init(exercise_id)  # create JSONL if missing (idempotent)
 
 
 def disable_exercise(data_dir: Path, exercise_id: str) -> None:
@@ -109,16 +75,7 @@ def disable_exercise(data_dir: Path, exercise_id: str) -> None:
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     store = _require_profile_store(data_dir)
-
-    with open(store.profile_path) as fp:
-        raw = json.load(fp)
-
-    enabled = list(raw.get("exercises_enabled", []))
-    if exercise_id in enabled:
-        enabled.remove(exercise_id)
-        raw["exercises_enabled"] = enabled
-        with open(store.profile_path, "w") as fp:
-            json.dump(raw, fp, indent=2)
+    store.roster.disable(exercise_id)
 
 
 def delete_exercise_history(data_dir: Path, exercise_id: str) -> None:
@@ -132,4 +89,4 @@ def delete_exercise_history(data_dir: Path, exercise_id: str) -> None:
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     store = _require_profile_store(data_dir)
-    store.history_path(exercise_id).unlink(missing_ok=True)
+    store.history.path(exercise_id).unlink(missing_ok=True)

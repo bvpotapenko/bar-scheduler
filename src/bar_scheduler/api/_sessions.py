@@ -79,8 +79,8 @@ def log_session(data_dir: Path, exercise_id: str, session: SessionInput) -> dict
     session_obj = _build_session(exercise_id, session)
     resolve_equipment_snapshot(store, exercise_id, session_obj)
     _cache_metrics(exercise_id, session_obj)
-    store.append_session(session_obj)
-    store.update_bodyweight(session_obj.bodyweight_kg)
+    store.history.append(session_obj)
+    store.profile.update_fields(bodyweight_kg=session_obj.bodyweight_kg)
     return session_result_to_dict(session_obj)
 
 
@@ -91,13 +91,13 @@ def delete_session(data_dir: Path, exercise_id: str, index: int) -> None:
     Raises ``SessionNotFoundError`` if ``index`` is out of range.
     """
     store = _require_store(data_dir, exercise_id)
-    sessions = store.load_history(exercise_id)
+    sessions = store.history.load(exercise_id)
     zero_based = index - 1
     if zero_based < 0 or zero_based >= len(sessions):
         raise SessionNotFoundError(
             f"Session {index} not found (history has {len(sessions)} sessions)."
         )
-    store.delete_session_at(exercise_id, zero_based)
+    store.history.delete_at(exercise_id, zero_based)
 
 
 def get_history(data_dir: Path, exercise_id: str) -> list[dict]:
@@ -110,7 +110,7 @@ def get_history(data_dir: Path, exercise_id: str) -> list[dict]:
     ``None``.
     """
     store = _require_store(data_dir, exercise_id)
-    sessions = store.load_history(exercise_id)
+    sessions = store.history.load(exercise_id)
     history_list = []
     for session_rec in sessions:
         entry = session_result_to_dict(session_rec)

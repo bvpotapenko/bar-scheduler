@@ -62,5 +62,5 @@ def get_volume_data(data_dir: Path, exercise_id: str, weeks: int = 4) -> dict:
     Week 0 = current week, week 1 = last week, etc.
     """
     store = _require_store(data_dir, exercise_id)
-    weekly = _weekly_reps(store.load_history(exercise_id), weeks)
+    weekly = _weekly_reps(store.history.load(exercise_id), weeks)
     return {"weeks": _volume_rows(weekly, weeks)}

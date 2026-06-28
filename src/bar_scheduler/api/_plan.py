@@ -41,7 +41,7 @@ def set_plan_start_date(data_dir: Path, exercise_id: str, date: str) -> None:
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     store = _require_profile_store(data_dir)
-    store.set_plan_start_date(exercise_id, date)
+    store.plan.save_plan_start_date(exercise_id, date)
 
 
 def get_plan_weeks(data_dir: Path) -> int | None:
@@ -53,7 +53,7 @@ def get_plan_weeks(data_dir: Path) -> int | None:
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     store = _require_profile_store(data_dir)
-    return store.get_plan_weeks()
+    return store.plan.plan_weeks()
 
 
 def set_plan_weeks(data_dir: Path, weeks: int) -> None:
@@ -63,4 +63,4 @@ def set_plan_weeks(data_dir: Path, weeks: int) -> None:
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     store = _require_profile_store(data_dir)
-    store.set_plan_weeks(weeks)
+    store.plan.save_plan_weeks(weeks)

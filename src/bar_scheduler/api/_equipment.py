@@ -23,8 +23,8 @@ def update_equipment(data_dir: Path, exercise_id: str, equipment: EquipmentInput
     Raises ``ProfileNotFoundError`` / ``HistoryNotFoundError`` if not initialised.
     """
     store = _require_store(data_dir, exercise_id)
-    prev = store.load_current_equipment(exercise_id)
-    store.update_equipment(equipment.to_state(exercise_id, prev))
+    prev = store.equipment.load(exercise_id)
+    store.equipment.save(equipment.to_state(exercise_id, prev))
 
 
 def _recommended_assistance(ex, state, user_state) -> tuple[str, float]:
@@ -82,7 +82,7 @@ def get_current_equipment(data_dir: Path, exercise_id: str) -> dict | None:
     Raises ``ProfileNotFoundError`` if the profile has not been initialised.
     """
     store = _require_store(data_dir, exercise_id)
-    state = store.load_current_equipment(exercise_id)
+    state = store.equipment.load(exercise_id)
     if state is None:
         return None
     user_state = store.load_user_state(exercise_id)

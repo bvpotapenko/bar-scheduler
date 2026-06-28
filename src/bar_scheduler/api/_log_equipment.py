@@ -31,7 +31,7 @@ def resolve_equipment_snapshot(store, exercise_id, session_obj) -> None:
     """Attach the auto-resolved equipment snapshot to ``session_obj`` (if unset)."""
     if session_obj.equipment_snapshot is not None:
         return
-    eq_state = store.load_current_equipment(exercise_id)
+    eq_state = store.equipment.load(exercise_id)
     if eq_state is None:
         return
     ustate = store.load_user_state(exercise_id)
