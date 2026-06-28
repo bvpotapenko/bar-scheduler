@@ -9,6 +9,7 @@ from dependency_injector import containers, providers
 
 from bar_scheduler.config import load_model_config
 from bar_scheduler.core import policies, services
+from bar_scheduler.io.user_store import UserStore
 
 
 class Container(containers.DeclarativeContainer):
@@ -93,6 +94,10 @@ class Container(containers.DeclarativeContainer):
         progression=progression,
     )
     overtraining = providers.Singleton(services.OvertrainingDetector)
+
+    # Per-user persistence facade: data_dir is supplied at call time
+    # (container.user_store(data_dir)); tests override this provider with fakes.
+    user_store = providers.Factory(UserStore)
 
 
 container = Container()

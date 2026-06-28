@@ -18,7 +18,7 @@ class EquipmentStore:
             return None
         try:
             return dict_to_equipment_state(raw)
-        except (KeyError, TypeError):
+        except KeyError, TypeError:
             return None
 
     def save(self, state: EquipmentState) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bar_scheduler.io.user_store import UserStore
+from bar_scheduler.containers import container
 from bar_scheduler.io.serializers import user_profile_to_dict
 from bar_scheduler.api._common import _require_profile_store
 from bar_scheduler.api._errors import ProfileAlreadyExistsError
@@ -29,7 +29,7 @@ def init_profile(
     """
     from bar_scheduler.domain.models import UserProfile
 
-    store = UserStore(data_dir)
+    store = container.user_store(data_dir)
     if store.profile.exists():
         path = store.profile.path
         raise ProfileAlreadyExistsError(
@@ -48,7 +48,7 @@ def get_profile(data_dir: Path) -> dict | None:
 
     The dict includes all UserProfile fields including ``current_bodyweight_kg``.
     """
-    store = UserStore(data_dir)
+    store = container.user_store(data_dir)
     profile = store.profile.load()
     if profile is None:
         return None

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from bar_scheduler.api._errors import HistoryNotFoundError, ProfileNotFoundError
+from bar_scheduler.containers import container
 from bar_scheduler.core.math.formulas import best_onerm_from_leff
 from bar_scheduler.domain.models import SessionResult
 from bar_scheduler.io.user_store import UserStore
@@ -13,7 +14,7 @@ from bar_scheduler.io.user_store import UserStore
 
 def _require_profile_store(data_dir: Path) -> UserStore:
     """Return a UserStore, raising ProfileNotFoundError if profile.json is missing."""
-    store = UserStore(data_dir)
+    store = container.user_store(data_dir)
     if not store.profile.exists():
         path = store.profile.path
         raise ProfileNotFoundError(f"Profile not found at {path}. Call init_profile() first.")
@@ -50,8 +51,6 @@ def _total_weeks(plan_start_date: str, weeks_ahead: int = 4) -> int:
 
 def _assistance_for_item(active_item: str, eq_state, ctx) -> float | None:
     """Prescribed machine/band assistance for the recommended item (None otherwise)."""
-    from bar_scheduler.containers import container
-
     calc = container.load_calculator()
     if active_item == "MACHINE_ASSISTED" and eq_state.available_machine_assistance_kg:
         return calc.machine_assistance(ctx)

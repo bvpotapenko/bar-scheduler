@@ -32,7 +32,7 @@ class ProfileStore:
             return None
         try:
             return dict_to_user_profile(self._doc.read())
-        except (ValidationError, KeyError):
+        except ValidationError, KeyError:
             return None
 
     def save(self, profile: UserProfile) -> None:
